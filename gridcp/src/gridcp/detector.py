@@ -79,7 +79,7 @@ class OnlineChangepointDetector:
 
 #### Factory functions for built-in detectors ####
 def make_univariate_mean_change_detector(
-    penalty_constant, mode="known_variance"
+    penalty_constant=1.0, mode="known_variance"
 ) -> OnlineChangepointDetector:
     """
     Factory for a univariate Gaussian mean-change detector.
@@ -112,7 +112,7 @@ def make_univariate_mean_change_detector(
 
 
 def make_univariate_variance_change_detector(
-    penalty_constant,
+    penalty_constant=1.0,
 ) -> OnlineChangepointDetector:
     """
     Factory for a univariate Gaussian variance-change detector.
@@ -141,7 +141,7 @@ def make_univariate_variance_change_detector(
 
 
 def make_univariate_mean_or_variance_change_detector(
-    penalty_constant,
+    penalty_constant=1.0,
 ) -> OnlineChangepointDetector:
     """
     Factory for a univariate Gaussian mean-or-variance change detector.
@@ -167,7 +167,7 @@ def make_univariate_mean_or_variance_change_detector(
 
 
 def make_multivariate_mean_change_detector(
-    penalty_constant, mode="known_variance"
+    p, penalty_constant=1.0, mode="known_variance"
 ) -> OnlineChangepointDetector:
     """
     Factory for a univariate Gaussian mean-change detector.
@@ -190,7 +190,7 @@ def make_multivariate_mean_change_detector(
         penalty = builtins.penalty_multivariate_mean_unknown_cov_LR
 
     det = OnlineChangepointDetector(
-        p=1,
+        p=p,
         h=h,
         f=f,
         penalty=penalty,
@@ -200,7 +200,8 @@ def make_multivariate_mean_change_detector(
 
 
 def make_multivariate_mean_or_covariance_change_detector(
-    penalty_constant,
+    p,
+    penalty_constant=1.0,
 ) -> OnlineChangepointDetector:
     """
     Factory for a multivariate Gaussian mean-or-covariance change detector.
@@ -216,7 +217,7 @@ def make_multivariate_mean_or_covariance_change_detector(
     """
 
     det = OnlineChangepointDetector(
-        p=1,
+        p=p,
         h=builtins.h_multivariate_mean_and_covariance_LR,
         f=builtins.f_multivariate_mean_and_covariance_LR,
         penalty=builtins.penalty_multivariate_mean_and_covariance_LR,

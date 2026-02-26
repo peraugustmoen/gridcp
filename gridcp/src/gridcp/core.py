@@ -157,7 +157,7 @@ def init_state(p, h, f, penalty, penalty_constant, auxiliary_data=None):
     return state
 
 
-@nb.njit(fastmath=False, cache=True)
+@nb.njit(fastmath=False, cache=False)
 def update_data_grid_numba(x_new, old_sums, old_S, removed, h):
     if removed >= 0:
         old_sums.pop(removed)
@@ -176,7 +176,7 @@ def update_data_grid(x_new, old_sums, old_S, removed, h):
     return S
 
 
-@nb.njit(fastmath=False, cache=True)
+@nb.njit(fastmath=False, cache=False)
 def update_numba(
     x_new,
     p,

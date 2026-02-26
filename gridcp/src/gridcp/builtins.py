@@ -1,23 +1,23 @@
 import numpy as np
 import numba as nb
 import math
-from .utils import fastlog
+from .utils import fastlog, logdet_spd
 
 
 #### Univariate Mean Change with known variance ####
-@nb.njit
+@nb.njit(cache=True)
 def h_univariate_mean_known_var_LR(y):
     return y
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_univariate_mean_known_var_LR(sum_pre_j, sum_post_j, g, t):
     res = math.sqrt(1.0 * g / (t * (t - g))) * sum_pre_j[0]
     res = res - math.sqrt(1.0 * (t - g) / t / g) * sum_post_j[0]
     return res * res - 1
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_univariate_mean_known_var_LR(g, t, p):
     logg = fastlog(t)
     logg = logg + math.sqrt(logg)
@@ -25,7 +25,7 @@ def penalty_univariate_mean_known_var_LR(g, t, p):
 
 
 #### Univariate Mean Change with unknown variance ####
-@nb.njit
+@nb.njit(cache=True)
 def h_univariate_mean_unknown_var_LR(y):
     ret = np.empty(2, dtype=np.float64)
     ret[0] = y[0]
@@ -33,7 +33,7 @@ def h_univariate_mean_unknown_var_LR(y):
     return ret
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_univariate_mean_unknown_var_LR(sum_pre_j, sum_post_j, g, t):
     n1 = t - g
     n2 = g
@@ -61,7 +61,7 @@ def f_univariate_mean_unknown_var_LR(sum_pre_j, sum_post_j, g, t):
     return LR - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_univariate_mean_unknown_var_LR(g, t, p):
     logg = fastlog(2 * t)
     logg = logg + math.sqrt(logg)
@@ -69,12 +69,12 @@ def penalty_univariate_mean_unknown_var_LR(g, t, p):
 
 
 #### Univariate Variance Change ####
-@nb.njit
+@nb.njit(cache=True)
 def h_univariate_variance_LR(y):
     return y * y
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_univariate_variance_LR(sum_pre_j, sum_post_j, g, t):
     n1 = t - g
     n2 = g
@@ -95,7 +95,7 @@ def f_univariate_variance_LR(sum_pre_j, sum_post_j, g, t):
     return LR - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_univariate_variance_LR(g, t, p):
     logg = fastlog(t)
     logg = logg + math.sqrt(logg)
@@ -107,7 +107,7 @@ def penalty_univariate_variance_LR(g, t, p):
 
 
 #### Univariate Mean or Variance Change ####
-@nb.njit
+@nb.njit(cache=True)
 def h_univariate_mean_or_variance_LR(y):
     ret = np.empty(2, dtype=np.float64)
     ret[0] = y[0]
@@ -115,7 +115,7 @@ def h_univariate_mean_or_variance_LR(y):
     return ret
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_univariate_mean_or_variance_LR(sum_pre_j, sum_post_j, g, t):
     n1 = t - g
     n2 = g
@@ -145,7 +145,7 @@ def f_univariate_mean_or_variance_LR(sum_pre_j, sum_post_j, g, t):
     return LR - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_univariate_mean_or_variance_LR(g, t, p):
     logg = fastlog(2 * t)
     logg = logg + math.sqrt(logg)
@@ -153,12 +153,12 @@ def penalty_univariate_mean_or_variance_LR(g, t, p):
 
 
 ## Multivariate Change in mean, identity covariance:
-@nb.njit
+@nb.njit(cache=True)
 def h_multivariate_mean_id_cov_LR(y):
     return y
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_multivariate_mean_id_cov_LR(sum_pre_j, sum_post_j, g, t):
     n1 = t - g
     n2 = g
@@ -172,7 +172,7 @@ def f_multivariate_mean_id_cov_LR(sum_pre_j, sum_post_j, g, t):
     return T - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_multivariate_mean_id_cov_LR(g, t, p):
     logg = fastlog(t)
     logg = logg + math.sqrt(p * logg)
@@ -180,7 +180,7 @@ def penalty_multivariate_mean_id_cov_LR(g, t, p):
 
 
 ## Multivariate Change in mean, unkonwn covariance:
-@nb.njit
+@nb.njit(cache=True)
 def h_multivariate_mean_unknown_cov_LR(y):
     """
     Sufficient statistic for Gaussian mean+covariance:
@@ -198,7 +198,7 @@ def h_multivariate_mean_unknown_cov_LR(y):
     return out
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_multivariate_mean_unknown_cov_LR(sum_pre_j, sum_post_j, g, t):
     """
     GLR-type statistic for a change in both mean and covariance
@@ -214,6 +214,8 @@ def f_multivariate_mean_unknown_cov_LR(sum_pre_j, sum_post_j, g, t):
 
     p = sum_pre_j.shape[0] - 1  # dimension of data
 
+    if t < 2 * p:
+        return 0.0
     totalsum = sum_pre_j + sum_post_j
     sum_pre_j_id = sum_pre_j[0]
     sum_post_j_id = sum_post_j[0]
@@ -240,7 +242,7 @@ def f_multivariate_mean_unknown_cov_LR(sum_pre_j, sum_post_j, g, t):
     return LR - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_multivariate_mean_unknown_cov_LR(g, t, p):
     df = p
     logg = fastlog(t / 0.05)
@@ -250,7 +252,7 @@ def penalty_multivariate_mean_unknown_cov_LR(g, t, p):
 
 
 #### Multivariate Change in Mean or Covariance ####
-@nb.njit
+@nb.njit(cache=True)
 def h_multivariate_mean_and_covariance_LR(y):
     """
     Sufficient statistic for Gaussian mean+covariance:
@@ -268,7 +270,7 @@ def h_multivariate_mean_and_covariance_LR(y):
     return out
 
 
-@nb.njit
+@nb.njit(cache=True)
 def f_multivariate_mean_and_covariance_LR(sum_pre_j, sum_post_j, g, t):
     """
     GLR-type statistic for a change in both mean and covariance
@@ -283,7 +285,7 @@ def f_multivariate_mean_and_covariance_LR(sum_pre_j, sum_post_j, g, t):
     n2 = g
 
     p = sum_pre_j.shape[0] - 1  # dimension of data
-    if n1 <= (p + 1) or n2 <= (p + 1):
+    if n1 <= 2 * p or n2 <= 2 * p:
         return 0.0
 
     totalsum = sum_pre_j + sum_post_j
@@ -311,10 +313,48 @@ def f_multivariate_mean_and_covariance_LR(sum_pre_j, sum_post_j, g, t):
     return LR - df
 
 
-@nb.njit
+@nb.njit(cache=True)
 def penalty_multivariate_mean_and_covariance_LR(g, t, p):
     df = (p * (p + 1)) // 2 + p
     logg = fastlog(t / 0.05)
     rr = math.sqrt(df * logg) + logg
+
+    return rr
+
+
+### Regression
+@nb.njit(cache=True)
+def h_regression_mcscan(y):
+    """
+    First entry of Y is response, next entries are covariates
+    """
+
+    return y[0] * y[1:]
+
+
+@nb.njit(cache=True)
+def f_regression_mcscan(sum_pre_j, sum_post_j, g, t):
+    """
+    GLR-type statistic for a change in both mean and covariance
+    in multivariate Gaussian data.
+
+    sum_pre_j: sum of h(y) over segment 1  (shape (p+1, p))
+    sum_post_j: sum of h(y) over segment 2 (shape (p+1, p))
+    g: candidate change-point (segment 1 length)
+    t: total sample size
+    """
+
+    cov1 = sum_pre_j / (t - g)
+    cov2 = sum_post_j / g
+    dist = np.max(np.abs(cov1 - cov2))
+    ret = math.sqrt(g * (t - g) / (1.0 * t)) * dist
+
+    return ret
+
+
+@nb.njit(cache=True)
+def penalty_regression_mcscan(g, t, p):
+    # this is the penalty under Assumption 2(ii) in McScan paper Cho, Kley, Li (2025, JRSS-B)
+    rr = math.sqrt(math.log(p * t))
 
     return rr

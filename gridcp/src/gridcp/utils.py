@@ -1,5 +1,6 @@
 import numba as nb
 import math
+import numpy as np
 
 
 LOG2 = math.log(2.0)
@@ -24,3 +25,14 @@ def v2_numba(r: int) -> int:
         c += 1
         r >>= 1
     return c
+
+
+@nb.njit(cache=True)
+def logdet_spd(A):
+    # A is assumed SPD; we compute log(det(A)) via Cholesky
+    L = np.linalg.cholesky(A)
+    # log(det(A)) = 2 * sum(log(diag(L)))
+    logdet = 0.0
+    for i in range(L.shape[0]):
+        logdet += np.log(L[i, i])
+    return 2.0 * logdet

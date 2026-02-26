@@ -105,7 +105,7 @@ def draw_samples(
     return X
 
 
-@nb.njit(fastmath=False, cache=True)
+@nb.njit(fastmath=False, cache=False)
 def mc_max_statistics_numba_driver(X, p, v, penalty_constant, h, f, penalty):
     """
     Numba driver for Monte Carlo max statistic computation.
