@@ -36,3 +36,15 @@ def logdet_spd(A):
     for i in range(L.shape[0]):
         logdet += np.log(L[i, i])
     return 2.0 * logdet
+
+
+@nb.njit(cache=True)
+def inv_sqrtm_pd(X, eps=1e-15):
+    # Eigen-decomposition: X = Q Λ Q^T
+    eigvals, eigvecs = np.linalg.eigh(X)
+
+    # Inverse square root of eigenvalues
+    inv_sqrt_eigvals = 1.0 / np.sqrt(np.clip(eigvals, eps, None))
+
+    # Reconstruct: X^{-1/2} = Q Λ^{-1/2} Q^T
+    return (eigvecs * inv_sqrt_eigvals) @ eigvecs.T
