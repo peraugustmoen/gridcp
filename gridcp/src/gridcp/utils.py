@@ -2,7 +2,6 @@ import numba as nb
 import math
 import numpy as np
 
-
 LOG2 = math.log(2.0)
 
 

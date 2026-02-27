@@ -19,3 +19,18 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/yourname/gridcp"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.ruff]
+src = ["src"]
+select = ["E", "F", "D"]  # errors, flakes, docstring rules
+ignore = []               # add codes here to relax rules
+line-length = 88
+
+[tool.ruff.pydocstyle]
+convention = "numpy"  # or "pep257", "google", etc.
+
