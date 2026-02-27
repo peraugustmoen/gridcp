@@ -44,3 +44,24 @@ jobs:
       working-directory: gridcp
       run: |
         pytest
+
+
+    - name: Install pytest-cov
+      working-directory: gridcp
+      run: |
+        python -m pip install pytest-cov
+
+    - name: Test with pytest and coverage
+      working-directory: gridcp
+      run: |
+        pytest --cov=gridcp --cov-report=term-missing
+
+    - name: Install Black
+      working-directory: gridcp
+      run: |
+        python -m pip install black
+
+    - name: Check formatting with Black
+      working-directory: gridcp
+      run: |
+        black --check src tests
