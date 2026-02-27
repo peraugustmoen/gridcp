@@ -8,7 +8,7 @@ from .utils import v2_numba, LOG2
 
 @nb.njit(fastmath=False, cache=True)
 def get_grid(t):
-    """
+    r"""
     Construct the grid $G^{(t)}$ for time step $t$ (non-recursive).
 
     Parameters
