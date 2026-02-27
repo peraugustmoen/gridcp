@@ -3,7 +3,6 @@ import numba as nb
 from numba.typed import List
 import math
 from time import perf_counter
-import matplotlib.pyplot as plt
 from numba.core.registry import CPUDispatcher
 
 from .core import init_state, update_func, is_numba_func, update_numba

@@ -9,7 +9,7 @@ from gridcp.utils import v2_numba, LOG2
 
 def test_grid():
     grid = List.empty_list(nb.int64)
-    T = 100
+    T = 1000
     for t in range(1, T + 1):
         _ = core.update_grid_numba(grid, t)
 
