@@ -19,4 +19,4 @@ def test_grid():
     # reverse true_grid to match the order in grid
     true_grid = true_grid[::-1]
     for g1, g2 in zip(grid, true_grid):
-        assert g1 + T == g2, f"Expected {g2}, got {g1 + T + 1}"
+        assert g1 + T + 1 == g2, f"Expected {g2}, got {g1 + T + 1}"
