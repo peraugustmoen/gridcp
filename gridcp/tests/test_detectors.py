@@ -1,8 +1,4 @@
 import numpy as np
-import numba as nb
-import math
-from time import perf_counter
-import matplotlib.pyplot as plt
 import gridcp
 
 from gridcp import (
