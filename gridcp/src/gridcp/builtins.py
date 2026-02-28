@@ -176,6 +176,10 @@ def f_multivariate_mean_id_cov_LR(sum_pre_j, sum_post_j, pos, t):
     T = g * (t - g) / (1.0 * t) * np.dot(diff, diff)
     df = diff.shape[0]  # p
     return T - df
+    # res = math.sqrt(1.0 * (t - pos) / (t * pos)) * sum_pre_j
+    # res = res - math.sqrt(1.0 * pos / t / (t - pos)) * sum_post_j
+    # df = res.shape[0]
+    # return np.sum(res * res) - df
 
 
 @nb.njit(cache=True)

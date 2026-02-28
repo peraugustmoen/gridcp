@@ -1,10 +1,7 @@
 from gridcp import core
-import numpy as np
 import numba as nb
 from numba.typed import List
-import math
 from numba.core.registry import CPUDispatcher
-from gridcp.utils import v2_numba, LOG2
 
 
 def test_grid():

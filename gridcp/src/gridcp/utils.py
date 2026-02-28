@@ -47,3 +47,13 @@ def inv_sqrtm_pd(X, eps=1e-15):
 
     # Reconstruct: X^{-1/2} = Q Λ^{-1/2} Q^T
     return (eigvecs * inv_sqrt_eigvals) @ eigvecs.T
+
+
+@nb.njit(fastmath=False, cache=True)
+def CUSUM(S, cumsum, g, t):
+    # cumsum = sum up to (t-g)
+    # S = cumulative sum up to t
+
+    res = math.sqrt(1.0 * g / (t * (t - g))) * cumsum
+    res = res - math.sqrt(1.0 * (t - g) / t / g) * (S - cumsum)
+    return res * res

@@ -36,7 +36,7 @@ class OnlineChangepointDetector:
     Notes
     -----
     The internal state is managed stored in the dictionary `self._state`,
-    which contains the following keys:
+    which contains the following keys [xx not all are included here]
 
     - `"t"` : current time index (int)
     - `"alarm"` : boolean flag indicating whether a changepoint has
