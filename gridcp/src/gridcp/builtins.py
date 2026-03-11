@@ -448,3 +448,25 @@ def penalty_regression_direct(pos, t, p):
     rr = math.sqrt((p - 1) * math.log(t)) + math.log(t)
 
     return rr
+
+@nb.njit(cache=True)
+def change_univariate_simple_f(sum_pre, sum_post, pos, t, q = 2):
+    g = t - pos
+    n1 = pos
+    n2 = g
+
+    mean_pre = sum_pre / n1
+    mean_post = sum_post / n2
+    out_stat = (mean_pre - mean_post) ** q
+    return out_stat
+
+@nb.njit(cache=True)
+def change_univariate_simple_h(x):
+    return x
+
+@nb.njit(cache=True)
+def change_univariate_simple_penalty(pos, t, p):
+    logg = fastlog(t)
+    logg = logg + math.sqrt(logg)
+    return logg
+
