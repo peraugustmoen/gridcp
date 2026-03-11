@@ -47,7 +47,7 @@ class OnlineChangepointDetector:
     - `"p"`, `"h"`, `"f"`, `"penalty"`, `"auxiliary_data"`
     """
 
-    def __init__(self, p, h, f, penalty, penalty_constant, auxiliary_data=None):
+    def __init__(self, p, h, f, penalty, penalty_constant=1.0, auxiliary_data=None):
         self._state = init_state(
             p=p,
             h=h,
