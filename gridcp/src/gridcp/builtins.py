@@ -397,7 +397,10 @@ def gen_gaussian_regression_obs(beta0, add_perturbation=False, rho=0, s=1):
     return out
 
 
-### direct method
+### direct method -- written hastly by PA, not fully tested, not necessarily correct!
+## Please feel free to change it completely!
+
+
 @nb.njit(cache=True)
 def h_regression_direct(y):
     """
@@ -414,8 +417,6 @@ def h_regression_direct(y):
 def f_regression_direct(sum_pre_j, sum_post_j, pos, t):
     """
     GLR-type statistic for a change in both mean and covariance
-    in multivariate Gaussian data.
-
     sum_pre_j: sum of h(y) over segment 1  (shape (p+1, p))
     sum_post_j: sum of h(y) over segment 2 (shape (p+1, p))
     pos: candidate change-point (segment 1 length)
