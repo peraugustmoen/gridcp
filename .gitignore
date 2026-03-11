@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
+
 # Distribution / packaging
 .Python
 build/
@@ -25,6 +26,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.DS_Store
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -205,3 +207,22 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+existing_JSS_papers/papers/v115i11.pdf
+existing_JSS_papers/papers/v115i01 (1).pdf
+existing_JSS_papers/papers/v115i02.pdf
+existing_JSS_papers/papers/v115i03 (1).pdf
+existing_JSS_papers/papers/v115i03 (2).pdf
+existing_JSS_papers/papers/v115i04 (1).pdf
+existing_JSS_papers/papers/v115i04.pdf
+existing_JSS_papers/papers/v115i06.pdf
+existing_JSS_papers/papers/v115i05.pdf
+existing_JSS_papers/papers/v115i07.pdf
+existing_JSS_papers/papers/v115i08 (1).pdf
+existing_JSS_papers/papers/v115i08.pdf
+existing_JSS_papers/papers/v115i09.pdf
+existing_JSS_papers/papers/v115i10.pdf
+existing_JSS_papers/.DS_Store
+gridcp/.DS_Store
+gridcp/src/.DS_Store
+gridcp/tests/.DS_Store
+.DS_Store
