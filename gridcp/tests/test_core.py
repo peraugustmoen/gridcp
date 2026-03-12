@@ -21,15 +21,19 @@ def test_grid():
         assert g1 + T + 1 == g2, f"Expected {g2}, got {g1 + T + 1}"
 
 
-def test_get_grid_edge_cases():
-    """Test that get_grid handles edge cases (t <= 1) correctly per documentation."""
-    for t in [-100, -1, 0, 1]:
-        result = core.get_grid(t)
-        assert len(result) == 1, f"Expected length 1 for t={t}, got {len(result)}"
-        assert result[0] == 1, f"Expected result[0]=1 for t={t}, got {result[0]}"
-        assert (
-            result.dtype == np.int64
-        ), f"Expected dtype int64 for t={t}, got {result.dtype}"
+def test_get_grid_t_equals_1():
+    """Test that get_grid returns [1] for t=1."""
+    result = core.get_grid(1)
+    assert len(result) == 1, f"Expected length 1, got {len(result)}"
+    assert result[0] == 1, f"Expected result[0]=1, got {result[0]}"
+    assert result.dtype == np.int64, f"Expected dtype int64, got {result.dtype}"
+
+
+@pytest.mark.parametrize("t", [-100, -1, 0])
+def test_get_grid_invalid_t(t):
+    """Test that get_grid raises ValueError for t < 1."""
+    with pytest.raises(Exception):
+        core.get_grid(t)
 
 
 @pytest.mark.parametrize("t", [2, 5, 10, 100, 1000])

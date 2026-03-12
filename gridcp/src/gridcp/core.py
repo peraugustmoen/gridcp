@@ -1,3 +1,5 @@
+"""Core functions for the online changepoint detector."""
+
 import numpy as np
 import numba as nb
 from numba.typed import List
@@ -14,13 +16,18 @@ def get_grid(t):
     Parameters
     ----------
     t : int
-        Current time step (1-based in the original R code, treated consistently here).
+        Current time step. Must be a positive integer ($t \ge 1$).
 
     Returns
     -------
     np.ndarray
-        One-dimensional `int64` NumPy array containing the grid $G^{(t)}$. When
-        $t \\le 1$, this returns an array with a single element `1`.
+        One-dimensional ``int64`` NumPy array containing the grid $G^{(t)}$.
+        For $t = 1$ this returns ``array([1])``.
+
+    Raises
+    ------
+    ValueError
+        If ``t < 1``.
 
     Notes
     -----
@@ -28,36 +35,30 @@ def get_grid(t):
     It is provided for testing and debugging purposes, to verify that the grid
     is being updated correctly by `update_grid_numba`.
     """
+    if t < 1:
+        raise ValueError("t must be a positive integer (>= 1)")
 
-    # Handle edge case t <= 1 (consistent with the commented R behavior for t==1)
-    if t <= 1:
+    if t == 1:
         out = np.empty(1, dtype=np.int64)
         out[0] = 1
         return out
 
-    # Compute upper bounds using base-2 logs via math.log(...)
-    # upper1 <- floor(log((t - 1) / 3, base = 2)) + 1
-    # upper2 <- floor(log(t - 1, base = 2)) - 1
     upper1 = math.floor(math.log((t - 1) / 3.0) / LOG2) + 1
     upper2 = math.floor(math.log(t - 1) / LOG2) - 1
 
-    # Preallocate output array
     length = 1 + (upper1 if upper1 > 0 else 0) + (upper2 if upper2 > 0 else 0)
     Gt = np.empty(length, dtype=np.int64)
 
-    # Gt[1] <- 1  (R is 1-based; Python is 0-based)
     Gt[0] = 1
     counter = 1
 
     if upper1 >= 1:
         for j in range(1, upper1 + 1):
-            # gL <- 2^j + (t - 1) %% 2^(j - 1)
             gL = (1 << j) + ((t - 1) % (1 << (j - 1)))
             Gt[counter] = gL
             counter += 1
 
             if j <= upper2:
-                # Gt[counter] <- gL + 2^(j - 1)
                 Gt[counter] = gL + (1 << (j - 1))
                 counter += 1
 
@@ -66,40 +67,46 @@ def get_grid(t):
 
 @nb.njit(fastmath=False, cache=True)
 def update_grid_numba(old_grid, t):
-    """
-    Update the grid $G{^{(t)}}$ from $G^{(t-1)}$ according to the rules of the
-    compressed grid representation.
+    r"""
+    Update the grid $G^{(t)}$ from $G^{(t-1)}$ in shifted representation.
 
-    This function mutates the existing grid `old_grid` in-place, removing at most
-    one element and appending a new negative placeholder $-t$ that encodes a
-    new candidate start point in the compressed grid representation. The returned
-    array is $G^{(t)}-t-1$ after the update.
+    Mutates `old_grid` in-place by removing at most one element and appending
+    the negative placeholder $-t$, which encodes a new candidate grid point.
 
     Parameters
     ----------
     old_grid : numba.typed.List[int64]
-        Current grid representation (Numba typed list) to be updated.
+        Current grid representation (Numba typed list of ``int64``) to be
+        updated in-place.
     t : int
-        Current time step (after adding a new observation).
+        Current time step (after adding a new observation). Must satisfy
+        $t \ge 1$.
 
     Returns
     -------
     removed_index : int
-        Index of the removed element in `old_grid` *before* removal, or `-1`
+        Index of the removed element in `old_grid` *before* removal, or ``-1``
         if no element was removed.
     removed_g : int
-        Value of the removed grid element, or `-1` if no element was removed.
+        Value of the removed grid element, or ``-1`` if no element was removed.
+
+    Raises
+    ------
+    ValueError
+        If ``t < 1``.
 
     Notes
     -----
-    - For $t \\in \\{2, 3\\}$, the first element of the grid is always removed.
-    - For $t > 3$, a removal index is computed using $v2\_numba(t-1)$ (the exponent
-      of the largest power of 2 dividing $t-1$).
+    - For $t \in \{2, 3\}$, the first element of the grid is always removed.
+    - For $t > 3$, a removal index is computed using ``v2_numba(t-1)``
+      (the exponent of the largest power of 2 dividing $t-1$).
     - After any removal, the value $-t$ is appended to `old_grid`.
-    - The updated array will contain the elements of $G^{(t)}-t-1$,
+    - The updated list will contain the elements of $G^{(t)} - t - 1$,
       ordered from smallest to largest.
-
     """
+    if t < 1:
+        raise ValueError("t must be >= 1")
+
     removed = -1
     removed_g = -1
 
@@ -122,20 +129,20 @@ def update_grid_numba(old_grid, t):
     return removed, removed_g
 
 
-def is_numba_func(f):
+def is_numba_func(f: object) -> bool:
     """
-    Check whether a given callable is a Numba-compiled dispatcher.
+    Check whether a given object is a Numba-compiled function.
 
     Parameters
     ----------
-    f : Any
-        Object to test, typically a function or callable.
+    f : object
+        Object to test.
 
     Returns
     -------
     bool
-        `True` if `f` is a `numba.core.registry.CPUDispatcher` (i.e., a Numba
-        compiled function), `False` otherwise.
+        ``True`` if `f` is an instance of ``numba.core.registry.CPUDispatcher``
+        (i.e., decorated with ``@nb.njit`` or ``@nb.jit``), ``False`` otherwise.
     """
     return isinstance(f, CPUDispatcher)
 
@@ -145,100 +152,122 @@ def init_state_numba(v):
     """
     Initialize Numba-typed containers for the detector state.
 
-    This sets up the typed lists needed by Numba for the grid locations and
-    prefix sums when running the detector in fully compiled mode.
+    Creates the empty typed lists needed by Numba for grid locations and
+    cumulative sums when running the detector in compiled mode.
 
     Parameters
     ----------
-    v : int or tuple[int]
-        Dimension of the transformed data $h(y_i)$. Often a scalar dimension
-        (e.g. `v == 1`) or the shape of a 1D feature vector.
+    v : tuple of int
+        Shape of the transformed data $h(y_i)$, as returned by
+        ``h(y).shape`` (e.g., ``(3,)`` for a 3-dimensional feature map).
 
     Returns
     -------
     grid_list : numba.typed.List[int64]
         Empty Numba typed list to hold grid locations.
     sum_pre_list : numba.typed.List[np.ndarray]
-        Empty Numba typed list of NumPy arrays, each of shape compatible
-        with `np.zeros(v, dtype=np.float64)`, used to store prefix sums.
+        Empty Numba typed list of ``float64`` arrays of shape `v`,
+        used to store cumulative sums of $h(y_i)$.
     """
     grid_list = List.empty_list(nb.int64)
     sum_pre_list = List.empty_list(np.zeros(v, dtype=np.float64))
     return grid_list, sum_pre_list
 
 
-def init_state(p, h, f, penalty, penalty_constant, auxiliary_data=None):
-    """
+def init_state(
+    p: int,
+    h: callable,
+    f: callable,
+    penalty: callable,
+    penalty_constant: float,
+    auxiliary_data: object = None,
+) -> dict:
+    r"""
     Initialize the online changepoint detector state dictionary.
 
-    This sets up all configuration parameters (feature map, test
-    statistic, penalty, penalty constant) and allocates the internal data
+    Sets up all configuration parameters and allocates the internal data
     structures, either in Numba mode or pure Python/NumPy mode.
 
     Parameters
     ----------
     p : int
-        Dimension of data to be processed.
+        Dimension of the observed data. Must be a positive integer.
     h : callable
-        Feature map applied to each observation. Must accept a 1D NumPy array
-        and return a NumPy array of fixed shape.
+        Feature map applied to each observation. Must accept a 1D NumPy
+        array of length `p` and return a NumPy array of fixed shape.
     f : callable
-        Test statistic function. In Numba mode, it must be a Numba-compiled
-        function with signature roughly:
-        `f(sum_pre, sum_post, location, t) -> float`.
+        Test statistic function with signature
+        ``f(sum_pre, sum_post, changepoint_loc, t) -> float``.
     penalty : callable
-        Penalty function for segment length. In Numba mode, must be a
-        Numba-compiled function with signature:
-        `penalty(location, t, p) -> float`.
+        Penalty function with signature ``penalty(changepoint_loc, t, p) -> float``.
     penalty_constant : float
-        Threshold on the normalized statistic `val / pen` for triggering an
-        alarm in the detector.
-    auxiliary_data : Any, optional
-        Additional user-defined data or configuration, stored in the state
-        and passed through unchanged.
+        Threshold on the normalized statistic ``f(...) / penalty(...)``
+        for triggering an alarm. Must be non-negative.
+    auxiliary_data : object, optional
+        Additional user-defined data, stored in the state and passed
+        through unchanged.
 
     Returns
     -------
     state : dict
-        A dictionary holding the detector state. Important keys include:
+        Dictionary holding the detector state with the following keys:
 
-        - `"t"` : int
-          Current time index (number of processed observations).
-        - `"p"` : int
-          Dimension of the data.
-        - `"v"` : tuple or int
-          Shape/dimension of `h(y)`.
-        - `"use_numba"` : bool
-          Flag indicating whether Numba-compiled functions will be used.
-        - `"h"`, `"f"`, `"penalty"` : callables
-          Stored user-specified functions.
-        - `"penalty_constant"` : float
-          Leading constant for the penalty threshold.
-        - `"auxiliary_data"` : Any
-          Additional stored data.
-        - `"grid_list"` : numba.typed.List[int64]
-          Grid locations (Numba typed list in both modes).
-        - `"sum_pre_list"` : list or numba.typed.List[np.ndarray]
-          Prefix sums for each grid point.
-        - `"sum"` : np.ndarray
-          Running sum of transformed observations.
-        - `"alarm"` : bool
-          Flag indicating whether an alarm is currently active.
-        - `"maxx"` : float
-          Maximum value of the normalized statistic so far.
-        - `"maxpos"` : int
-          Time index at which `"maxx"` occurred.
+        - ``"t"`` (int): Current time index (number of processed observations).
+        - ``"p"`` (int): Dimension of the data.
+        - ``"v"`` (tuple of int): Shape of ``h(y)``.
+        - ``"use_numba"`` (bool): Whether Numba-compiled functions are used.
+        - ``"h"``, ``"f"``, ``"penalty"`` (callable): User-specified functions.
+        - ``"penalty_constant"`` (float): Alarm threshold.
+        - ``"auxiliary_data"`` (object): Additional stored data.
+        - ``"grid_list"`` (numba.typed.List[int64]): Grid.
+        - ``"sum_pre_list"`` (list or numba.typed.List[np.ndarray]):
+          Cumulative sums of $h(y_i)$ for each grid point.
+        - ``"sum"`` (np.ndarray): Running totalcumulative sum of $h(y_i)$.
+        - ``"alarm"`` (bool): Whether an alarm is currently active.
+        - ``"maxx"`` (float): Maximum value of the normalized statistic so far.
+        - ``"maxpos"`` (int): Time index at which ``"maxx"`` occurred.
+
+    Raises
+    ------
+    TypeError
+        If `p` is not an integer, or if `h`, `f`, or `penalty` are not
+        callable, or if `penalty_constant` is not a real number.
+    ValueError
+        If `p < 1` or `penalty_constant < 0`.
+    ValueError
+        If `h`, `f`, `penalty` are a mix of Numba-compiled and regular
+        Python functions (all three must be the same kind).
 
     Notes
     -----
-    Whether Numba mode is used is determined by checking that `h`, `f`, and
-    `penalty` are all Numba-compiled functions (`CPUDispatcher`).
+    Numba mode is only used when `h`, `f`, and `penalty` are all Numba-compiled
+    functions (``CPUDispatcher``). Otherwise, the state is initialized for pure Python.
     """
+    if not isinstance(p, (int, np.integer)):
+        raise TypeError(f"p must be an integer, got {type(p).__name__}")
+    if p < 1:
+        raise ValueError(f"p must be a positive integer, got {p}")
+    if not callable(h):
+        raise TypeError(f"h must be callable, got {type(h).__name__}")
+    if not callable(f):
+        raise TypeError(f"f must be callable, got {type(f).__name__}")
+    if not callable(penalty):
+        raise TypeError(f"penalty must be callable, got {type(penalty).__name__}")
+    if not isinstance(penalty_constant, (int, float, np.integer, np.floating)):
+        raise TypeError(
+            f"penalty_constant must be a number, got {type(penalty_constant).__name__}"
+        )
+    if penalty_constant < 0:
+        raise ValueError(
+            f"penalty_constant must be non-negative, got {penalty_constant}"
+        )
+
+    numba_flags = [is_numba_func(h), is_numba_func(f), is_numba_func(penalty)]
+    use_numba = all(numba_flags)
+
     dummy_y = np.zeros(p, dtype=np.float64)
     h_y = h(dummy_y)
     v = h_y.shape
-
-    use_numba = is_numba_func(h) and is_numba_func(f) and is_numba_func(penalty)
 
     state = {
         "t": 0,
@@ -249,61 +278,50 @@ def init_state(p, h, f, penalty, penalty_constant, auxiliary_data=None):
         "h": h,
         "f": f,
         "penalty": penalty,
-        "penalty_constant": penalty_constant,
+        "penalty_constant": float(penalty_constant),
         "auxiliary_data": auxiliary_data,
+        "alarm": False,
+        "maxx": 0.0,
+        "maxpos": -1,
+        "sum": np.zeros(v, dtype=np.float64),
     }
 
     if use_numba:
-        # Create Numba state
         grid_list, sum_pre_list = init_state_numba(v)
         state["grid_list"] = grid_list
         state["sum_pre_list"] = sum_pre_list
-        state["sum"] = np.zeros(v, dtype=np.float64)  # Initialize sum as a NumPy array
-        state["alarm"] = False
-        state["maxx"] = 0.0
-        state["maxpos"] = -1
-
     else:
-        # Create Python/NumPy equivalents (lists/arrays)
-        state["t"] = 0
         state["grid_list"] = List.empty_list(nb.int64)
         state["sum_pre_list"] = []
-        state["sum"] = np.zeros(v, dtype=np.float64)  # Initialize sum as a NumPy array
-        state["alarm"] = False
-        state["maxx"] = 0.0
-        state["maxpos"] = -1
 
     return state
 
 
 @nb.njit(fastmath=False, cache=False)
 def update_data_grid_numba(x_new, old_sums, old_S, removed, h):
-    """
-    Update running sums for all candidate segments (Numba version).
+    r"""
+    Update cumulative sums corresponding to the grid points.
 
-    This function maintains:
-
-    - `old_sums`: prefix sums for each grid location in the grid list.
-    - `old_S`: the overall cumulative sum of $h(x_t)$ up to time $t-1$.
-
-    It removes the prefix sum corresponding to a removed grid point (if any),
-    appends the current cumulative sum as the new prefix sum, then updates the
-    overall sum with the new transformed observation.
+    Maintains `old_sums` (one cumulative sum of $h(y_i)$ per grid point)
+    and the overall cumulative sum `old_S`. Removes the entry corresponding
+    to a removed grid point (if any), appends the current cumulative sum as
+    a new entry, and updates the overall sum with the new observation.
 
     Parameters
     ----------
     x_new : np.ndarray
-        New observation at time $t$, typically a 1D array (already transformed
-        to at least 1D before calling).
+        New observation at time $t$ (1D array, already converted via
+        ``np.atleast_1d``).
     old_sums : numba.typed.List[np.ndarray]
-        Prefix sums for each grid point (Numba typed list of arrays).
+        Cumulative sums of $h(y_i)$ for each grid point (Numba typed list
+        of arrays), mutated in-place.
     old_S : np.ndarray
-        Previous cumulative sum $S_{t-1}$ of $h(x_i)$.
+        Overall cumulative sum $S_{t-1} = \sum_{i=1}^{t-1} h(y_i)$.
     removed : int
-        Index of the removed grid location (as returned by `update_grid_numba`),
-        or `-1` if no location was removed.
+        Index of the removed grid point (as returned by
+        `update_grid_numba`), or ``-1`` if no point was removed.
     h : callable
-        Numba-compiled feature map to apply to `x_new`.
+        Numba-compiled feature map applied to `x_new`.
 
     Returns
     -------
@@ -319,25 +337,29 @@ def update_data_grid_numba(x_new, old_sums, old_S, removed, h):
 
 
 def update_data_grid(x_new, old_sums, old_S, removed, h):
-    """
-    Update running sums for all candidate segments (pure Python/NumPy version).
+    r"""
+    Update cumulative sums corresponding to the grid points.
 
-    This is the non-Numba analogue of `update_data_grid_numba`. It maintains
-    and updates prefix sums for each grid location and the global cumulative sum.
+    Pure Python/NumPy analogue of `update_data_grid_numba`. Maintains
+    `old_sums` (one cumulative sum of $h(y_i)$ per grid point) and the
+    overall cumulative sum `old_S`. Removes the entry corresponding to a
+    removed grid point (if any), appends the current cumulative sum as a
+    new entry, and updates the overall sum with the new observation.
 
     Parameters
     ----------
-    x_new : array_like
-        New observation at time $t$; converted to an array inside the feature map.
+    x_new : np.ndarray
+        New observation at time $t$ (1D array).
     old_sums : list of np.ndarray
-        Prefix sums for each grid point (Python list of arrays).
+        Cumulative sums of $h(y_i)$ for each grid point (Python list of
+        arrays), mutated in-place.
     old_S : np.ndarray
-        Previous cumulative sum $S_{t-1}$ of $h(x_i)$.
+        Overall cumulative sum $S_{t-1} = \sum_{i=1}^{t-1} h(y_i)$.
     removed : int
-        Index of the removed grid location (as returned by `update_grid_numba`),
-        or `-1` if no location was removed.
+        Index of the removed grid point (as returned by
+        `update_grid_numba`), or ``-1`` if no point was removed.
     h : callable
-        Feature map to apply to `x_new`.
+        Feature map applied to `x_new`.
 
     Returns
     -------
@@ -368,38 +390,31 @@ def update_numba(
     penalty,
     penalty_constant,
 ):
-    """
+    r"""
     Perform a single online update step in Numba-compiled mode.
 
-    This function:
-
-    1. Updates the grid representation using `update_grid_numba`.
-    2. Updates prefix sums and the global cumulative sum via
-       `update_data_grid_numba`.
-    3. Evaluates the test statistic `f` and penalty `penalty` over all current
-       grid locations to:
-
-       - Update the maximum normalized statistic `maxx` and its location
-         `maxpos`.
-       - Set the `alarm` flag to `True` if any normalized statistic exceeds
-         `penalty_constant`.
+    1. Updates the grid via `update_grid_numba`.
+    2. Updates cumulative sums via `update_data_grid_numba`.
+    3. Evaluates ``f`` and ``penalty`` over all current grid points to
+       update `maxx`/`maxpos` and set `alarm` if the normalized statistic
+       exceeds `penalty_constant`.
 
     Parameters
     ----------
     x_new : np.ndarray
-        New observation at time $t$, passed as a 1D NumPy array.
+        New observation at time $t$ (1D array).
     p : int
-        Dimension of the data (used for penalty calculation).
+        Dimension of the observed data.
     t : int
-        Current time index (after incrementing).
+        Current time index (already incremented).
     grid_list : numba.typed.List[int64]
-        Numba-typed list storing the grid representation (negative offsets)
-        at time $t-1$
+        Grid representation (negative offsets) at time $t-1$, mutated
+        in-place.
     sum_pre_list : numba.typed.List[np.ndarray]
-        Numba-typed list of prefix sums, one per grid location,
-        at time $t-1$.
+        Cumulative sums of $h(y_i)$ for each grid point at time $t-1$,
+        mutated in-place.
     S : np.ndarray
-        Cumulative sum of transformed observations up to time $t-1$.
+        Overall cumulative sum $S_{t-1} = \sum_{i=1}^{t-1} h(y_i)$.
     maxx : float
         Current maximum normalized test statistic.
     maxpos : int
@@ -407,40 +422,37 @@ def update_numba(
     alarm : bool
         Current alarm flag.
     h : callable
-        Numba-compiled feature map applied in `update_data_grid_numba`.
+        Numba-compiled feature map.
     f : callable
-        Numba-compiled test statistic function `f(sum_pre, sum_post, location, t)`.
+        Numba-compiled test statistic function
+        ``f(sum_pre, sum_post, changepoint_location, t) -> float``.
     penalty : callable
-        Numba-compiled penalty function `penalty(location, t, p)`.
+        Numba-compiled penalty function ``penalty(changepoint_location, t, p) -> float``.
     penalty_constant : float
-        Threshold for deciding when to raise an alarm.
+        Threshold for triggering an alarm.
 
     Returns
     -------
     grid_list : numba.typed.List[int64]
-        Updated grid list after adding the new observation.
+        Updated grid list.
     sum_pre_list : numba.typed.List[np.ndarray]
-        Updated prefix sums for each grid location.
+        Updated cumulative sums for each grid point.
     S_new : np.ndarray
-        Updated cumulative sum after processing `x_new`.
+        Updated cumulative sum $S_t = S_{t-1} + h(x_t)$.
     maxx : float
         Updated maximum normalized test statistic.
     maxpos : int
         Updated time index at which `maxx` is attained.
     alarm : bool
-        Updated alarm flag; `True` if an alarm is raised in this step.
+        Updated alarm flag; ``True`` if an alarm is raised in this step.
 
     Notes
     -----
-    For each grid index `j`, the each corresponding element $g$ is
-    computed as:
-
-    - $g = \\text{grid\\_list}[j] + t + 1$.
-
-    If the ratio `f(...) / penalty(...)`
-    exceeds `penalty_constant`, an alarm is triggered.
+    For each grid index $j$, the corresponding grid element is
+    $g = \text{grid\_list}[j] + t + 1$. A grid element $g$ corresponds to a changepoint
+    location changepoint_location = $t-g$. An alarm is triggered when
+    ``f(...) / penalty(...)`` exceeds ``penalty_constant``.
     """
-
     removed, removed_g = update_grid_numba(grid_list, t)
     S_new = update_data_grid_numba(x_new, sum_pre_list, S, removed, h)
 
@@ -459,36 +471,26 @@ def update_numba(
     return grid_list, sum_pre_list, S_new, maxx, maxpos, alarm
 
 
-def update_python(x_new, state):
+def update_python(x_new: "float | np.ndarray", state: dict) -> dict:
     """
     Perform a single online update step in pure Python/NumPy mode.
 
-    This is the non-Numba analogue of `update_numba`. It updates the grid,
-    prefix sums, cumulative sum, and detection statistics in-place within
-    the `state` dictionary.
+    Non-Numba analogue of `update_numba`. Updates the grid, cumulative
+    sums, and detection statistics in-place within `state`.
 
     Parameters
     ----------
-    x_new : float or array_like
-        New observation at the current time step. Typically a scalar or 1D array.
+    x_new : float or np.ndarray
+        New observation at the current time step.
     state : dict
-        Detector state dictionary as produced by `init_state`. Must contain
-        keys `"t"`, `"grid_list"`, `"sum_pre_list"`, `"sum"`, `"h"`, `"f"`,
-        `"penalty"`, `"p"`, `"maxx"`, `"maxpos"`, `"penalty_constant"`,
-        and `"alarm"`.
+        Detector state dictionary as produced by `init_state`, mutated
+        in-place.
 
     Returns
     -------
     state : dict
-        The same state dictionary, updated in-place and also returned for
-        convenience.
-
-    Notes
-    -----
-    The logic is identical to `update_numba`, but uses Python/NumPy and the
-    `update_data_grid` helper instead of Numba-compiled code.
+        The same `state` dictionary (returned for convenience).
     """
-
     removed, removed_g = update_grid_numba(state["grid_list"], state["t"])
     state["sum"] = update_data_grid(
         x_new, state["sum_pre_list"], state["sum"], removed, state["h"]
@@ -514,36 +516,27 @@ def update_python(x_new, state):
     return state
 
 
-def update_func(x_new, state):
+def update_func(x_new: "float | np.ndarray", state: dict) -> None:
     """
-    High-level update entry point for the online changepoint detector
-    to call update in either Numba or pure Python mode.
+    High-level update entry point for the online changepoint detector update.
 
-    This increments the time index, chooses between the Numba or Python
-    implementation based on the `"use_numba"` flag in `state`, and updates
-    the detector statistics accordingly.
+    Increments the time index and dispatches to either the Numba-compiled
+    or pure Python update based on ``state["use_numba"]``.
 
     Parameters
     ----------
-    x_new : float or array_like
-        New observation at the current time step. If Numba mode is used, this
-        will be converted to at least 1D via `np.atleast_1d` before passing
-        into the compiled update.
+    x_new : float or np.ndarray
+        New observation at the current time step. Scalars are converted
+        to 1D arrays via ``np.atleast_1d`` before the Numba path.
     state : dict
-        Detector state dictionary, as returned by `init_state` and potentially
-        modified by previous calls to `update_func`.
+        Detector state dictionary as returned by `init_state`, updated
+        in-place.
 
     Returns
     -------
     None
-        The `state` dictionary is updated in-place. Relevant fields such as
-        `"t"`, `"sum"`, `"maxx"`, `"maxpos"`, and `"alarm"` are updated.
-
-    Notes
-    -----
-    - When `state["use_numba"]` is `True`, `update_numba` is called with
-      Numba-compiled functions.
-    - Otherwise, `update_python` is called.
+        The `state` dictionary is mutated in-place. Updated fields include
+        ``"t"``, ``"sum"``, ``"maxx"``, ``"maxpos"``, and ``"alarm"``.
     """
     state["t"] = state["t"] + 1
     if state["use_numba"]:
