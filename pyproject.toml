@@ -10,7 +10,8 @@ authors = [
   { name = "Your Name", email = "you@example.com" }
 ]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = [
   "numpy>=1.23",
@@ -18,8 +19,20 @@ dependencies = [
   "scipy>=1.7",
 ]
 
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ipykernel",
+    "nbformat>=4.2.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/yourname/gridcp"
+
+[tool.setuptools.packages.find]
+include = ["gridcp*"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -27,7 +40,6 @@ strict = false
 ignore_missing_imports = true
 
 [tool.ruff]
-src = ["src"]
 select = ["E", "F", "D"]  # errors, flakes, docstring rules
 ignore = []               # add codes here to relax rules
 line-length = 88
