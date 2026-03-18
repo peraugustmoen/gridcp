@@ -24,7 +24,6 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
-      working-directory: gridcp
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
@@ -33,7 +32,6 @@ jobs:
         python -m pip install -e .
 
     - name: Lint with flake8
-      working-directory: gridcp
       run: |
         # stop the build if there are Python syntax errors or undefined names
         flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
@@ -41,32 +39,26 @@ jobs:
         flake8 src tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Test with pytest
-      working-directory: gridcp
       run: |
         pytest
 
 
     - name: Install pytest-cov
-      working-directory: gridcp
       run: |
         python -m pip install pytest-cov
 
     - name: Test with pytest and coverage
-      working-directory: gridcp
       run: |
         pytest --cov=gridcp --cov-report=term-missing
 
     - name: Install Black
-      working-directory: gridcp
       run: |
         python -m pip install black
 
     - name: Check formatting with Black
-      working-directory: gridcp
       run: |
         black --check src tests
     - name: Install dependencies
-      working-directory: gridcp
       run: |
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest ruff
@@ -74,7 +66,6 @@ jobs:
         python -m pip install -e .
 
     - name: Lint with ruff
-      working-directory: gridcp
       run: |
         ruff check . --exit-zero
 
