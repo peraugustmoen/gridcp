@@ -10,7 +10,8 @@ authors = [
   { name = "Your Name", email = "you@example.com" }
 ]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 dependencies = [
   "numpy>=1.23",
@@ -20,6 +21,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/yourname/gridcp"
+
+[tool.setuptools.packages.find]
+include = ["gridcp*"]
 
 [tool.mypy]
 python_version = "3.11"

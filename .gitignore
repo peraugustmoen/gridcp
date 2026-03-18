@@ -228,3 +228,6 @@ gridcp/.DS_Store
 gridcp/src/.DS_Store
 gridcp/tests/.DS_Store
 .DS_Store
+
+# Virtual environment directories
+.venv/
