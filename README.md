@@ -29,6 +29,10 @@ uv pip install -e .[dev]
 
     * Semantically the most correct: A change has only occured after an observation from a new distribution has been observed, not before.
     * Follows python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
+- A leading underscore "_" in a file name, class name of function name indicates that it
+  is a "private" implementation detail, and not part of the public API. This is a common
+  python convention, and is used to indicate that the implementation may change without
+  warning, and should not be used directly by users of the package.
 
 ### About the new API
 
