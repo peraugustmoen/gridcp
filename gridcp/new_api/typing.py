@@ -6,6 +6,7 @@ from numpy.typing import ArrayLike
 
 ScoreState = TypeVar("ScoreState")
 
+
 @runtime_checkable
 class GridScore(Protocol[ScoreState]):
     """Protocol for score computers used within the grid detector.
@@ -61,4 +62,3 @@ class GridScore(Protocol[ScoreState]):
             Penalised score for each active candidate.
         """
         ...
-

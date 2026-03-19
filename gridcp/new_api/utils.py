@@ -1,7 +1,7 @@
 """Utility functions."""
+
 import math
 import numba as nb
-
 
 
 @nb.njit(fastmath=True, cache=True)

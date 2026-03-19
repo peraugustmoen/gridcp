@@ -109,7 +109,7 @@ class GridDetector:
         x: ArrayLike,
     ) -> tuple[GridDetectorState, dict]:
         """Process a new observation and update the grid detector's state.
-        
+
         Parameters
         ----------
         state : GridDetectorState
