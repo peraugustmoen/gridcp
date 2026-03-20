@@ -37,17 +37,17 @@ uv pip install -e .[dev]
 ### About the new API
 
 - "Score" is the term for a "test statistic" in the code.
-- The main object is `gridcp.new_api.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `GridScore` protocol.
-- `gridcp.new_api.typing.GridScore` defines the "protocol" or interface for a score to be 
+- The main object is `gridcp.new_api.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
+- `gridcp.new_api.typing.ScoreModel` defines the "protocol" or interface for a score to be 
    compatible with `gridcp.new_api.GridDetector`.
-- `gridcp.new_api.scores.MeanCUSUM` is an example of a score that follows the `GridScore` protocol, and can be used with `GridDetector`.
+- `gridcp.new_api.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
 - `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
 
 ### Adding a new score/test statistic
 
 - Add a new file in `gridcp/new_api/scores/` for your score, e.g. `_my_score.py`.
 - This files needs two classes:
-    * `MyScore`: The actual score implementation, which needs to follow the `GridScore` protocol.
+    * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
     * `MyScoreState`: Holds running statistics used to compute penalised scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
 - Add the new score and state to `gridcp/new_api/scores/__init__.py`. Now the score can be imported from `gridcp.new_api.scores` and used with `GridDetector`.
 

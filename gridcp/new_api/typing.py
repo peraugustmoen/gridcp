@@ -4,16 +4,16 @@ from typing import Protocol, TypeVar, runtime_checkable
 import numpy as np
 from numpy.typing import ArrayLike
 
-ScoreState = TypeVar("ScoreState")
+TScoreState = TypeVar("TScoreState")
 
 
 @runtime_checkable
-class GridScore(Protocol[ScoreState]):
+class ScoreModel(Protocol[TScoreState]):
     """Protocol for score computers used within the grid detector.
 
     A compliant class maintains per-candidate sufficient statistics and computes
     scores for all active candidates after each new observation. It owns:
-      - a state type ScoreState that holds each per-candidate running statistics
+            - a state type TScoreState that holds each per-candidate running statistics
       - the logic for initialising, updating, and computing penalised scores from
         these states.
 
@@ -21,39 +21,39 @@ class GridScore(Protocol[ScoreState]):
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
     """
 
-    def init_state(self) -> ScoreState:
+    def init_state(self) -> TScoreState:
         """Return a fresh initial state with no observations seen."""
         ...
 
-    def update(self, state: ScoreState, x: ArrayLike) -> ScoreState:
+    def update(self, state: TScoreState, x: ArrayLike) -> TScoreState:
         """Incorporate a new observation into the global running statistic.
 
         Parameters
         ----------
-        state : ScoreState
+        state : TScoreState
             Current state.
         x : ArrayLike
             New observation.
 
         Returns
         -------
-        ScoreState
+        TScoreState
             Updated state.
         """
         ...
 
     def compute_penalised_scores(
         self,
-        state: ScoreState,
-        grid_states: list[ScoreState],
+        state: TScoreState,
+        grid_states: list[TScoreState],
     ) -> np.ndarray:
         """Compute a penalised score for every active grid candidate.
 
         Parameters
         ----------
-        state : ScoreState
+        state : TScoreState
             Global running state after the latest observation.
-        grid_states : list[ScoreState]
+        grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
 
         Returns
