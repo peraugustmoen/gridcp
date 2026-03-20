@@ -40,10 +40,12 @@ strict = false
 ignore_missing_imports = true
 
 [tool.ruff]
-select = ["E", "F", "D"]  # errors, flakes, docstring rules
-ignore = []               # add codes here to relax rules
 line-length = 88
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint]
+select = ["E", "F", "D"]  # errors, flakes, docstring rules
+ignore = []               # add codes here to relax rules
+
+[tool.ruff.lint.pydocstyle]
 convention = "numpy"  # or "pep257", "google", etc.
 
