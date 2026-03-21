@@ -46,7 +46,20 @@ def mean_cusum_score(
         -1, 1
     )
     square_cusum = (before_weight * before_sums - after_weight * after_sums) ** 2
-    return np.sum(square_cusum, axis=1) - 1
+
+    # Numba compatibility: compute row-wise max explicitly.
+    n_candidates = square_cusum.shape[0]
+    n_features = square_cusum.shape[1]
+    out = np.empty(n_candidates, dtype=np.float64)
+
+    for i in range(n_candidates):
+        row_max = square_cusum[i, 0]
+        for j in range(1, n_features):
+            if square_cusum[i, j] > row_max:
+                row_max = square_cusum[i, j]
+        out[i] = row_max - 1.0
+
+    return out
 
 
 @nb.njit(cache=True)

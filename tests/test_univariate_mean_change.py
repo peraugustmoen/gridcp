@@ -17,12 +17,18 @@ def _run_stream(data: np.ndarray, threshold: float = 10.0):
     return detector, state, outputs
 
 
-def _run_stream_unknown_variance(data: np.ndarray, threshold: float = 10.0):
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=threshold)
+def _run_stream_unknown_variance(
+    data: np.ndarray, threshold: float = 10.0, n_features: int = 1
+):
+    detector = GridDetector(
+        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=threshold
+    )
     state = detector.init_state()
     outputs = []
     for x in data:
-        state, out = detector.update(state, np.asarray([x]))
+        x_arr = np.asarray(x)
+        obs = np.asarray([x]) if n_features == 1 and x_arr.ndim == 0 else x_arr
+        state, out = detector.update(state, obs)
         outputs.append(out)
     return detector, state, outputs
 
@@ -290,7 +296,9 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0.0, scale=1.0, size=N)
 
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=100.0)
+    detector = GridDetector(
+        score=MeanCUSUMUnknownVariance(n_features=1), threshold=100.0
+    )
     state = detector.init_state()
 
     cumsum_x = np.cumsum(x)
@@ -338,7 +346,7 @@ def test_univariate_mean_unknown_variance_detects_shift():
     x_pre = rng.normal(loc=0.0, scale=1.0, size=N_pre)
     x_post = rng.normal(loc=5.0, scale=1.0, size=N_post)
 
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=5.0)
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     for val in x_pre:
@@ -355,12 +363,189 @@ def test_univariate_mean_unknown_variance_detects_shift():
     assert alarmed, "Unknown-variance detector failed to detect mean shift from 0 to 5"
 
 
-def test_univariate_mean_unknown_variance_requires_univariate_observations():
-    """Unknown-variance score should reject observations with feature size > 1."""
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=5.0)
+def test_univariate_mean_unknown_variance_requires_matching_feature_size():
+    """Unknown-variance score should reject observations with wrong feature size."""
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     state, _ = detector.update(state, np.asarray([0.2]))
 
     with pytest.raises(ValueError):
         detector.update(state, np.asarray([0.1, 0.2]))
+
+
+def test_multivariate_mean_unknown_variance_accepts_vectors_and_tracks_stats():
+    """Unknown-variance score should support multivariate streams and track per-feature stats."""
+    rng = np.random.default_rng(seed=24)
+    n_samples = 150
+    n_features = 3
+    x = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
+
+    detector = GridDetector(
+        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=100.0
+    )
+    state = detector.init_state()
+
+    cumsum_x = np.cumsum(x, axis=0)
+    cumsum_x2 = np.cumsum(x * x, axis=0)
+
+    for t, row in enumerate(x, start=1):
+        state, _ = detector.update(state, row)
+        assert np.allclose(state.running_score_state.stats[0], cumsum_x[t - 1])
+        assert np.allclose(state.running_score_state.stats[1], cumsum_x2[t - 1])
+
+
+def test_multivariate_mean_unknown_variance_detects_single_feature_shift():
+    """Unknown-variance multivariate score should alarm when one feature has a strong shift."""
+    rng = np.random.default_rng(seed=123)
+    n_pre = 200
+    n_post = 200
+    n_features = 3
+
+    x_pre = rng.normal(loc=0.0, scale=1.0, size=(n_pre, n_features))
+    x_post = rng.normal(loc=0.0, scale=1.0, size=(n_post, n_features))
+    x_post[:, 1] += 5.0  # strong shift in a single feature
+    x = np.vstack([x_pre, x_post])
+
+    detector = GridDetector(
+        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=5.0
+    )
+    state = detector.init_state()
+    alarmed = False
+
+    for row in x:
+        state, out = detector.update(state, row)
+        if out["alarm"]:
+            alarmed = True
+            break
+
+    assert (
+        alarmed
+    ), "Multivariate unknown-variance detector failed to detect shifted feature"
+
+
+def test_multivariate_known_variance_matches_independent_streams():
+    """Known-variance multivariate detector should match independent univariate runs.
+
+    We check, at every step, that:
+    1. Running sums match feature-wise independent detectors.
+    2. Candidate prefix sums match feature-wise independent detectors.
+    3. max_score equals the maximum of independent max_scores.
+    """
+    rng = np.random.default_rng(seed=2026)
+    n_samples = 250
+    n_features = 3
+    data = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
+
+    threshold = 1e6
+    multi_detector = GridDetector(
+        score=MeanCUSUM(n_features=n_features), threshold=threshold
+    )
+    multi_state = multi_detector.init_state()
+
+    single_detectors = [
+        GridDetector(score=MeanCUSUM(n_features=1), threshold=threshold)
+        for _ in range(n_features)
+    ]
+    single_states = [det.init_state() for det in single_detectors]
+
+    for row in data:
+        multi_state, multi_out = multi_detector.update(multi_state, row)
+
+        single_outs = []
+        for k in range(n_features):
+            single_states[k], single_out = single_detectors[k].update(
+                single_states[k], np.asarray([row[k]])
+            )
+            single_outs.append(single_out)
+
+        # Running statistics parity.
+        expected_running_sum = np.array(
+            [st.running_score_state.sum[0] for st in single_states]
+        )
+        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+
+        # Candidate statistics parity.
+        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+            expected_candidate_sum = np.array(
+                [
+                    single_states[k].candidate_score_states[i].sum[0]
+                    for k in range(n_features)
+                ]
+            )
+            assert np.allclose(multi_candidate_state.sum, expected_candidate_sum)
+
+        # max_score parity with independent feature-wise runs.
+        expected_max_score = max(out["max_score"] for out in single_outs)
+        assert np.isclose(multi_out["max_score"], expected_max_score)
+
+
+def test_multivariate_unknown_variance_matches_independent_streams():
+    """Unknown-variance multivariate detector should match independent univariate runs.
+
+    We check, at every step, that:
+    1. Running [sum, sumsq] stats match feature-wise independent detectors.
+    2. Candidate [sum, sumsq] stats match feature-wise independent detectors.
+    3. max_score equals the maximum of independent max_scores.
+    """
+    rng = np.random.default_rng(seed=2027)
+    n_samples = 250
+    n_features = 3
+    data = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
+
+    threshold = 1e6
+    multi_detector = GridDetector(
+        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=threshold
+    )
+    multi_state = multi_detector.init_state()
+
+    single_detectors = [
+        GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=threshold)
+        for _ in range(n_features)
+    ]
+    single_states = [det.init_state() for det in single_detectors]
+
+    for row in data:
+        multi_state, multi_out = multi_detector.update(multi_state, row)
+
+        single_outs = []
+        for k in range(n_features):
+            single_states[k], single_out = single_detectors[k].update(
+                single_states[k], np.asarray([row[k]])
+            )
+            single_outs.append(single_out)
+
+        # Running statistics parity.
+        expected_running_sum = np.array(
+            [st.running_score_state.stats[0] for st in single_states]
+        )
+        expected_running_sumsq = np.array(
+            [st.running_score_state.stats[1] for st in single_states]
+        )
+        assert np.allclose(
+            multi_state.running_score_state.stats[0], expected_running_sum
+        )
+        assert np.allclose(
+            multi_state.running_score_state.stats[1], expected_running_sumsq
+        )
+
+        # Candidate statistics parity.
+        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+            expected_candidate_sum = np.array(
+                [
+                    single_states[k].candidate_score_states[i].stats[0]
+                    for k in range(n_features)
+                ]
+            )
+            expected_candidate_sumsq = np.array(
+                [
+                    single_states[k].candidate_score_states[i].stats[1]
+                    for k in range(n_features)
+                ]
+            )
+            assert np.allclose(multi_candidate_state.stats[0], expected_candidate_sum)
+            assert np.allclose(multi_candidate_state.stats[1], expected_candidate_sumsq)
+
+        # max_score parity with independent feature-wise runs.
+        expected_max_score = max(out["max_score"] for out in single_outs)
+        assert np.isclose(multi_out["max_score"], expected_max_score)
