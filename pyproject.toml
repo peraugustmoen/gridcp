@@ -49,3 +49,10 @@ ignore = []               # add codes here to relax rules
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"  # or "pep257", "google", etc.
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [
+  "gridcp/old_api_tezts",
+  "gridcp/old_api_tests",
+]
+
