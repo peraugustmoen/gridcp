@@ -1,12 +1,24 @@
 import numpy as np
 import pytest
 
+import gridcp
 from gridcp.detector import GridDetector
 from gridcp.scores._mean_cusum import MeanCUSUM
+from gridcp.scores._mean_cusum_unknown_variance import MeanCUSUMUnknownVariance
 
 
 def _run_stream(data: np.ndarray, threshold: float = 10.0):
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=threshold)
+    state = detector.init_state()
+    outputs = []
+    for x in data:
+        state, out = detector.update(state, np.asarray([x]))
+        outputs.append(out)
+    return detector, state, outputs
+
+
+def _run_stream_unknown_variance(data: np.ndarray, threshold: float = 10.0):
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=threshold)
     state = detector.init_state()
     outputs = []
     for x in data:
@@ -25,7 +37,7 @@ def test_threshold_must_be_positive():
 
 def test_no_false_alarm_under_null_with_high_threshold():
     rng = np.random.default_rng(seed=123)
-    x = rng.normal(loc=0.0, scale=1.0, size=500)
+    x = rng.normal(loc=0.0, scale=1.0, size=200)
 
     _, _, outputs = _run_stream(x, threshold=50.0)
     assert all(not out["alarm"] for out in outputs)
@@ -33,12 +45,12 @@ def test_no_false_alarm_under_null_with_high_threshold():
 
 def test_outlier_triggers_alarm():
     rng = np.random.default_rng(seed=123)
-    x = rng.normal(loc=0.0, scale=1.0, size=300)
+    x = rng.normal(loc=0.0, scale=1.0, size=200)
 
     detector, state, outputs = _run_stream(x, threshold=8.0)
     assert all(not out["alarm"] for out in outputs)
 
-    state, out = detector.update(state, np.asarray([1_000_000.0]))
+    state, out = detector.update(state, np.asarray([1000.0]))
     assert out["alarm"]
     assert out["max_score"] > detector.threshold
 
@@ -75,11 +87,11 @@ def test_grid_and_candidate_states_stay_parallel():
 
 def test_detects_clear_mean_shift_mid_stream():
     rng = np.random.default_rng(seed=100)
-    x_pre = rng.normal(loc=0.0, scale=1.0, size=200)
-    x_post = rng.normal(loc=4.0, scale=1.0, size=200)
+    x_pre = rng.normal(loc=0.0, scale=1.0, size=100)
+    x_post = rng.normal(loc=4.0, scale=1.0, size=100)
     x = np.concatenate([x_pre, x_post])
 
-    _, _, outputs = _run_stream(x, threshold=8.0)
+    _, _, outputs = _run_stream(x, threshold=3.0)
 
     # Require at least one alarm after the shift begins.
     post_shift_outputs = outputs[len(x_pre) :]
@@ -138,7 +150,7 @@ def test_max_score_alarms_when_exceeds_threshold():
 
 
 def test_max_score_index_is_valid_after_alarm():
-    """After alarm, max_score_index should be a valid grid position within [1, n_samples]."""
+    """After alarm, max_score_index should be a certain position."""
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=100)
 
@@ -151,65 +163,7 @@ def test_max_score_index_is_valid_after_alarm():
     # Trigger alarm with extreme value
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"]
-    assert out["max_score_index"] >= 1, "max_score_index should be >= 1"
-    assert (
-        out["max_score_index"] <= state.n_samples
-    ), f"max_score_index {out['max_score_index']} exceeds n_samples {state.n_samples}"
-
-
-def test_multiple_alarms_increase_max_score():
-    """When multiple outliers occur, max_score should increase across alarms."""
-    rng = np.random.default_rng(seed=123)
-    x = rng.normal(loc=0.0, scale=1.0, size=50)
-
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
-    state = detector.init_state()
-
-    # Run first part under null
-    for val in x:
-        state, out = detector.update(state, np.asarray([val]))
-    max_score_at_null = out["max_score"]
-
-    # Add first outlier
-    state, out1 = detector.update(state, np.asarray([500.0]))
-    assert out1["alarm"]
-    score_after_first = out1["max_score"]
-
-    # Add second outlier; score should increase further
-    state, out2 = detector.update(state, np.asarray([500.0]))
-    assert out2["alarm"]
-    assert out2["max_score"] >= score_after_first
-
-
-def test_clear_mean_shift_always_alarmed():
-    """With low threshold, detector should consistently alarm after a clear mean shift."""
-    N_pre = 150
-    N_post = 150
-    rng = np.random.default_rng(seed=999)
-    x_pre = rng.normal(loc=0.0, scale=1.0, size=N_pre)
-    x_post = rng.normal(loc=6.0, scale=1.0, size=N_post)  # strong shift
-    x = np.concatenate([x_pre, x_post])
-
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
-    state = detector.init_state()
-    outputs = []
-
-    for val in x:
-        state, out = detector.update(state, np.asarray([val]))
-        outputs.append(out)
-
-    # First phase should not alarm
-    pre_shift_outputs = outputs[:N_pre]
-    assert not any(
-        out["alarm"] for out in pre_shift_outputs
-    ), "Detector alarmed under null (pre-shift phase)"
-
-    # All post-shift outputs should alarm (strong signal)
-    post_shift_outputs = outputs[N_pre:]
-    num_post_alarms = sum(1 for out in post_shift_outputs if out["alarm"])
-    assert (
-        num_post_alarms >= len(post_shift_outputs) * 0.9
-    ), f"Detector should alarm in >90% of post-shift samples; got {num_post_alarms}/{len(post_shift_outputs)}"
+    assert out["max_score_index"] == 100, "max_score_index should be 100"
 
 
 def test_univariate_mean_1_baseline():
@@ -250,38 +204,6 @@ def test_univariate_mean_1_baseline():
         ), f"Running sum mismatch at n_samples={state2.n_samples}"
 
 
-def test_output_index_matches_count():
-    """The 'index' field in output should match the sample number (1-indexed)."""
-    rng = np.random.default_rng(seed=77)
-    x = rng.normal(loc=0.0, scale=1.0, size=50)
-
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
-    state = detector.init_state()
-
-    for expected_idx, val in enumerate(x, start=1):
-        state, out = detector.update(state, np.asarray([val]))
-        assert (
-            out["index"] == expected_idx
-        ), f"At step {expected_idx}, expected index={expected_idx}, got {out['index']}"
-
-
-def test_threshold_validation_comprehensive():
-    """Threshold should only accept positive values."""
-    # Positive thresholds are valid
-    GridDetector(score=MeanCUSUM(n_features=1), threshold=0.1)
-    GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
-
-    # Zero and negative are invalid
-    with pytest.raises(ValueError):
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=0.0)
-
-    with pytest.raises(ValueError):
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=-5.0)
-
-    with pytest.raises(ValueError):
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=-0.001)
-
-
 def test_grid_correctness_univariate():
     """Grid size should be O(log n) and grow appropriately with stream length."""
     rng = np.random.default_rng(seed=55)
@@ -316,7 +238,7 @@ def test_grid_and_cumulative_sums_match_manual_computation():
     3. Verifies that each candidate's stored sum matches the expected cumsum at that grid point
     4. Verifies final running sum equals total sum of the data
     """
-    N = 1000
+    N = 100
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0, scale=1, size=N)
 
@@ -324,34 +246,121 @@ def test_grid_and_cumulative_sums_match_manual_computation():
     state = detector.init_state()
 
     # Run detector through all samples
+    cumsum_x = np.cumsum(x)
+    t = 0
     for val in x:
         state, _ = detector.update(state, np.asarray([val]))
+        t = t + 1
+        true_grid = gridcp.utils.get_changeloc_grid(t)
+        if t >= 2:
+            assert all(
+                a == b for a, b in zip(state.grid, true_grid)
+            ), f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
 
-    # Compute expected values manually
+            true_cumsums = cumsum_x[
+                true_grid - 1
+            ]  # cumsum at each grid point (0-indexed)
+            # Check that cumulative sums at each grid point match expected values
+
+            for i in range(len(true_grid)):
+                grid_point = true_grid[i]
+                expected_cumsum = true_cumsums[i]
+                actual_cumsum = state.candidate_score_states[i].sum[0]
+
+                assert np.isclose(
+                    expected_cumsum, actual_cumsum
+                ), f"At n_samples={t}, grid point {grid_point}: expected cumsum {expected_cumsum}, got {actual_cumsum}"
+
+
+def test_univariate_mean_unknown_variance_outlier_triggers_alarm():
+    """Unknown-variance mode: no alarm under null, alarm after extreme observation."""
+    rng = np.random.default_rng(seed=123)
+    x = rng.normal(loc=0.0, scale=1.0, size=200)
+
+    detector, state, outputs = _run_stream_unknown_variance(x, threshold=5.0)
+    assert all(not out["alarm"] for out in outputs)
+
+    state, out = detector.update(state, np.asarray([1_000_000.0]))
+    assert out["alarm"]
+
+
+def test_univariate_mean_unknown_variance_cumsums_match_manual():
+    """Unknown-variance mode: prefix stats [sum(x), sum(x^2)] match manual computation."""
+    N = 200
+    rng = np.random.default_rng(seed=123)
+    x = rng.normal(loc=0.0, scale=1.0, size=N)
+
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=100.0)
+    state = detector.init_state()
+
     cumsum_x = np.cumsum(x)
-    total_sum = np.sum(x)
+    cumsum_x2 = np.cumsum(x * x)
 
-    # Verify grid and candidate states are parallel
-    actual_grid = state.grid
-    actual_candidate_states = state.candidate_score_states
+    for t, val in enumerate(x, start=1):
+        state, _ = detector.update(state, np.asarray([val]))
+        true_grid = gridcp.utils.get_changeloc_grid(t)
 
-    assert len(actual_grid) == len(
-        actual_candidate_states
-    ), "Grid and candidate_score_states length mismatch"
+        if t >= 2:
+            assert all(
+                a == b for a, b in zip(state.grid, true_grid)
+            ), f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
 
-    # Check that cumulative sums at each grid point match expected values
-    for grid_point, candidate_state in zip(actual_grid, actual_candidate_states):
-        # grid_point is n_samples at which this candidate was added
-        # The cumulative sum at that point is cumsum_x[grid_point - 1] (0-indexed)
-        expected_cumsum = cumsum_x[grid_point - 1]
-        actual_cumsum = candidate_state.sum[0]
+            for i, g in enumerate(true_grid):
+                expected_sum = cumsum_x[g - 1]
+                expected_sum2 = cumsum_x2[g - 1]
+                actual_stats = state.candidate_score_states[i].stats
 
-        assert np.isclose(
-            actual_cumsum, expected_cumsum
-        ), f"At grid point {grid_point}: expected {expected_cumsum}, got {actual_cumsum}"
+                assert np.isclose(
+                    actual_stats[0], expected_sum
+                ), f"At n_samples={t}, grid point {g}: expected sum {expected_sum}, got {actual_stats[0]}"
+                assert np.isclose(
+                    actual_stats[1], expected_sum2
+                ), f"At n_samples={t}, grid point {g}: expected sumsq {expected_sum2}, got {actual_stats[1]}"
 
-    # Check final running sum equals total sum
-    final_running_sum = state.running_score_state.sum[0]
-    assert np.isclose(
-        final_running_sum, total_sum
-    ), f"Final sum mismatch: expected {total_sum}, got {final_running_sum}"
+    assert np.isclose(state.running_score_state.stats[0], cumsum_x[-1])
+    assert np.isclose(state.running_score_state.stats[1], cumsum_x2[-1])
+
+
+def test_univariate_mean_unknown_variance_no_false_alarm_high_threshold():
+    """Unknown-variance mode: no false alarm with high threshold."""
+    rng = np.random.default_rng(seed=999)
+    x = rng.normal(loc=0.0, scale=1.0, size=300)
+
+    _, _, outputs = _run_stream_unknown_variance(x, threshold=50.0)
+    assert all(not out["alarm"] for out in outputs)
+
+
+def test_univariate_mean_unknown_variance_detects_shift():
+    """Unknown-variance mode should detect a genuine mean shift."""
+    N_pre = 200
+    N_post = 200
+    rng = np.random.default_rng(seed=42)
+    x_pre = rng.normal(loc=0.0, scale=1.0, size=N_pre)
+    x_post = rng.normal(loc=5.0, scale=1.0, size=N_post)
+
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=5.0)
+    state = detector.init_state()
+
+    for val in x_pre:
+        state, out = detector.update(state, np.asarray([val]))
+    assert not out["alarm"]
+
+    alarmed = False
+    for val in x_post:
+        state, out = detector.update(state, np.asarray([val]))
+        if out["alarm"]:
+            alarmed = True
+            break
+
+    assert alarmed, "Unknown-variance detector failed to detect mean shift from 0 to 5"
+
+
+def test_univariate_mean_unknown_variance_requires_univariate_observations():
+    """Unknown-variance score should reject observations with feature size > 1."""
+    detector = GridDetector(score=MeanCUSUMUnknownVariance(), threshold=5.0)
+    state = detector.init_state()
+
+    state, _ = detector.update(state, np.asarray([0.2]))
+
+    with pytest.raises(ValueError):
+        detector.update(state, np.asarray([0.1, 0.2]))

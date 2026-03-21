@@ -6,8 +6,14 @@ See `_mean_cusum.py` for an example implementation.
 """
 
 from gridcp.scores._mean_cusum import MeanCUSUM, MeanCUSUMState
+from gridcp.scores._mean_cusum_unknown_variance import (
+    MeanCUSUMUnknownVariance,
+    MeanCUSUMUnknownVarianceState,
+)
 
 __all__ = [
     "MeanCUSUM",
     "MeanCUSUMState",
+    "MeanCUSUMUnknownVariance",
+    "MeanCUSUMUnknownVarianceState",
 ]
