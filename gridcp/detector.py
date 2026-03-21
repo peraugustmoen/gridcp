@@ -5,8 +5,8 @@ from typing import Generic
 import numpy as np
 from numpy.typing import ArrayLike
 
-from gridcp.new_api.typing import ScoreModel, TScoreState
-from gridcp.new_api.utils import v2
+from gridcp.typing import ScoreModel, TScoreState
+from gridcp.utils import v2
 
 
 def _update_grid(

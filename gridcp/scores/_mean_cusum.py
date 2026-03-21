@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numba as nb
 import numpy as np
 
-from gridcp.new_api.typing import ArrayLike
+from gridcp.typing import ArrayLike
 
 
 @nb.njit(cache=True)
