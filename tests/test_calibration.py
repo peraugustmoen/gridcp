@@ -13,6 +13,10 @@ from gridcp.detector import GridDetector
 from gridcp.scores import MeanCUSUM
 
 
+def normal_sampler(rng: np.random.Generator) -> float:
+    return float(rng.normal(0.0, 1.0))
+
+
 def test_draw_samples_fixed_changepoint_with_scalar_sampler():
     rng = np.random.default_rng(123)
 
@@ -165,3 +169,88 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     )
 
     assert np.isclose(threshold_from_score, threshold_from_detector)
+
+
+def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+
+    out1 = mc_max_scores(
+        detector=detector,
+        n_paths=30,
+        stream_len=20,
+        pre_sampler=normal_sampler,
+        rng=123,
+        n_features=1,
+    )
+    out2 = mc_max_scores(
+        detector=detector,
+        n_paths=30,
+        stream_len=20,
+        pre_sampler=normal_sampler,
+        rng=123,
+        n_features=1,
+    )
+
+    assert np.allclose(out1, out2)
+
+
+def test_mc_alarm_times_none_rng_is_deterministic_default():
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.7)
+
+    out1 = mc_alarm_times(
+        detector=detector,
+        n_paths=25,
+        stream_len=30,
+        pre_sampler=normal_sampler,
+        rng=None,
+        n_features=1,
+    )
+    out2 = mc_alarm_times(
+        detector=detector,
+        n_paths=25,
+        stream_len=30,
+        pre_sampler=normal_sampler,
+        rng=None,
+        n_features=1,
+    )
+
+    assert np.array_equal(out1, out2)
+
+
+def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
+    score = MeanCUSUM(n_features=1)
+
+    th1 = calibrate_threshold(
+        score,
+        alpha=0.1,
+        n_paths=30,
+        stream_len=25,
+        pre_sampler=normal_sampler,
+        rng=456,
+        n_features=1,
+    )
+    th2 = calibrate_threshold(
+        score,
+        alpha=0.1,
+        n_paths=30,
+        stream_len=25,
+        pre_sampler=normal_sampler,
+        rng=456,
+        n_features=1,
+    )
+
+    assert th1 == th2
+
+
+def test_mc_max_scores_invalid_rng_type_raises():
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
+
+    with pytest.raises(TypeError):
+        mc_max_scores(
+            detector=detector,
+            n_paths=5,
+            stream_len=10,
+            pre_sampler=normal_sampler,
+            rng="bad-rng",
+            n_features=1,
+        )

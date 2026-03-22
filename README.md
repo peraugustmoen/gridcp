@@ -47,6 +47,11 @@ uv pip install -e .[dev]
 
 - `gridcp.calibration.calibrate_threshold(score, ...)` uses a score-first API.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
+- For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
+- Reproducibility policy:
+    - `rng=<Generator>`: uses that generator's current state.
+    - `rng=<int>`: deterministic run from that seed.
+    - `rng=None`: deterministic run from a fixed internal default seed.
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
 

@@ -21,6 +21,27 @@ import numpy as np
 from gridcp.detector import GridDetector
 
 ChangepointSpec = int | Callable[[np.random.Generator, int, int], int] | None
+RNGInput = np.random.Generator | int | None
+
+# Deterministic default used when rng=None.
+DEFAULT_MC_SEED = 0
+
+
+def _normalize_rng(rng: RNGInput) -> np.random.Generator:
+    """Return a NumPy Generator from supported rng inputs.
+
+    Supported inputs are:
+    - ``np.random.Generator``: used as-is.
+    - ``int``: used as seed for ``np.random.default_rng``.
+    - ``None``: uses a fixed default seed for deterministic behavior.
+    """
+    if isinstance(rng, np.random.Generator):
+        return rng
+    if rng is None:
+        return np.random.default_rng(DEFAULT_MC_SEED)
+    if isinstance(rng, (int, np.integer)):
+        return np.random.default_rng(int(rng))
+    raise TypeError("rng must be a numpy.random.Generator, int seed, or None.")
 
 
 def _call_sampler(
@@ -97,7 +118,7 @@ def draw_samples(
     n_features: int,
     pre_sampler: Callable[..., Any],
     *,
-    rng: np.random.Generator | None = None,
+    rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
     post_sampler: Callable[..., Any] | None = None,
@@ -117,8 +138,12 @@ def draw_samples(
         Observation dimension.
     pre_sampler : callable
         Baseline sampler callable.
-    rng : np.random.Generator, optional
-        RNG used for reproducibility.
+    rng : numpy.random.Generator | int | None, optional
+        Randomness control.
+        - ``Generator``: used as-is.
+        - ``int``: used as seed to create a generator.
+        - ``None``: uses a fixed default seed, so repeated calls with the same
+          inputs are reproducible.
     pre_args, pre_kwargs : optional
         Additional arguments for ``pre_sampler``.
     post_sampler : callable, optional
@@ -149,7 +174,7 @@ def draw_samples(
     if changepoint is not None and post_sampler is None:
         raise ValueError("post_sampler must be provided when changepoint is set.")
 
-    local_rng = np.random.default_rng() if rng is None else rng
+    local_rng = _normalize_rng(rng)
     out = np.empty((n_paths, stream_len, n_features), dtype=np.float64)
 
     for path_idx in range(n_paths):
@@ -170,7 +195,7 @@ def mc_max_scores(
     stream_len: int,
     pre_sampler: Callable[..., Any],
     *,
-    rng: np.random.Generator | None = None,
+    rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
     post_sampler: Callable[..., Any] | None = None,
@@ -179,7 +204,13 @@ def mc_max_scores(
     changepoint: ChangepointSpec = None,
     n_features: int | None = None,
 ) -> np.ndarray:
-    """Run Monte Carlo paths and return the maximum score for each path."""
+    """Run Monte Carlo paths and return the maximum score for each path.
+
+    Reproducibility follows the ``rng`` argument:
+    - ``Generator``: continues from its current state.
+    - ``int``: deterministic run from that seed.
+    - ``None``: deterministic run from an internal fixed default seed.
+    """
     if n_features is None:
         score_n_features = getattr(detector.score, "n_features", None)
         if score_n_features is None:
@@ -222,7 +253,7 @@ def mc_alarm_times(
     stream_len: int,
     pre_sampler: Callable[..., Any],
     *,
-    rng: np.random.Generator | None = None,
+    rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
     post_sampler: Callable[..., Any] | None = None,
@@ -235,6 +266,11 @@ def mc_alarm_times(
 
     Alarm times are 1-based sample indices. For paths with no alarm by
     ``stream_len``, the returned value is ``stream_len + 1``.
+
+    Reproducibility follows the ``rng`` argument:
+    - ``Generator``: continues from its current state.
+    - ``int``: deterministic run from that seed.
+    - ``None``: deterministic run from an internal fixed default seed.
     """
     if n_features is None:
         score_n_features = getattr(detector.score, "n_features", None)
@@ -277,7 +313,7 @@ def calibrate_threshold(
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
-    rng: np.random.Generator | None = None,
+    rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
     n_features: int | None = None,
@@ -298,8 +334,9 @@ def calibrate_threshold(
         Number of samples per path.
     pre_sampler : callable
         Null sampler.
-    rng : np.random.Generator, optional
-        RNG for reproducibility.
+    rng : numpy.random.Generator | int | None, optional
+        Randomness control passed to Monte Carlo simulation.
+        ``None`` uses a fixed default seed for deterministic behavior.
     pre_args, pre_kwargs : optional
         Additional arguments passed to ``pre_sampler``.
     n_features : int, optional
@@ -341,7 +378,7 @@ def calibrate_detector_threshold(
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
-    rng: np.random.Generator | None = None,
+    rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
     n_features: int | None = None,
