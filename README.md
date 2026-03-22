@@ -43,9 +43,16 @@ uv pip install -e .[dev]
 - `gridcp.new_api.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
 - `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
 
+### Calibration notes
+
+- `gridcp.calibration.calibrate_threshold(score, ...)` uses a score-first API.
+- `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
+- `n_features` is inferred from `score.n_features` when present.
+- For custom scores that do not define `n_features`, pass `n_features` explicitly.
+
 ### Adding a new score/test statistic
 
-- Add a new file in `gridcp/new_api/scores/` for your score, e.g. `_my_score.py`.
+- Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
 - This files needs two classes:
     * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
     * `MyScoreState`: Holds running statistics used to compute penalised scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.

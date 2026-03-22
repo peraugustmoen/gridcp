@@ -2,8 +2,10 @@ import numpy as np
 import pytest
 
 from gridcp.calibration import (
+    calibrate_detector_threshold,
     calibrate_threshold,
     draw_samples,
+    mc_alarm_times,
     mc_max_scores,
     with_calibrated_threshold,
 )
@@ -81,12 +83,48 @@ def test_mc_max_scores_returns_one_value_per_path():
     assert np.all(np.isfinite(max_scores))
 
 
+def test_mc_alarm_times_returns_valid_indices_with_alarm():
+    rng = np.random.default_rng(9)
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.1)
+
+    alarm_times = mc_alarm_times(
+        detector=detector,
+        n_paths=12,
+        stream_len=25,
+        pre_sampler=lambda: 0.0,
+        post_sampler=lambda: 8.0,
+        changepoint=2,
+        rng=rng,
+        n_features=1,
+    )
+
+    assert alarm_times.shape == (12,)
+    assert np.all((alarm_times >= 1) & (alarm_times <= 26))
+    assert np.any(alarm_times <= 25)
+
+
+def test_mc_alarm_times_uses_stream_len_plus_one_for_no_alarm():
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e9)
+
+    alarm_times = mc_alarm_times(
+        detector=detector,
+        n_paths=10,
+        stream_len=20,
+        pre_sampler=lambda: 0.0,
+        n_features=1,
+    )
+
+    assert alarm_times.shape == (10,)
+    assert np.all(alarm_times == 21)
+
+
 def test_calibrate_threshold_and_with_calibrated_threshold():
     rng = np.random.default_rng(1234)
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
+    score = MeanCUSUM(n_features=1)
+    detector = GridDetector(score=score, threshold=1.0)
 
     threshold = calibrate_threshold(
-        detector,
+        score,
         alpha=0.1,
         n_paths=50,
         stream_len=40,
@@ -100,3 +138,30 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
     calibrated = with_calibrated_threshold(detector, threshold)
     assert calibrated.threshold == threshold
     assert detector.threshold == 1.0
+
+
+def test_calibrate_detector_threshold_wrapper_matches_score_first():
+    rng = np.random.default_rng(321)
+    score = MeanCUSUM(n_features=1)
+    detector = GridDetector(score=score, threshold=2.0)
+
+    threshold_from_score = calibrate_threshold(
+        score,
+        alpha=0.1,
+        n_paths=40,
+        stream_len=30,
+        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        n_features=1,
+    )
+
+    rng = np.random.default_rng(321)
+    threshold_from_detector = calibrate_detector_threshold(
+        detector,
+        alpha=0.1,
+        n_paths=40,
+        stream_len=30,
+        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        n_features=1,
+    )
+
+    assert np.isclose(threshold_from_score, threshold_from_detector)

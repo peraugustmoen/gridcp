@@ -1,13 +1,13 @@
 """Calibration utilities for the new gridcp API.
 
-This module provides three public helpers:
+This module provides calibration helpers for the new API.
 
 - ``draw_samples``: simulate Monte Carlo streams under a pre-change distribution,
   optionally with a post-change regime.
 - ``mc_max_scores``: run Monte Carlo simulations through a detector and collect
   the path-wise maximum detection score.
-- ``calibrate_threshold``: set a detector threshold to the empirical
-  ``(1 - alpha)`` quantile of Monte Carlo max scores.
+- ``calibrate_threshold``: compute an empirical threshold for a score model.
+- ``calibrate_detector_threshold``: convenience wrapper for detector objects.
 """
 
 from __future__ import annotations
@@ -216,7 +216,125 @@ def mc_max_scores(
     return max_scores
 
 
+def mc_alarm_times(
+    detector: GridDetector,
+    n_paths: int,
+    stream_len: int,
+    pre_sampler: Callable[..., Any],
+    *,
+    rng: np.random.Generator | None = None,
+    pre_args: tuple[Any, ...] = (),
+    pre_kwargs: Mapping[str, Any] | None = None,
+    post_sampler: Callable[..., Any] | None = None,
+    post_args: tuple[Any, ...] = (),
+    post_kwargs: Mapping[str, Any] | None = None,
+    changepoint: ChangepointSpec = None,
+    n_features: int | None = None,
+) -> np.ndarray:
+    """Run Monte Carlo paths and return first alarm time for each path.
+
+    Alarm times are 1-based sample indices. For paths with no alarm by
+    ``stream_len``, the returned value is ``stream_len + 1``.
+    """
+    if n_features is None:
+        score_n_features = getattr(detector.score, "n_features", None)
+        if score_n_features is None:
+            raise ValueError(
+                "n_features was not provided and could not be inferred from detector.score."
+            )
+        n_features = int(score_n_features)
+
+    X = draw_samples(
+        n_paths=n_paths,
+        stream_len=stream_len,
+        n_features=n_features,
+        pre_sampler=pre_sampler,
+        rng=rng,
+        pre_args=pre_args,
+        pre_kwargs=pre_kwargs,
+        post_sampler=post_sampler,
+        post_args=post_args,
+        post_kwargs=post_kwargs,
+        changepoint=changepoint,
+    )
+
+    alarm_times = np.full(n_paths, stream_len + 1, dtype=np.int64)
+    for path_idx in range(n_paths):
+        state = detector.init_state()
+        for t in range(stream_len):
+            state, output = detector.update(state, X[path_idx, t, :])
+            if bool(output["alarm"]):
+                alarm_times[path_idx] = t + 1
+                break
+
+    return alarm_times
+
+
 def calibrate_threshold(
+    score: Any,
+    *,
+    alpha: float,
+    n_paths: int,
+    stream_len: int,
+    pre_sampler: Callable[..., Any],
+    rng: np.random.Generator | None = None,
+    pre_args: tuple[Any, ...] = (),
+    pre_kwargs: Mapping[str, Any] | None = None,
+    n_features: int | None = None,
+) -> float:
+    """Estimate a score threshold from Monte Carlo max scores under the null.
+
+    Returns the empirical ``(1 - alpha)`` quantile of max scores.
+
+    Parameters
+    ----------
+    score : Any
+        Score model compatible with ``GridDetector``.
+    alpha : float
+        Target false alarm level in ``(0, 1)``.
+    n_paths : int
+        Number of Monte Carlo paths.
+    stream_len : int
+        Number of samples per path.
+    pre_sampler : callable
+        Null sampler.
+    rng : np.random.Generator, optional
+        RNG for reproducibility.
+    pre_args, pre_kwargs : optional
+        Additional arguments passed to ``pre_sampler``.
+    n_features : int, optional
+        Number of features per sample. If omitted, this is inferred from
+        ``score.n_features`` when available. For custom score objects that do
+        not expose ``n_features``, this argument must be provided explicitly.
+    """
+    if not (0.0 < alpha < 1.0):
+        raise ValueError("alpha must be in (0, 1).")
+
+    inferred_n_features = n_features
+    if inferred_n_features is None:
+        score_n_features = getattr(score, "n_features", None)
+        if score_n_features is None:
+            raise ValueError(
+                "n_features was not provided and could not be inferred from score.n_features."
+            )
+        inferred_n_features = int(score_n_features)
+
+    detector = GridDetector(score=score, threshold=1.0)
+
+    max_scores = mc_max_scores(
+        detector=detector,
+        n_paths=n_paths,
+        stream_len=stream_len,
+        pre_sampler=pre_sampler,
+        rng=rng,
+        pre_args=pre_args,
+        pre_kwargs=pre_kwargs,
+        n_features=inferred_n_features,
+    )
+    return float(np.quantile(max_scores, 1.0 - alpha))
+
+
+def calibrate_detector_threshold(
     detector: GridDetector,
     *,
     alpha: float,
@@ -228,15 +346,13 @@ def calibrate_threshold(
     pre_kwargs: Mapping[str, Any] | None = None,
     n_features: int | None = None,
 ) -> float:
-    """Estimate threshold from Monte Carlo max scores under the null.
+    """Estimate threshold for an existing detector.
 
-    Returns the empirical ``(1 - alpha)`` quantile of max scores.
+    This is a convenience wrapper around :func:`calibrate_threshold`.
     """
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be in (0, 1).")
-
-    max_scores = mc_max_scores(
-        detector=detector,
+    return calibrate_threshold(
+        score=detector.score,
+        alpha=alpha,
         n_paths=n_paths,
         stream_len=stream_len,
         pre_sampler=pre_sampler,
@@ -245,7 +361,6 @@ def calibrate_threshold(
         pre_kwargs=pre_kwargs,
         n_features=n_features,
     )
-    return float(np.quantile(max_scores, 1.0 - alpha))
 
 
 def with_calibrated_threshold(
