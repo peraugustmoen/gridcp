@@ -52,6 +52,10 @@ uv pip install -e .[dev]
     - `rng=<Generator>`: uses that generator's current state.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
+- Sampler output convention in `gridcp.calibration`:
+    - Monte Carlo helpers are vector-oriented with per-step shape `(n_features,)`.
+    - Scalar outputs are broadcast to length `n_features`.
+    - Non-scalar outputs are flattened to 1D and must have size `n_features`.
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
 

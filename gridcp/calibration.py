@@ -8,6 +8,14 @@ This module provides calibration helpers for the new API.
   the path-wise maximum detection score.
 - ``calibrate_threshold``: compute an empirical threshold for a score model.
 - ``calibrate_detector_threshold``: convenience wrapper for detector objects.
+
+Observation-shape convention
+----------------------------
+The Monte Carlo helpers in this module are vector-oriented: each sampled
+observation is converted to a 1D ``float64`` vector of length ``n_features``.
+Scalar sampler outputs are broadcast to length ``n_features``. Non-scalar
+outputs are flattened with ``reshape(-1)`` and must have total size
+``n_features``.
 """
 
 from __future__ import annotations
@@ -135,9 +143,15 @@ def draw_samples(
     stream_len : int
         Number of observations per path.
     n_features : int
-        Observation dimension.
+        Observation dimension (length of the per-time-step 1D observation
+        vector used internally).
     pre_sampler : callable
-        Baseline sampler callable.
+                Baseline sampler callable.
+                The returned sample is normalized as follows:
+                - scalar -> broadcast to shape ``(n_features,)``
+                - non-scalar -> flattened to 1D and required to have size
+                    ``n_features``
+                In all cases, values are converted to ``float64``.
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
         - ``Generator``: used as-is.
@@ -158,6 +172,7 @@ def draw_samples(
     -------
     np.ndarray
         Simulated array with shape ``(n_paths, stream_len, n_features)``.
+        This reflects the vector-oriented internal representation.
     """
     if n_paths < 1:
         raise ValueError("n_paths must be >= 1.")
