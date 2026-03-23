@@ -169,11 +169,11 @@ def test_mc_alarm_times_returns_valid_indices_with_alarm():
     )
 
     assert alarm_times.shape == (12,)
-    assert np.all((alarm_times >= 1) & (alarm_times <= 26))
-    assert np.any(alarm_times <= 25)
+    assert np.all((alarm_times >= 0) & (alarm_times <= 25))
+    assert np.any(alarm_times < 25)
 
 
-def test_mc_alarm_times_uses_stream_len_plus_one_for_no_alarm():
+def test_mc_alarm_times_uses_stream_len_for_no_alarm():
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e9)
 
     alarm_times = mc_alarm_times(
@@ -186,7 +186,28 @@ def test_mc_alarm_times_uses_stream_len_plus_one_for_no_alarm():
     )
 
     assert alarm_times.shape == (10,)
-    assert np.all(alarm_times == 21)
+    assert np.all(alarm_times == 20)
+
+
+def test_mc_alarm_times_is_zero_indexed():
+    """Alarm times are 0-based indices into the data array."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.5)
+
+    alarm_times = mc_alarm_times(
+        detector=detector,
+        n_paths=5,
+        stream_len=10,
+        pre_sampler=lambda: 0.0,
+        post_sampler=lambda: 5.0,
+        changepoint=3,
+        rng=42,
+        n_features=1,
+        parallel=False,
+    )
+
+    assert alarm_times.shape == (5,)
+    # All alarms should be in [0, 10) or equal to 10 (no alarm)
+    assert np.all((alarm_times >= 0) & (alarm_times <= 10))
 
 
 def test_calibrate_threshold_and_with_calibrated_threshold():

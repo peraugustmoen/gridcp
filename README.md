@@ -25,6 +25,7 @@ uv pip install -e .[dev]
 - Intervals are always left-closed, right-open: [a, b). This is the standard python
     convention for intervals and slicing. Following this drastically reduce strange bugs
     and indexing errors.
+- Indices are 0-indexed by default unless explicitly stated otherwise.
 - A "changepoint" is the first index of a segment, not last as in the literature. Reasons:
 
     * Semantically the most correct: A change has only occured after an observation from a new distribution has been observed, not before.
@@ -47,6 +48,9 @@ uv pip install -e .[dev]
 
 - `gridcp.calibration.calibrate_threshold(score, ...)` uses a score-first API.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
+- Indexing convention in calibration internals:
+    - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
+    - Returned alarm times are 0-indexed array indices (Python convention).
 - For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
 - Reproducibility policy:
     - `rng=<Generator>`: uses that generator's current state.

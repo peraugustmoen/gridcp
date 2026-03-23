@@ -110,8 +110,13 @@ def test_short_stream_behavior_and_output_schema():
 
     assert state.n_samples == 3
     for i, out in enumerate(outputs, start=1):
-        assert out["index"] == i
-        assert set(out.keys()) == {"index", "alarm", "max_score", "max_score_index"}
+        assert out["num_samples"] == i
+        assert set(out.keys()) == {
+            "num_samples",
+            "alarm",
+            "max_score",
+            "max_score_index",
+        }
 
     # By construction, first step has no valid split candidate.
     assert outputs[0]["max_score"] == 0.0
@@ -128,9 +133,9 @@ def test_n_samples_increments_by_one():
 
     for i, val in enumerate(x, start=1):
         state, _ = detector.update(state, np.asarray([val]))
-        assert state.n_samples == i, (
-            f"After {i} updates, expected n_samples={i}, got {state.n_samples}"
-        )
+        assert (
+            state.n_samples == i
+        ), f"After {i} updates, expected n_samples={i}, got {state.n_samples}"
 
 
 def test_max_score_alarms_when_exceeds_threshold():
@@ -145,9 +150,9 @@ def test_max_score_alarms_when_exceeds_threshold():
         state, out = detector.update(state, np.asarray([val]))
         if out["alarm"]:
             # When alarm is triggered, max_score should exceed threshold
-            assert out["max_score"] > detector.threshold, (
-                f"Alarm triggered but max_score {out['max_score']} <= threshold {detector.threshold}"
-            )
+            assert (
+                out["max_score"] > detector.threshold
+            ), f"Alarm triggered but max_score {out['max_score']} <= threshold {detector.threshold}"
 
     # Force an alarm with extreme value and verify max_score exceeds threshold
     state, out = detector.update(state, np.asarray([1_000_000.0]))
@@ -192,9 +197,9 @@ def test_univariate_mean_1_baseline():
     # Extreme observation triggers alarm
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"], "Failed to alarm on extreme observation"
-    assert out["max_score"] > detector.threshold, (
-        f"max_score {out['max_score']} should exceed threshold {detector.threshold}"
-    )
+    assert (
+        out["max_score"] > detector.threshold
+    ), f"max_score {out['max_score']} should exceed threshold {detector.threshold}"
 
     # Check cumulative sums match expected values
     # Re-run to accumulate running sum
@@ -205,9 +210,9 @@ def test_univariate_mean_1_baseline():
         running_sum += float(val)
         state2, _ = detector2.update(state2, np.asarray([val]))
         # Verify running sum in MeanCUSUM state matches cumsum
-        assert np.isclose(state2.running_score_state.sum[0], running_sum), (
-            f"Running sum mismatch at n_samples={state2.n_samples}"
-        )
+        assert np.isclose(
+            state2.running_score_state.sum[0], running_sum
+        ), f"Running sum mismatch at n_samples={state2.n_samples}"
 
 
 def test_grid_correctness_univariate():
@@ -226,13 +231,13 @@ def test_grid_correctness_univariate():
     # Grid size should grow logarithmically with n_samples
     final_grid_size = grid_sizes[-1]
     assert final_grid_size > 1, "Grid should have multiple candidates"
-    assert final_grid_size < 100, (
-        f"Grid size {final_grid_size} seems too large for n=1000"
-    )
+    assert (
+        final_grid_size < 100
+    ), f"Grid size {final_grid_size} seems too large for n=1000"
     # Rough check: should be ~log(n)
-    assert final_grid_size <= 2 * np.log2(1000), (
-        f"Grid size {final_grid_size} exceeds 2*log2(1000)=~20"
-    )
+    assert final_grid_size <= 2 * np.log2(
+        1000
+    ), f"Grid size {final_grid_size} exceeds 2*log2(1000)=~20"
 
 
 def test_grid_and_cumulative_sums_match_manual_computation():
@@ -259,9 +264,9 @@ def test_grid_and_cumulative_sums_match_manual_computation():
         t = t + 1
         true_grid = gridcp.utils.get_changeloc_grid(t)
         if t >= 2:
-            assert all(a == b for a, b in zip(state.grid, true_grid)), (
-                f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
-            )
+            assert all(
+                a == b for a, b in zip(state.grid, true_grid)
+            ), f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
 
             true_cumsums = cumsum_x[
                 true_grid - 1
@@ -273,9 +278,9 @@ def test_grid_and_cumulative_sums_match_manual_computation():
                 expected_cumsum = true_cumsums[i]
                 actual_cumsum = state.candidate_score_states[i].sum[0]
 
-                assert np.isclose(expected_cumsum, actual_cumsum), (
-                    f"At n_samples={t}, grid point {grid_point}: expected cumsum {expected_cumsum}, got {actual_cumsum}"
-                )
+                assert np.isclose(
+                    expected_cumsum, actual_cumsum
+                ), f"At n_samples={t}, grid point {grid_point}: expected cumsum {expected_cumsum}, got {actual_cumsum}"
 
 
 def test_univariate_mean_unknown_variance_outlier_triggers_alarm():
@@ -309,21 +314,21 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
         true_grid = gridcp.utils.get_changeloc_grid(t)
 
         if t >= 2:
-            assert all(a == b for a, b in zip(state.grid, true_grid)), (
-                f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
-            )
+            assert all(
+                a == b for a, b in zip(state.grid, true_grid)
+            ), f"At n_samples={t}, expected grid {true_grid}, got {state.grid}"
 
             for i, g in enumerate(true_grid):
                 expected_sum = cumsum_x[g - 1]
                 expected_sum2 = cumsum_x2[g - 1]
                 actual_stats = state.candidate_score_states[i].stats
 
-                assert np.isclose(actual_stats[0], expected_sum), (
-                    f"At n_samples={t}, grid point {g}: expected sum {expected_sum}, got {actual_stats[0]}"
-                )
-                assert np.isclose(actual_stats[1], expected_sum2), (
-                    f"At n_samples={t}, grid point {g}: expected sumsq {expected_sum2}, got {actual_stats[1]}"
-                )
+                assert np.isclose(
+                    actual_stats[0], expected_sum
+                ), f"At n_samples={t}, grid point {g}: expected sum {expected_sum}, got {actual_stats[0]}"
+                assert np.isclose(
+                    actual_stats[1], expected_sum2
+                ), f"At n_samples={t}, grid point {g}: expected sumsq {expected_sum2}, got {actual_stats[1]}"
 
     assert np.isclose(state.running_score_state.stats[0], cumsum_x[-1])
     assert np.isclose(state.running_score_state.stats[1], cumsum_x2[-1])
@@ -419,9 +424,9 @@ def test_multivariate_mean_unknown_variance_detects_single_feature_shift():
             alarmed = True
             break
 
-    assert alarmed, (
-        "Multivariate unknown-variance detector failed to detect shifted feature"
-    )
+    assert (
+        alarmed
+    ), "Multivariate unknown-variance detector failed to detect shifted feature"
 
 
 def test_multivariate_known_variance_matches_independent_streams():

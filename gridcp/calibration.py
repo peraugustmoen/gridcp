@@ -279,6 +279,9 @@ def _mc_worker_chunk(
         if task == "max":
             max_score = 0.0
 
+        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # This ranges from 1 to stream_len, not 0 to stream_len-1.
+        # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
             if _WORKER_POST_CALL is not None and t > cp:
                 raw = _WORKER_POST_CALL(local_rng)
@@ -307,11 +310,11 @@ def _mc_worker_chunk(
                 if temp > max_score:
                     max_score = temp
             elif bool(output["alarm"]):
-                out[local_idx] = t
+                out[local_idx] = t - 1
                 break
         else:
             if task == "alarm":
-                out[local_idx] = stream_len + 1
+                out[local_idx] = stream_len
 
         if task == "max":
             out[local_idx] = max_score
@@ -348,14 +351,14 @@ def _mc_alarm_times_chunk_from_samples(
     """Compute alarm times for a pre-generated sample chunk."""
     n_local = X_chunk.shape[0]
     stream_len = X_chunk.shape[1]
-    out = np.full(n_local, stream_len + 1, dtype=np.int64)
+    out = np.full(n_local, stream_len, dtype=np.int64)
 
     for i in range(n_local):
         state = detector.init_state()
         for t in range(stream_len):
             state, output = detector.update(state, X_chunk[i, t, :])
             if bool(output["alarm"]):
-                out[i] = t + 1
+                out[i] = t
                 break
 
     return out
@@ -574,6 +577,9 @@ def draw_samples(
 
     for path_idx in range(n_paths):
         cp = _resolve_changepoint(changepoint, local_rng, stream_len, path_idx)
+        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # This ranges from 1 to stream_len, not 0 to stream_len-1.
+        # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
             if post_call is not None and t > cp:
                 raw = post_call(local_rng)
@@ -840,10 +846,10 @@ def mc_alarm_times(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
 ) -> np.ndarray:
-    """Run Monte Carlo paths and return first alarm time for each path.
+    """Run Monte Carlo paths and return first alarm index for each path.
 
-    Alarm times are 1-based sample indices. For paths with no alarm by
-    ``stream_len``, the returned value is ``stream_len + 1``.
+    Alarm indices are 0-based. For paths with no alarm by the end of the stream,
+    the returned value is ``stream_len`` (first index past the last sample).
 
     Reproducibility follows the ``rng`` argument:
     - ``Generator``: continues from its current state.
@@ -878,7 +884,7 @@ def mc_alarm_times(
             )
         n_features = int(score_n_features)
 
-    alarm_times = np.full(n_paths, stream_len + 1, dtype=np.int64)
+    alarm_times = np.full(n_paths, stream_len, dtype=np.int64)
 
     if pre_kwargs is None:
         pre_kwargs = {}
@@ -955,7 +961,7 @@ def mc_alarm_times(
             for t in range(stream_len):
                 state, output = detector.update(state, X[path_idx, t, :])
                 if bool(output["alarm"]):
-                    alarm_times[path_idx] = t + 1
+                    alarm_times[path_idx] = t
                     break
         return alarm_times
 

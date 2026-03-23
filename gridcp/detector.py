@@ -141,7 +141,7 @@ class GridDetector:
         alarm = max_score > self.threshold
 
         output = {
-            "index": new_state.n_samples,
+            "num_samples": new_state.n_samples,
             "alarm": alarm,
             "max_score": max_score,
             "max_score_index": max_score_index,
