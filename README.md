@@ -35,13 +35,27 @@ uv pip install -e .[dev]
   python convention, and is used to indicate that the implementation may change without
   warning, and should not be used directly by users of the package.
 
+### Automated linting and formatting
+
+Run this once after the development install to auto-run linting/formatting before each commit:
+
+```bash
+pre-commit install
+```
+
+Run on all files manually:
+
+```bash
+pre-commit run --all-files
+```
+
 ### About the new API
 
 - "Score" is the term for a "test statistic" in the code.
-- The main object is `gridcp.new_api.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
-- `gridcp.new_api.typing.ScoreModel` defines the "protocol" or interface for a score to be 
-   compatible with `gridcp.new_api.GridDetector`.
-- `gridcp.new_api.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
+- The main object is `gridcp.detector.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
+- `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
+    compatible with `gridcp.detector.GridDetector`.
+- `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
 - `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
 
 ### Calibration notes

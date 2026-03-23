@@ -522,5 +522,5 @@ def test_mc_alarm_times_parallel_handles_local_sampler_function():
         )
 
     assert out.shape == (30,)
-    assert np.all((out >= 1) & (out <= 31))
+    assert np.all((out >= 0) & (out <= 30))
     assert not any(issubclass(w.category, RuntimeWarning) for w in caught)

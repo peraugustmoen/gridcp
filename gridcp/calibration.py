@@ -646,7 +646,8 @@ def mc_max_scores(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);\n          0 = all post-change, stream_len = all pre-change
+                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+                    ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
@@ -871,7 +872,8 @@ def mc_alarm_times(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);\n          0 = all post-change, stream_len = all pre-change
+                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+                    ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
