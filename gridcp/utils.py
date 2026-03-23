@@ -24,9 +24,11 @@ def fastlog(x):
     return math.log(x)
 
 
-@nb.njit(fastmath=False, cache=True)
 def v2(r: int) -> int:
     """Compute the exponent of the largest power of 2 that divides r.
+
+    This Python implementation is used in the new API hot path
+    (``GridDetector.update``) to avoid Python<->Numba call overhead.
 
     Parameters
     ----------
@@ -53,6 +55,7 @@ def v2(r: int) -> int:
 def get_changeloc_grid(t):
     r"""
     Construct the grid $t - G^{(t)}$ for time step $t$ (non-recursive).
+
     The grid is ordered from smallest to largest, so the most recent candidate changepoint is at the end of the array.
 
     Parameters
@@ -68,6 +71,7 @@ def get_changeloc_grid(t):
 
     Raises
     ------
+    ValueError
         If ``t < 1``.
 
     Notes
@@ -76,6 +80,9 @@ def get_changeloc_grid(t):
     It is provided for testing and debugging purposes, to verify that the grid
     is being updated correctly by `update_grid_numba`.
     """
+    if t < 1:
+        raise ValueError("t must be a positive integer (>= 1)")
+
     Gt = get_G_grid(t)
     # reverse Gt:
     Gt = Gt[::-1]

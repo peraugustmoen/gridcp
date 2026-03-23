@@ -50,6 +50,22 @@ def test_draw_samples_fixed_changepoint_with_scalar_sampler():
     assert np.allclose(X[:, 6:, :], 10.0)
 
 
+def test_draw_samples_changepoint_is_first_post_change_index():
+    # changepoint=1 means sample at index 0 is pre-change and index >=1 post-change.
+    X = draw_samples(
+        n_paths=3,
+        stream_len=5,
+        n_features=1,
+        pre_sampler=lambda: -2.0,
+        post_sampler=lambda: 7.0,
+        changepoint=1,
+        rng=123,
+    )
+
+    assert np.allclose(X[:, 0, :], -2.0)
+    assert np.allclose(X[:, 1:, :], 7.0)
+
+
 def test_draw_samples_random_changepoint_callable():
     rng = np.random.default_rng(1)
 
@@ -73,6 +89,19 @@ def test_draw_samples_random_changepoint_callable():
     assert X.shape == (20, 12, 1)
     # At least one post-change value should appear across the batch.
     assert np.any(X == 2.0)
+
+
+def test_draw_samples_accepts_flattenable_array_output_for_multivariate():
+    X = draw_samples(
+        n_paths=4,
+        stream_len=6,
+        n_features=3,
+        pre_sampler=lambda: np.array([[1.0, 2.0, 3.0]]),
+        rng=7,
+    )
+
+    assert X.shape == (4, 6, 3)
+    assert np.allclose(X, np.array([1.0, 2.0, 3.0]))
 
 
 def test_draw_samples_requires_post_sampler_if_changepoint_set():
@@ -101,6 +130,26 @@ def test_mc_max_scores_returns_one_value_per_path():
 
     assert max_scores.shape == (25,)
     assert np.all(np.isfinite(max_scores))
+
+
+def test_mc_max_scores_accepts_array_like_sampler_for_multivariate():
+    detector = GridDetector(score=MeanCUSUM(n_features=2), threshold=100.0)
+
+    out = mc_max_scores(
+        detector=detector,
+        n_paths=15,
+        stream_len=20,
+        n_features=2,
+        pre_sampler=lambda rng: [
+            float(rng.normal(0.0, 1.0)),
+            float(rng.normal(0.0, 1.0)),
+        ],
+        rng=42,
+        parallel=False,
+    )
+
+    assert out.shape == (15,)
+    assert np.all(np.isfinite(out))
 
 
 def test_mc_alarm_times_returns_valid_indices_with_alarm():

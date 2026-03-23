@@ -26,10 +26,12 @@ Randomness and changepoint inputs
 
 ``changepoint`` must be one of:
 - ``None`` (all samples are pre-change)
-- an ``int`` in ``[0, stream_len]`` representing the last pre-change index:
-  - changepoint=0: all observations are post-change
-  - changepoint=k (0 < k < stream_len): observations 1..k are pre-change, k+1.. are post-change
-  - changepoint=stream_len: all observations are pre-change
+- an ``int`` in ``[0, stream_len]`` representing the first post-change index
+    (0-based):
+    - changepoint=0: all observations are post-change
+    - changepoint=k (0 < k < stream_len): observations ``[0, k)`` are pre-change,
+        observations ``[k, stream_len)`` are post-change
+    - changepoint=stream_len: all observations are pre-change
 - a callable ``f(rng, stream_len, path_index) -> int`` returning a value in
     ``[0, stream_len]``
 """
@@ -49,7 +51,8 @@ import numpy as np
 from gridcp.detector import GridDetector
 
 # Changepoint callables receive ``(rng, stream_len, path_index)`` and must
-# return an integer in ``[0, stream_len]`` representing the last pre-change index.
+# return an integer in ``[0, stream_len]`` representing the first post-change
+# index (0-based).
 ChangepointSpec = int | Callable[[np.random.Generator, int, int], int] | None
 # Public RNG input contract for Monte Carlo helpers.
 RNGInput = np.random.Generator | int | None
@@ -409,10 +412,8 @@ def _normalise_observation_with_mode(
     if isinstance(x, np.ndarray) and x.dtype == np.float64 and x.ndim == 1:
         return x
 
-    x_arr = np.asarray(x)
-    if x_arr.dtype != np.float64:
-        x_arr = x_arr.astype(np.float64, copy=False)
-    return x_arr
+    # Match documented behavior for vector-like observations.
+    return np.asarray(x, dtype=np.float64).reshape(-1)
 
 
 def _validate_sampler_preflight(
@@ -423,30 +424,33 @@ def _validate_sampler_preflight(
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
 ) -> None:
-    """Validate that one sampler call returns a NumPy vector of length n_features."""
+    """Validate that one sampler call returns a value compatible with n_features."""
     call = _make_sampler_caller(sampler, args, kwargs)
     probe_rng = np.random.default_rng(DEFAULT_MC_SEED)
     sample = call(probe_rng)
 
-    # Backward-compatible convenience: allow scalar outputs for univariate
-    # settings; they are broadcast/handled as length-1 observations.
-    if n_features == 1 and np.isscalar(sample):
-        return
-
-    if not isinstance(sample, np.ndarray):
+    try:
+        sample_arr = np.asarray(sample, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
         raise TypeError(
-            f"{sampler_name} must return a numpy.ndarray of length {n_features}"
-            f" (or a scalar when n_features=1); got {type(sample).__name__}."
-        )
-    if sample.ndim != 1:
+            f"{sampler_name} must return a scalar or an array-like value that "
+            f"can be converted to float64; got {type(sample).__name__}."
+        ) from exc
+
+    if sample_arr.ndim == 0:
+        if n_features == 1:
+            return
         raise ValueError(
-            f"{sampler_name} must return a 1D numpy.ndarray of length {n_features}; "
-            f"got array with ndim={sample.ndim}."
+            f"{sampler_name} returned a scalar, but n_features={n_features}; "
+            f"expected array-like output with total size {n_features}."
         )
-    if sample.size != n_features:
+
+    sample_flat = sample_arr.reshape(-1)
+    if sample_flat.size != n_features:
         raise ValueError(
-            f"{sampler_name} must return a numpy.ndarray of length {n_features}; "
-            f"got length {sample.size}."
+            f"{sampler_name} must return scalar (only when n_features=1) or "
+            f"array-like output with total size {n_features}; "
+            f"got size {sample_flat.size}."
         )
 
 
@@ -458,9 +462,9 @@ def _resolve_changepoint(
 ) -> int:
     """Resolve changepoint to an integer in ``[0, n_samples]``.
 
-    The changepoint represents the last 1-based index in the pre-change regime.
-    For example, changepoint=k means observations 1..k are pre-change, and
-    observations k+1..n_samples are post-change.
+    The changepoint is the first post-change index (0-based).
+    For example, changepoint=k means observations ``[0, k)`` are pre-change,
+    and observations ``[k, n_samples)`` are post-change.
     - If changepoint=0, all observations are post-change.
     - If changepoint=n_samples, all observations are pre-change.
 
@@ -528,8 +532,9 @@ def draw_samples(
     post_args, post_kwargs : optional
         Additional arguments for ``post_sampler``.
     changepoint : int | callable | None, optional
-        Last 1-based pre-change index in each stream. If changepoint=k,
-        observations 1..k use pre-change sampler, k+1.. use post-change.
+        First post-change index in each stream (0-based). If changepoint=k,
+        observations ``[0, k)`` use pre-change sampler and
+        observations ``[k, stream_len)`` use post-change sampler.
         Allowed range: [0, stream_len], where 0 means all post-change and
         stream_len means all pre-change.
         If callable, called as ``changepoint(rng, stream_len, path_idx)`` and
@@ -635,7 +640,7 @@ def mc_max_scores(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (last pre-change index);\n          0 = all post-change, stream_len = all pre-change
+        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);\n          0 = all post-change, stream_len = all pre-change
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
@@ -860,7 +865,7 @@ def mc_alarm_times(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (last pre-change index);\n          0 = all post-change, stream_len = all pre-change
+        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);\n          0 = all post-change, stream_len = all pre-change
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
