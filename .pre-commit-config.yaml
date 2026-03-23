@@ -9,3 +9,12 @@ repos:
       - id: ruff-format
         files: ^(gridcp|tests)/.*\.py$
         exclude: ^gridcp/old_api/
+
+  - repo: local
+    hooks:
+      - id: pytest-pre-push
+        name: pytest (pre-push)
+        entry: .venv/bin/python -m pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

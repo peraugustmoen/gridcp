@@ -43,6 +43,12 @@ Run this once after the development install to auto-run linting/formatting befor
 pre-commit install
 ```
 
+Run this once to also execute tests before each push:
+
+```bash
+pre-commit install --hook-type pre-push
+```
+
 Run on all files manually:
 
 ```bash
