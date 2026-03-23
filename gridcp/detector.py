@@ -1,359 +1,149 @@
-from .core import init_state, update_func
-from .calibration import mc_max_statistics
+"""The online grid detector."""
+
+from dataclasses import dataclass, field
+from typing import Generic
 import numpy as np
-from . import builtins
+from numpy.typing import ArrayLike
+
+from gridcp.typing import ScoreModel, TScoreState
+from gridcp.utils import v2
 
 
-class OnlineChangepointDetector:
-    """
-    Online changepoint detection wrapper.
+def _update_grid(
+    grid: list[int],
+    candidate_score_states: list[TScoreState],
+    prev_running_score_state: TScoreState,
+) -> tuple[list[int], list[TScoreState]]:
+    """Update the grid and per-candidate scores for the next time step.
 
-    This class maintains the state of an online changepoint detector, updating it
-    sequentially as new observations arrive. Detection is driven by a user-specified
-    feature map $h$, test statistic $f$, and penalty function.
+    Update the grid from one sample to the next and the corresponding list of
+    per-candidate score state snapshots. The grid holds candidate changepoint
+    positions relative to the beginning of the time series.
 
     Parameters
     ----------
-    p : int
-        Dimension of data to be processed.
-    h : callable
-        Feature map applied to each new observation. Must accept a 1D NumPy array
-        or float and return a 1D NumPy array. The output dimension of `h` must
-        match the input dimension of `f`.
-    f : callable
-        Test statistic function. Must accept two numpy arrays of the same
-        dimension as the output of `h` and return a float.
-    penalty : callable
-        Penalty function applied to candidate changepoint segment lengths.
-        Must accept integers and return a float.
-    penalty_constant : float
-        Non-negative constant that scales  the penalty term used
-        in the changepoint detection statistic.
-    auxiliary_data : Any, optional
-        Not implemented yet, but reserved for any additional data needed by
-        e.g. `h`, `f`, or `penalty`.
+    grid : list[int]
+        Current grid (candidate insertion times).
+    candidate_score_states : list[TScoreState]
+        Per-candidate score state snapshots, parallel to `grid`.
+    prev_running_score_state : TScoreState
+        Score state snapshot to append as the new candidate (the pre-update
+        global state, captured before the current observation is processed).
 
-    Notes
-    -----
-    The internal state is managed stored in the dictionary `self._state`,
-    which contains the following keys [xx not all are included here]
+    Returns
+    -------
+    grid : list[int]
+        Updated grid.
+    candidate_score_states : list[TScoreState]
+        Updated per-candidate score state snapshots.
+    """
+    # list() makes a shallow copy, which is sufficient since both the grid and the
+    # score states are immutable snapshots.
+    new_grid = list(grid)
+    new_candidate_score_states = list(candidate_score_states)
 
-    - `"t"` : current time index (int)
-    - `"alarm"` : boolean flag indicating whether a changepoint has
-       been detected (now or in the past)
-    - `"maxx"` : maximum value of the detection statistic so far (float)
-    - `"maxpos"` : time index at which `"maxx"` was attained (int)
-    - `"penalty_constant"` : current penalty constant (float)
-    - `"p"`, `"h"`, `"f"`, `"penalty"`, `"auxiliary_data"`
+    # The last element of the grid is always n_samples - 1.
+    prev_n_samples = new_grid[-1] + 1 if len(new_grid) > 0 else 0
+    if prev_n_samples == 1 or prev_n_samples == 2:
+        new_grid.pop(0)
+        new_candidate_score_states.pop(0)
+    elif prev_n_samples > 2:
+        j = v2(prev_n_samples) + 1
+        if j > 0:
+            ind = 2 * j
+            if ind < len(new_grid):
+                removed = len(new_grid) - ind - 1
+                new_grid.pop(removed)
+                new_candidate_score_states.pop(removed)
+
+    new_grid.append(prev_n_samples)
+    new_candidate_score_states.append(prev_running_score_state)
+    return new_grid, new_candidate_score_states
+
+
+@dataclass
+class DetectorState(Generic[TScoreState]):
+    """State of the grid detector at a given time step."""
+
+    running_score_state: TScoreState
+    n_samples: int = 0
+    candidate_score_states: list[TScoreState] = field(default_factory=list)
+    grid: list[int] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GridDetector:
+    """The online grid detector.
+
+    Owns:
+    - A state.
+    - A threshold.
+    - The grid of candidate changepoints.
+
     """
 
-    def __init__(self, p, h, f, penalty, penalty_constant=1.0, auxiliary_data=None):
-        self._state = init_state(
-            p=p,
-            h=h,
-            f=f,
-            penalty=penalty,
-            penalty_constant=penalty_constant,
-            auxiliary_data=auxiliary_data,
-        )
+    score: ScoreModel
+    threshold: float = 1.0
 
-    def update(self, x_new):
-        """
-        Update the detector with a new observation.
+    def __post_init__(self):
+        """Validate the threshold and score object."""
+        if self.threshold <= 0:
+            raise ValueError("threshold must be positive.")
+        if not isinstance(self.score, ScoreModel):
+            raise TypeError("score must implement the ScoreModel protocol.")
 
-        The internal state is updated in-place using `update_func`, and the
-        method returns whether a changepoint alarm is raised after incorporating
-        the new data point.
+    def init_state(self) -> DetectorState:
+        """Return a fresh initial state with no observations seen."""
+        return DetectorState(running_score_state=self.score.init_state())
+
+    def update(
+        self,
+        state: DetectorState,
+        x: ArrayLike,
+    ) -> tuple[DetectorState, dict]:
+        """Process a new observation and update the grid detector's state.
 
         Parameters
         ----------
-        x_new : float or array_like
-            New observation at the current time step. A scalar is treated as a
-            one-dimensional array; otherwise it is converted to at least 1D
-            (via `np.atleast_1d`) before passing through the feature map `h`.
+        state : DetectorState
+            Current state of the grid detector.
+        x : ArrayLike
+            New observation to process.
 
         Returns
         -------
-        bool
-            `True` if the detector raises an alarm (i.e., a changepoint is
-            detected) after this update.
+        tuple[DetectorState, dict]
+            Updated state and output dictionary.
         """
-        update_func(x_new, self._state)
-        return bool(self._state["alarm"])
-
-    @property
-    def t(self):
-        return int(self._state["t"])
-
-    @property
-    def alarm(self):
-        return bool(self._state["alarm"])
-
-    @property
-    def max_statistic(self):
-        return float(self._state["maxx"])
-
-    @property
-    def maxpos(self):
-        return int(self._state["maxpos"])
-
-    @property
-    def penalty_constant(self):
-        return float(self._state["penalty_constant"])
-
-    def calibrate_false_alarm(
-        self, alpha, N, K, null_dist, null_args=(), null_kwargs={}, seed=42
-    ):
-        """
-        Calibrate the penalty constant to target a given false alarm probability
-        under a user-specified null distribution.
-
-        This performs a Monte Carlo calibration using `mc_max_statistics` under a
-        user-specified null distribution. The penalty constant is set to the
-        $(1 - \\alpha)$-quantile of the simulated maximum statistics.
-
-        Parameters
-        ----------
-        alpha : float
-            Desired (per-experiment) false alarm probability in $(0, 1)$.
-            The penalty constant is set so that the probability that the maximum
-            statistic exceeds it under the null is approximately `alpha`.
-        N : int
-            Length (number of time steps) of each Monte Carlo simulation path.
-        K : int
-            Number of Monte Carlo replication paths to simulate.
-        null_dist : callable
-            Random variate generator for the null distribution of the data.
-            Should support calls of the form `null_dist(*null_args, **null_kwargs)`
-            and return samples in a format compatible with `h`.
-        null_args : tuple, optional
-            Positional arguments passed to `null_dist`.
-        null_kwargs : dict, optional
-            Keyword arguments passed to `null_dist`.
-        seed : int, optional
-            Random seed used by `mc_max_statistics` for reproducibility.
-
-        Notes
-        -----
-        The original `penalty_constant` is ignored during calibration;after
-        simulation, the detector's internal `"penalty_constant"` is overwritten with the
-        calibrated value.
-        """
-        mc_samp = mc_max_statistics(
-            N=N,
-            K=K,
-            p=self._state["p"],
-            h=self._state["h"],
-            f=self._state["f"],
-            penalty=self._state["penalty"],
-            null_dist=null_dist,
-            penalty_constant=0.0,
-            null_dist_args=null_args,
-            null_dist_kwargs=null_kwargs,
-            auxiliary_data=None,
-            seed=seed,
+        new_n_samples = state.n_samples + 1
+        new_running_score_state = self.score.update(state.running_score_state, x)
+        new_grid, new_candidate_score_states = _update_grid(
+            state.grid, state.candidate_score_states, state.running_score_state
         )
-        self._state["penalty_constant"] = float(np.quantile(mc_samp, 1 - alpha))
-
-    def reset(self):
-        p = self._state["p"]
-        h = self._state["h"]
-        f = self._state["f"]
-        penalty = self._state["penalty"]
-        penalty_constant = self._state["penalty_constant"]
-        auxiliary_data = self._state["auxiliary_data"]
-        self._state = init_state(
-            p=p,
-            h=h,
-            f=f,
-            penalty=penalty,
-            penalty_constant=penalty_constant,
-            auxiliary_data=auxiliary_data,
+        new_state = DetectorState(
+            running_score_state=new_running_score_state,
+            candidate_score_states=new_candidate_score_states,
+            grid=new_grid,
+            n_samples=new_n_samples,
         )
 
+        if new_n_samples >= 2:
+            penalised_scores = self.score.compute_penalised_scores(
+                new_state.running_score_state, new_state.candidate_score_states
+            )
+            argmax = int(np.argmax(penalised_scores))
+            max_score = float(penalised_scores[argmax])
+            max_score_index = new_state.grid[argmax]
+        else:
+            max_score = 0.0
+            max_score_index = 0
 
-#### Factory functions for built-in detectors ####
-def make_univariate_mean_change_detector(
-    penalty_constant=1.0, mode="known_variance"
-) -> OnlineChangepointDetector:
-    """
-    Factory for a univariate Gaussian mean-change detector.
+        alarm = max_score > self.threshold
 
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-    h = builtins.h_univariate_mean_known_var_LR
-    f = builtins.f_univariate_mean_known_var_LR
-    penalty = builtins.penalty_univariate_mean_known_var_LR
-    if mode != "known_variance":
-        h = builtins.h_univariate_mean_unknown_var_LR
-        f = builtins.f_univariate_mean_unknown_var_LR
-        penalty = builtins.penalty_univariate_mean_unknown_var_LR
-
-    det = OnlineChangepointDetector(
-        p=1,
-        h=h,
-        f=f,
-        penalty=penalty,
-        penalty_constant=penalty_constant,
-    )
-    return det
-
-
-def make_univariate_variance_change_detector(
-    penalty_constant=1.0,
-) -> OnlineChangepointDetector:
-    """
-    Factory for a univariate Gaussian variance-change detector.
-
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-    h = builtins.h_univariate_variance_LR
-    f = builtins.f_univariate_variance_LR
-    penalty = builtins.penalty_univariate_variance_LR
-
-    det = OnlineChangepointDetector(
-        p=1,
-        h=h,
-        f=f,
-        penalty=penalty,
-        penalty_constant=penalty_constant,
-    )
-    return det
-
-
-def make_univariate_mean_or_variance_change_detector(
-    penalty_constant=1.0,
-) -> OnlineChangepointDetector:
-    """
-    Factory for a univariate Gaussian mean-or-variance change detector.
-
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-
-    det = OnlineChangepointDetector(
-        p=1,
-        h=builtins.h_univariate_mean_or_variance_LR,
-        f=builtins.f_univariate_mean_or_variance_LR,
-        penalty=builtins.penalty_univariate_mean_or_variance_LR,
-        penalty_constant=penalty_constant,
-    )
-    return det
-
-
-def make_multivariate_mean_change_detector(
-    p, penalty_constant=1.0, mode="known_variance"
-) -> OnlineChangepointDetector:
-    """
-    Factory for a univariate Gaussian mean-change detector.
-
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-    h = builtins.h_multivariate_mean_id_cov_LR
-    f = builtins.f_multivariate_mean_id_cov_LR
-    penalty = builtins.penalty_multivariate_mean_id_cov_LR
-    if mode == "unknown_variance":
-        h = builtins.h_multivariate_mean_unknown_cov_LR
-        f = builtins.f_multivariate_mean_unknown_cov_LR
-        penalty = builtins.penalty_multivariate_mean_unknown_cov_LR
-
-    det = OnlineChangepointDetector(
-        p=p,
-        h=h,
-        f=f,
-        penalty=penalty,
-        penalty_constant=penalty_constant,
-    )
-    return det
-
-
-def make_multivariate_mean_or_covariance_change_detector(
-    p,
-    penalty_constant=1.0,
-) -> OnlineChangepointDetector:
-    """
-    Factory for a multivariate Gaussian mean-or-covariance change detector.
-
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-
-    det = OnlineChangepointDetector(
-        p=p,
-        h=builtins.h_multivariate_mean_and_covariance_LR,
-        f=builtins.f_multivariate_mean_and_covariance_LR,
-        penalty=builtins.penalty_multivariate_mean_and_covariance_LR,
-        penalty_constant=penalty_constant,
-    )
-    return det
-
-
-def make_regression_change_detector(
-    q,
-    mode="McScan",
-    penalty_constant=1.0,
-) -> OnlineChangepointDetector:
-    """
-    Factory for a regression change detector based on McScan (Cho, Kley, Li 2025).
-    Here, q is the number of regression coefficients.
-
-    Parameters
-    ----------
-    penalty_constant : float
-        Initial penalty constant (can be calibrated later with calibrate_false_alarm)
-    Returns
-    -------
-    det : OnlineChangepointDetector
-        Detector with pre-specified h, f, penalty.
-    """
-
-    h = builtins.h_regression_mcscan
-    f = builtins.f_regression_mcscan
-    penalty = builtins.penalty_regression_mcscan
-
-    if mode == "direct":
-        h = builtins.h_regression_direct
-        f = builtins.f_regression_direct
-        penalty = builtins.penalty_regression_direct
-
-    det = OnlineChangepointDetector(
-        p=q + 1,
-        h=h,
-        f=f,
-        penalty=penalty,
-        penalty_constant=penalty_constant,
-    )
-    return det
+        output = {
+            "index": new_state.n_samples,
+            "alarm": alarm,
+            "max_score": max_score,
+            "max_score_index": max_score_index,
+        }
+        return new_state, output
