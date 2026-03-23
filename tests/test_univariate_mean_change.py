@@ -176,7 +176,7 @@ def test_univariate_mean_1_baseline():
     """Reproduces the core checks from old API test_univariate_mean_1."""
     N = 1000
     rng = np.random.default_rng(seed=123)
-    x = np.random.normal(loc=0, scale=1, size=N)
+    x = rng.normal(loc=0, scale=1, size=N)
 
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
     state = detector.init_state()

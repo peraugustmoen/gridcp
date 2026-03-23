@@ -9,7 +9,7 @@ LOG2 = math.log(2.0)
 
 @nb.njit(fastmath=True, cache=True)
 def fastlog(x):
-    """Compute A fast approximation to log(x).
+    """Compute a fast approximation to log(x).
 
     Parameters
     ----------
