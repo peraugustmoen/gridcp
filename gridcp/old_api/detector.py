@@ -102,7 +102,15 @@ class OnlineChangepointDetector:
         return float(self._state["penalty_constant"])
 
     def calibrate_false_alarm(
-        self, alpha, N, K, null_dist, null_args=(), null_kwargs={}, seed=42
+        self,
+        false_alarm_probability=None,
+        N=None,
+        K=None,
+        null_dist=None,
+        null_args=(),
+        null_kwargs={},
+        seed=42,
+        alpha=None,
     ):
         """
         Calibrate the penalty constant to target a given false alarm probability
@@ -110,14 +118,17 @@ class OnlineChangepointDetector:
 
         This performs a Monte Carlo calibration using `mc_max_statistics` under a
         user-specified null distribution. The penalty constant is set to the
-        $(1 - \\alpha)$-quantile of the simulated maximum statistics.
+        $(1 - p_{FA})$-quantile of the simulated maximum statistics.
 
         Parameters
         ----------
-        alpha : float
+        false_alarm_probability : float
             Desired (per-experiment) false alarm probability in $(0, 1)$.
             The penalty constant is set so that the probability that the maximum
-            statistic exceeds it under the null is approximately `alpha`.
+            statistic exceeds it under the null is approximately
+            `false_alarm_probability`.
+        alpha : float, optional
+            Deprecated alias for ``false_alarm_probability``.
         N : int
             Length (number of time steps) of each Monte Carlo simulation path.
         K : int
@@ -139,6 +150,21 @@ class OnlineChangepointDetector:
         simulation, the detector's internal `"penalty_constant"` is overwritten with the
         calibrated value.
         """
+        if false_alarm_probability is None:
+            if alpha is None:
+                raise ValueError(
+                    "false_alarm_probability must be provided (or use deprecated alpha)."
+                )
+            false_alarm_probability = alpha
+        elif alpha is not None:
+            raise ValueError(
+                "Provide only false_alarm_probability; do not pass both "
+                "false_alarm_probability and alpha."
+            )
+
+        if not (0.0 < float(false_alarm_probability) < 1.0):
+            raise ValueError("false_alarm_probability must be in (0, 1).")
+
         mc_samp = mc_max_statistics(
             N=N,
             K=K,
@@ -153,7 +179,9 @@ class OnlineChangepointDetector:
             auxiliary_data=None,
             seed=seed,
         )
-        self._state["penalty_constant"] = float(np.quantile(mc_samp, 1 - alpha))
+        self._state["penalty_constant"] = float(
+            np.quantile(mc_samp, 1 - float(false_alarm_probability))
+        )
 
     def reset(self):
         p = self._state["p"]

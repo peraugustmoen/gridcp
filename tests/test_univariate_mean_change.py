@@ -34,6 +34,7 @@ def _run_stream_unknown_variance(
 
 
 def test_threshold_must_be_positive():
+    """Reject non-positive detector thresholds."""
     with pytest.raises(ValueError):
         GridDetector(score=MeanCUSUM(n_features=1), threshold=0.0)
 
@@ -42,6 +43,7 @@ def test_threshold_must_be_positive():
 
 
 def test_no_false_alarm_under_null_with_high_threshold():
+    """Avoid false alarms under null data with a high threshold."""
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0.0, scale=1.0, size=200)
 
@@ -50,6 +52,7 @@ def test_no_false_alarm_under_null_with_high_threshold():
 
 
 def test_outlier_triggers_alarm():
+    """Trigger an alarm when an extreme outlier is observed."""
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0.0, scale=1.0, size=200)
 
@@ -62,6 +65,7 @@ def test_outlier_triggers_alarm():
 
 
 def test_running_sum_matches_numpy_cumsum():
+    """Match running internal sum against numpy cumulative sums."""
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=200)
 
@@ -76,6 +80,7 @@ def test_running_sum_matches_numpy_cumsum():
 
 
 def test_grid_and_candidate_states_stay_parallel():
+    """Keep grid and candidate-state lists aligned after each update."""
     rng = np.random.default_rng(seed=7)
     x = rng.normal(loc=0.0, scale=1.0, size=250)
 
@@ -92,6 +97,7 @@ def test_grid_and_candidate_states_stay_parallel():
 
 
 def test_detects_clear_mean_shift_mid_stream():
+    """Detect a clear mean shift introduced mid-stream."""
     rng = np.random.default_rng(seed=100)
     x_pre = rng.normal(loc=0.0, scale=1.0, size=100)
     x_post = rng.normal(loc=4.0, scale=1.0, size=100)
@@ -105,6 +111,7 @@ def test_detects_clear_mean_shift_mid_stream():
 
 
 def test_short_stream_behavior_and_output_schema():
+    """Validate output schema and first-step behavior on short streams."""
     x = np.array([0.5, -0.2, 0.1], dtype=float)
     _, state, outputs = _run_stream(x, threshold=10.0)
 

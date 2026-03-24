@@ -5,6 +5,7 @@ from gridcp.utils import get_changeloc_grid, v2
 
 
 def test_v2_matches_expected_trailing_zero_counts():
+    """Check v2 returns expected powers of two for representative inputs."""
     assert v2(0) == -1
     assert v2(1) == 0
     assert v2(2) == 1
@@ -15,10 +16,12 @@ def test_v2_matches_expected_trailing_zero_counts():
 
 
 def test_get_changeloc_grid_t1_baseline():
+    """Verify the baseline changeloc grid at t=1."""
     out = get_changeloc_grid(1)
     assert np.array_equal(out, np.array([0], dtype=np.int64))
 
 
 def test_get_changeloc_grid_raises_for_invalid_t():
+    """Ensure invalid non-positive t values raise ValueError."""
     with pytest.raises(ValueError, match="positive integer"):
         get_changeloc_grid(0)

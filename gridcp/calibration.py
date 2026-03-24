@@ -1056,7 +1056,7 @@ def mc_alarm_times(
 def calibrate_threshold(
     score: Any,
     *,
-    alpha: float,
+    false_alarm_probability: float,
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
@@ -1070,14 +1070,15 @@ def calibrate_threshold(
 ) -> float:
     """Estimate a score threshold from Monte Carlo max scores under the null.
 
-    Returns the empirical ``(1 - alpha)`` quantile of max scores.
+    Returns the empirical ``(1 - false_alarm_probability)`` quantile of max
+    scores.
 
     Parameters
     ----------
     score : Any
         Score model compatible with ``GridDetector``.
-    alpha : float
-        Target false alarm level in ``(0, 1)``.
+    false_alarm_probability : float
+        Target false alarm probability in ``(0, 1)``.
     n_paths : int
         Number of Monte Carlo paths.
     stream_len : int
@@ -1095,8 +1096,8 @@ def calibrate_threshold(
         ``score.n_features`` when available. For custom score objects that do
         not expose ``n_features``, this argument must be provided explicitly.
     """
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be in (0, 1).")
+    if not (0.0 < false_alarm_probability < 1.0):
+        raise ValueError("false_alarm_probability must be in (0, 1).")
 
     inferred_n_features = n_features
     if inferred_n_features is None:
@@ -1123,13 +1124,13 @@ def calibrate_threshold(
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
     )
-    return float(np.quantile(max_scores, 1.0 - alpha))
+    return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
 
 
 def calibrate_detector_threshold(
     detector: GridDetector,
     *,
-    alpha: float,
+    false_alarm_probability: float,
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
@@ -1147,7 +1148,7 @@ def calibrate_detector_threshold(
     """
     return calibrate_threshold(
         score=detector.score,
-        alpha=alpha,
+        false_alarm_probability=false_alarm_probability,
         n_paths=n_paths,
         stream_len=stream_len,
         pre_sampler=pre_sampler,
