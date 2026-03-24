@@ -338,7 +338,7 @@ def test_univariate_mean_calibrate_false_alarm():
     """calibrate_false_alarm should set a reasonable penalty constant."""
     detector = make_univariate_mean_change_detector(penalty_constant=0.0)
     detector.calibrate_false_alarm(
-        alpha=0.05,
+        false_alarm_probability=0.05,
         N=200,
         K=100,
         null_dist=np.random.normal,

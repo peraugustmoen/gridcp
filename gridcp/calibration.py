@@ -26,10 +26,12 @@ Randomness and changepoint inputs
 
 ``changepoint`` must be one of:
 - ``None`` (all samples are pre-change)
-- an ``int`` in ``[0, stream_len]`` representing the last pre-change index:
-  - changepoint=0: all observations are post-change
-  - changepoint=k (0 < k < stream_len): observations 1..k are pre-change, k+1.. are post-change
-  - changepoint=stream_len: all observations are pre-change
+- an ``int`` in ``[0, stream_len]`` representing the first post-change index
+    (0-based):
+    - changepoint=0: all observations are post-change
+    - changepoint=k (0 < k < stream_len): observations ``[0, k)`` are pre-change,
+        observations ``[k, stream_len)`` are post-change
+    - changepoint=stream_len: all observations are pre-change
 - a callable ``f(rng, stream_len, path_index) -> int`` returning a value in
     ``[0, stream_len]``
 """
@@ -49,7 +51,8 @@ import numpy as np
 from gridcp.detector import GridDetector
 
 # Changepoint callables receive ``(rng, stream_len, path_index)`` and must
-# return an integer in ``[0, stream_len]`` representing the last pre-change index.
+# return an integer in ``[0, stream_len]`` representing the first post-change
+# index (0-based).
 ChangepointSpec = int | Callable[[np.random.Generator, int, int], int] | None
 # Public RNG input contract for Monte Carlo helpers.
 RNGInput = np.random.Generator | int | None
@@ -276,6 +279,9 @@ def _mc_worker_chunk(
         if task == "max":
             max_score = 0.0
 
+        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # This ranges from 1 to stream_len, not 0 to stream_len-1.
+        # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
             if _WORKER_POST_CALL is not None and t > cp:
                 raw = _WORKER_POST_CALL(local_rng)
@@ -304,11 +310,11 @@ def _mc_worker_chunk(
                 if temp > max_score:
                     max_score = temp
             elif bool(output["alarm"]):
-                out[local_idx] = t
+                out[local_idx] = t - 1
                 break
         else:
             if task == "alarm":
-                out[local_idx] = stream_len + 1
+                out[local_idx] = stream_len
 
         if task == "max":
             out[local_idx] = max_score
@@ -345,14 +351,14 @@ def _mc_alarm_times_chunk_from_samples(
     """Compute alarm times for a pre-generated sample chunk."""
     n_local = X_chunk.shape[0]
     stream_len = X_chunk.shape[1]
-    out = np.full(n_local, stream_len + 1, dtype=np.int64)
+    out = np.full(n_local, stream_len, dtype=np.int64)
 
     for i in range(n_local):
         state = detector.init_state()
         for t in range(stream_len):
             state, output = detector.update(state, X_chunk[i, t, :])
             if bool(output["alarm"]):
-                out[i] = t + 1
+                out[i] = t
                 break
 
     return out
@@ -409,10 +415,8 @@ def _normalise_observation_with_mode(
     if isinstance(x, np.ndarray) and x.dtype == np.float64 and x.ndim == 1:
         return x
 
-    x_arr = np.asarray(x)
-    if x_arr.dtype != np.float64:
-        x_arr = x_arr.astype(np.float64, copy=False)
-    return x_arr
+    # Match documented behavior for vector-like observations.
+    return np.asarray(x, dtype=np.float64).reshape(-1)
 
 
 def _validate_sampler_preflight(
@@ -423,30 +427,33 @@ def _validate_sampler_preflight(
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
 ) -> None:
-    """Validate that one sampler call returns a NumPy vector of length n_features."""
+    """Validate that one sampler call returns a value compatible with n_features."""
     call = _make_sampler_caller(sampler, args, kwargs)
     probe_rng = np.random.default_rng(DEFAULT_MC_SEED)
     sample = call(probe_rng)
 
-    # Backward-compatible convenience: allow scalar outputs for univariate
-    # settings; they are broadcast/handled as length-1 observations.
-    if n_features == 1 and np.isscalar(sample):
-        return
-
-    if not isinstance(sample, np.ndarray):
+    try:
+        sample_arr = np.asarray(sample, dtype=np.float64)
+    except (TypeError, ValueError) as exc:
         raise TypeError(
-            f"{sampler_name} must return a numpy.ndarray of length {n_features}"
-            f" (or a scalar when n_features=1); got {type(sample).__name__}."
-        )
-    if sample.ndim != 1:
+            f"{sampler_name} must return a scalar or an array-like value that "
+            f"can be converted to float64; got {type(sample).__name__}."
+        ) from exc
+
+    if sample_arr.ndim == 0:
+        if n_features == 1:
+            return
         raise ValueError(
-            f"{sampler_name} must return a 1D numpy.ndarray of length {n_features}; "
-            f"got array with ndim={sample.ndim}."
+            f"{sampler_name} returned a scalar, but n_features={n_features}; "
+            f"expected array-like output with total size {n_features}."
         )
-    if sample.size != n_features:
+
+    sample_flat = sample_arr.reshape(-1)
+    if sample_flat.size != n_features:
         raise ValueError(
-            f"{sampler_name} must return a numpy.ndarray of length {n_features}; "
-            f"got length {sample.size}."
+            f"{sampler_name} must return scalar (only when n_features=1) or "
+            f"array-like output with total size {n_features}; "
+            f"got size {sample_flat.size}."
         )
 
 
@@ -458,9 +465,9 @@ def _resolve_changepoint(
 ) -> int:
     """Resolve changepoint to an integer in ``[0, n_samples]``.
 
-    The changepoint represents the last 1-based index in the pre-change regime.
-    For example, changepoint=k means observations 1..k are pre-change, and
-    observations k+1..n_samples are post-change.
+    The changepoint is the first post-change index (0-based).
+    For example, changepoint=k means observations ``[0, k)`` are pre-change,
+    and observations ``[k, n_samples)`` are post-change.
     - If changepoint=0, all observations are post-change.
     - If changepoint=n_samples, all observations are pre-change.
 
@@ -528,8 +535,9 @@ def draw_samples(
     post_args, post_kwargs : optional
         Additional arguments for ``post_sampler``.
     changepoint : int | callable | None, optional
-        Last 1-based pre-change index in each stream. If changepoint=k,
-        observations 1..k use pre-change sampler, k+1.. use post-change.
+        First post-change index in each stream (0-based). If changepoint=k,
+        observations ``[0, k)`` use pre-change sampler and
+        observations ``[k, stream_len)`` use post-change sampler.
         Allowed range: [0, stream_len], where 0 means all post-change and
         stream_len means all pre-change.
         If callable, called as ``changepoint(rng, stream_len, path_idx)`` and
@@ -569,6 +577,9 @@ def draw_samples(
 
     for path_idx in range(n_paths):
         cp = _resolve_changepoint(changepoint, local_rng, stream_len, path_idx)
+        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # This ranges from 1 to stream_len, not 0 to stream_len-1.
+        # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
             if post_call is not None and t > cp:
                 raw = post_call(local_rng)
@@ -635,7 +646,8 @@ def mc_max_scores(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (last pre-change index);\n          0 = all post-change, stream_len = all pre-change
+                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+                    ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
@@ -835,10 +847,10 @@ def mc_alarm_times(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
 ) -> np.ndarray:
-    """Run Monte Carlo paths and return first alarm time for each path.
+    """Run Monte Carlo paths and return first alarm index for each path.
 
-    Alarm times are 1-based sample indices. For paths with no alarm by
-    ``stream_len``, the returned value is ``stream_len + 1``.
+    Alarm indices are 0-based. For paths with no alarm by the end of the stream,
+    the returned value is ``stream_len`` (first index past the last sample).
 
     Reproducibility follows the ``rng`` argument:
     - ``Generator``: continues from its current state.
@@ -860,7 +872,8 @@ def mc_alarm_times(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (last pre-change index);\n          0 = all post-change, stream_len = all pre-change
+                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+                    ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
@@ -873,7 +886,7 @@ def mc_alarm_times(
             )
         n_features = int(score_n_features)
 
-    alarm_times = np.full(n_paths, stream_len + 1, dtype=np.int64)
+    alarm_times = np.full(n_paths, stream_len, dtype=np.int64)
 
     if pre_kwargs is None:
         pre_kwargs = {}
@@ -950,7 +963,7 @@ def mc_alarm_times(
             for t in range(stream_len):
                 state, output = detector.update(state, X[path_idx, t, :])
                 if bool(output["alarm"]):
-                    alarm_times[path_idx] = t + 1
+                    alarm_times[path_idx] = t
                     break
         return alarm_times
 
@@ -1043,7 +1056,7 @@ def mc_alarm_times(
 def calibrate_threshold(
     score: Any,
     *,
-    alpha: float,
+    false_alarm_probability: float,
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
@@ -1057,14 +1070,15 @@ def calibrate_threshold(
 ) -> float:
     """Estimate a score threshold from Monte Carlo max scores under the null.
 
-    Returns the empirical ``(1 - alpha)`` quantile of max scores.
+    Returns the empirical ``(1 - false_alarm_probability)`` quantile of max
+    scores.
 
     Parameters
     ----------
     score : Any
         Score model compatible with ``GridDetector``.
-    alpha : float
-        Target false alarm level in ``(0, 1)``.
+    false_alarm_probability : float
+        Target false alarm probability in ``(0, 1)``.
     n_paths : int
         Number of Monte Carlo paths.
     stream_len : int
@@ -1082,8 +1096,8 @@ def calibrate_threshold(
         ``score.n_features`` when available. For custom score objects that do
         not expose ``n_features``, this argument must be provided explicitly.
     """
-    if not (0.0 < alpha < 1.0):
-        raise ValueError("alpha must be in (0, 1).")
+    if not (0.0 < false_alarm_probability < 1.0):
+        raise ValueError("false_alarm_probability must be in (0, 1).")
 
     inferred_n_features = n_features
     if inferred_n_features is None:
@@ -1110,13 +1124,13 @@ def calibrate_threshold(
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
     )
-    return float(np.quantile(max_scores, 1.0 - alpha))
+    return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
 
 
 def calibrate_detector_threshold(
     detector: GridDetector,
     *,
-    alpha: float,
+    false_alarm_probability: float,
     n_paths: int,
     stream_len: int,
     pre_sampler: Callable[..., Any],
@@ -1134,7 +1148,7 @@ def calibrate_detector_threshold(
     """
     return calibrate_threshold(
         score=detector.score,
-        alpha=alpha,
+        false_alarm_probability=false_alarm_probability,
         n_paths=n_paths,
         stream_len=stream_len,
         pre_sampler=pre_sampler,

@@ -33,6 +33,7 @@ def random_cp_sampler(
 
 
 def test_draw_samples_fixed_changepoint_with_scalar_sampler():
+    """Check fixed changepoint sampling with scalar pre/post samplers."""
     rng = np.random.default_rng(123)
 
     X = draw_samples(
@@ -50,7 +51,25 @@ def test_draw_samples_fixed_changepoint_with_scalar_sampler():
     assert np.allclose(X[:, 6:, :], 10.0)
 
 
+def test_draw_samples_changepoint_is_first_post_change_index():
+    """Verify changepoint is interpreted as first post-change index."""
+    # changepoint=1 means sample at index 0 is pre-change and index >=1 post-change.
+    X = draw_samples(
+        n_paths=3,
+        stream_len=5,
+        n_features=1,
+        pre_sampler=lambda: -2.0,
+        post_sampler=lambda: 7.0,
+        changepoint=1,
+        rng=123,
+    )
+
+    assert np.allclose(X[:, 0, :], -2.0)
+    assert np.allclose(X[:, 1:, :], 7.0)
+
+
 def test_draw_samples_random_changepoint_callable():
+    """Ensure callable changepoints produce valid sampled paths."""
     rng = np.random.default_rng(1)
 
     def cp_sampler(
@@ -75,7 +94,22 @@ def test_draw_samples_random_changepoint_callable():
     assert np.any(X == 2.0)
 
 
+def test_draw_samples_accepts_flattenable_array_output_for_multivariate():
+    """Accept flattenable array-like sampler outputs in multivariate mode."""
+    X = draw_samples(
+        n_paths=4,
+        stream_len=6,
+        n_features=3,
+        pre_sampler=lambda: np.array([[1.0, 2.0, 3.0]]),
+        rng=7,
+    )
+
+    assert X.shape == (4, 6, 3)
+    assert np.allclose(X, np.array([1.0, 2.0, 3.0]))
+
+
 def test_draw_samples_requires_post_sampler_if_changepoint_set():
+    """Require post_sampler whenever changepoint is provided."""
     with pytest.raises(ValueError):
         draw_samples(
             n_paths=2,
@@ -87,6 +121,7 @@ def test_draw_samples_requires_post_sampler_if_changepoint_set():
 
 
 def test_mc_max_scores_returns_one_value_per_path():
+    """Return one finite max-score value per Monte Carlo path."""
     rng = np.random.default_rng(2)
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
@@ -103,7 +138,29 @@ def test_mc_max_scores_returns_one_value_per_path():
     assert np.all(np.isfinite(max_scores))
 
 
+def test_mc_max_scores_accepts_array_like_sampler_for_multivariate():
+    """Support array-like sampler outputs for multivariate max-score simulation."""
+    detector = GridDetector(score=MeanCUSUM(n_features=2), threshold=100.0)
+
+    out = mc_max_scores(
+        detector=detector,
+        n_paths=15,
+        stream_len=20,
+        n_features=2,
+        pre_sampler=lambda rng: [
+            float(rng.normal(0.0, 1.0)),
+            float(rng.normal(0.0, 1.0)),
+        ],
+        rng=42,
+        parallel=False,
+    )
+
+    assert out.shape == (15,)
+    assert np.all(np.isfinite(out))
+
+
 def test_mc_alarm_times_returns_valid_indices_with_alarm():
+    """Produce valid alarm indices and trigger alarms under strong change."""
     rng = np.random.default_rng(9)
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.1)
 
@@ -120,11 +177,12 @@ def test_mc_alarm_times_returns_valid_indices_with_alarm():
     )
 
     assert alarm_times.shape == (12,)
-    assert np.all((alarm_times >= 1) & (alarm_times <= 26))
-    assert np.any(alarm_times <= 25)
+    assert np.all((alarm_times >= 0) & (alarm_times <= 25))
+    assert np.any(alarm_times < 25)
 
 
-def test_mc_alarm_times_uses_stream_len_plus_one_for_no_alarm():
+def test_mc_alarm_times_uses_stream_len_for_no_alarm():
+    """Use stream_len sentinel when no alarm occurs in a path."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e9)
 
     alarm_times = mc_alarm_times(
@@ -137,17 +195,39 @@ def test_mc_alarm_times_uses_stream_len_plus_one_for_no_alarm():
     )
 
     assert alarm_times.shape == (10,)
-    assert np.all(alarm_times == 21)
+    assert np.all(alarm_times == 20)
+
+
+def test_mc_alarm_times_is_zero_indexed():
+    """Alarm times are 0-based indices into the data array."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.5)
+
+    alarm_times = mc_alarm_times(
+        detector=detector,
+        n_paths=5,
+        stream_len=10,
+        pre_sampler=lambda: 0.0,
+        post_sampler=lambda: 5.0,
+        changepoint=3,
+        rng=42,
+        n_features=1,
+        parallel=False,
+    )
+
+    assert alarm_times.shape == (5,)
+    # All alarms should be in [0, 10) or equal to 10 (no alarm)
+    assert np.all((alarm_times >= 0) & (alarm_times <= 10))
 
 
 def test_calibrate_threshold_and_with_calibrated_threshold():
+    """Calibrate a threshold and verify detector wrapper preserves original detector."""
     rng = np.random.default_rng(1234)
     score = MeanCUSUM(n_features=1)
     detector = GridDetector(score=score, threshold=1.0)
 
     threshold = calibrate_threshold(
         score,
-        alpha=0.1,
+        false_alarm_probability=0.1,
         n_paths=50,
         stream_len=40,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
@@ -164,13 +244,14 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
 
 
 def test_calibrate_detector_threshold_wrapper_matches_score_first():
+    """Check detector-first and score-first calibration APIs agree."""
     rng = np.random.default_rng(321)
     score = MeanCUSUM(n_features=1)
     detector = GridDetector(score=score, threshold=2.0)
 
     threshold_from_score = calibrate_threshold(
         score,
-        alpha=0.1,
+        false_alarm_probability=0.1,
         n_paths=40,
         stream_len=30,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
@@ -181,7 +262,7 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     rng = np.random.default_rng(321)
     threshold_from_detector = calibrate_detector_threshold(
         detector,
-        alpha=0.1,
+        false_alarm_probability=0.1,
         n_paths=40,
         stream_len=30,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
@@ -193,6 +274,7 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
 
 
 def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
+    """Ensure mc_max_scores is reproducible with an integer seed."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
     out1 = mc_max_scores(
@@ -216,6 +298,7 @@ def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
 
 
 def test_mc_alarm_times_none_rng_is_deterministic_default():
+    """Ensure rng=None yields deterministic default behavior for alarm times."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.7)
 
     out1 = mc_alarm_times(
@@ -239,11 +322,12 @@ def test_mc_alarm_times_none_rng_is_deterministic_default():
 
 
 def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
+    """Ensure threshold calibration is reproducible with an integer seed."""
     score = MeanCUSUM(n_features=1)
 
     th1 = calibrate_threshold(
         score,
-        alpha=0.1,
+        false_alarm_probability=0.1,
         n_paths=30,
         stream_len=25,
         pre_sampler=normal_sampler,
@@ -252,7 +336,7 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
     )
     th2 = calibrate_threshold(
         score,
-        alpha=0.1,
+        false_alarm_probability=0.1,
         n_paths=30,
         stream_len=25,
         pre_sampler=normal_sampler,
@@ -264,6 +348,7 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
 
 
 def test_mc_max_scores_invalid_rng_type_raises():
+    """Raise TypeError when rng has an invalid type."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
 
     with pytest.raises(TypeError):
@@ -278,6 +363,7 @@ def test_mc_max_scores_invalid_rng_type_raises():
 
 
 def test_mc_max_scores_parallel_reproducible_with_int_seed():
+    """Ensure parallel max-score simulation is reproducible with fixed seed."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
     out1 = mc_max_scores(
@@ -309,6 +395,7 @@ def test_mc_max_scores_parallel_reproducible_with_int_seed():
 
 
 def test_mc_alarm_times_parallel_reproducible_with_int_seed():
+    """Ensure parallel alarm-time simulation is reproducible with fixed seed."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.7)
 
     out1 = mc_alarm_times(
@@ -340,6 +427,7 @@ def test_mc_alarm_times_parallel_reproducible_with_int_seed():
 
 
 def test_mc_max_scores_strict_equivalence_parallel_matches_serial():
+    """Check strict-equivalence mode matches serial max-score output exactly."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
     serial = mc_max_scores(
@@ -372,6 +460,7 @@ def test_mc_max_scores_strict_equivalence_parallel_matches_serial():
 
 
 def test_mc_alarm_times_strict_equivalence_parallel_matches_serial():
+    """Check strict-equivalence mode matches serial alarm-time output exactly."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.6)
 
     serial = mc_alarm_times(
@@ -404,6 +493,7 @@ def test_mc_alarm_times_strict_equivalence_parallel_matches_serial():
 
 
 def test_mc_max_scores_parallel_handles_local_sampler_function():
+    """Confirm local sampler callables work in parallel max-score simulation."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
     def local_sampler(rng: np.random.Generator) -> float:
@@ -428,6 +518,7 @@ def test_mc_max_scores_parallel_handles_local_sampler_function():
 
 
 def test_mc_alarm_times_parallel_handles_local_sampler_function():
+    """Confirm local sampler callables work in parallel alarm-time simulation."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=0.6)
 
     def local_pre_sampler(rng: np.random.Generator) -> float:
@@ -452,5 +543,5 @@ def test_mc_alarm_times_parallel_handles_local_sampler_function():
         )
 
     assert out.shape == (30,)
-    assert np.all((out >= 1) & (out <= 31))
+    assert np.all((out >= 0) & (out <= 30))
     assert not any(issubclass(w.category, RuntimeWarning) for w in caught)

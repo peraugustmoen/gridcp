@@ -137,9 +137,15 @@ class MeanCUSUM:
         MeanCUSUMState
             Updated state.
         """
-        x = np.asarray(x)
+        x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
+        if x_arr.size != self.n_features:
+            raise ValueError(
+                "MeanCUSUM expected observation of size "
+                f"{self.n_features}, got {x_arr.size}."
+            )
+
         next_n_samples = state.n_samples + 1
-        next_sum = state.sum + x
+        next_sum = state.sum + x_arr
         return MeanCUSUMState(n_samples=next_n_samples, sum=next_sum)
 
     def compute_penalised_scores(

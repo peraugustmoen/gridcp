@@ -25,6 +25,7 @@ uv pip install -e .[dev]
 - Intervals are always left-closed, right-open: [a, b). This is the standard python
     convention for intervals and slicing. Following this drastically reduce strange bugs
     and indexing errors.
+- Indices are 0-indexed by default unless explicitly stated otherwise.
 - A "changepoint" is the first index of a segment, not last as in the literature. Reasons:
 
     * Semantically the most correct: A change has only occured after an observation from a new distribution has been observed, not before.
@@ -34,19 +35,42 @@ uv pip install -e .[dev]
   python convention, and is used to indicate that the implementation may change without
   warning, and should not be used directly by users of the package.
 
+### Automated linting and formatting
+
+Run this once after the development install to auto-run linting/formatting before each commit:
+
+```bash
+pre-commit install
+```
+
+Run this once to also execute tests before each push:
+
+```bash
+pre-commit install --hook-type pre-push
+```
+
+Run on all files manually:
+
+```bash
+pre-commit run --all-files
+```
+
 ### About the new API
 
 - "Score" is the term for a "test statistic" in the code.
-- The main object is `gridcp.new_api.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
-- `gridcp.new_api.typing.ScoreModel` defines the "protocol" or interface for a score to be 
-   compatible with `gridcp.new_api.GridDetector`.
-- `gridcp.new_api.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
+- The main object is `gridcp.detector.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
+- `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
+    compatible with `gridcp.detector.GridDetector`.
+- `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
 - `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
 
 ### Calibration notes
 
 - `gridcp.calibration.calibrate_threshold(score, ...)` uses a score-first API.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
+- Indexing convention in calibration internals:
+    - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
+    - Returned alarm times are 0-indexed array indices (Python convention).
 - For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
 - Reproducibility policy:
     - `rng=<Generator>`: uses that generator's current state.
