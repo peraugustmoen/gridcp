@@ -3,18 +3,21 @@ repos:
     rev: v0.11.0
     hooks:
       - id: ruff
-        args: [--fix]
-        files: ^(gridcp|tests)/.*\.py$
-        exclude: ^gridcp/old_api/
+        name: ruff check (full)
+        args: [gridcp, tests]
+        pass_filenames: false
+        stages: [pre-commit]
       - id: ruff-format
-        files: ^(gridcp|tests)/.*\.py$
-        exclude: ^gridcp/old_api/
+        name: ruff format --check (full)
+        args: [--check, gridcp, tests]
+        pass_filenames: false
+        stages: [pre-commit]
 
   - repo: local
     hooks:
-      - id: pytest-pre-push
-        name: pytest (pre-push)
-        entry: .venv/bin/python -m pytest -q
+      - id: pytest-pre-commit
+        name: pytest with coverage (pre-commit)
+        entry: .venv/bin/python -m pytest --cov=gridcp --cov-report=term-missing
         language: system
         pass_filenames: false
-        stages: [pre-push]
+        stages: [pre-commit]
