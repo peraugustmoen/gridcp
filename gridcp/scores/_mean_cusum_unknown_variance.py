@@ -1,6 +1,6 @@
 """Mean-change score with unknown variance.
 
-Supports both univariate and multivariate data. For multivariate data, the
+Note: Supports both univariate and multivariate data. For multivariate data, the
 unknown-variance LR score is computed per feature and the maximum feature-wise
 score is used (matching the max-across-features behavior of ``MeanCUSUM``).
 """
