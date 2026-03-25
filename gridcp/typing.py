@@ -22,7 +22,7 @@ class ScoreModel(Protocol[TScoreState]):
     """
 
     def init_state(self) -> TScoreState:
-        """Return a fresh initial state with no observations seen."""
+        """Return fresh initial state with no observations seen."""
         ...
 
     def update(self, state: TScoreState, x: ArrayLike) -> TScoreState:
