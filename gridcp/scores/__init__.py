@@ -10,10 +10,16 @@ from gridcp.scores._mean_cusum_unknown_variance import (
     MeanCUSUMUnknownVariance,
     MeanCUSUMUnknownVarianceState,
 )
+from gridcp.scores._exponential_family_glr import (
+    ExponentialFamilyGLR,
+    ExponentialFamilyGLRState,
+)
 
 __all__ = [
     "MeanCUSUM",
     "MeanCUSUMState",
     "MeanCUSUMUnknownVariance",
     "MeanCUSUMUnknownVarianceState",
+    "ExponentialFamilyGLR",
+    "ExponentialFamilyGLRState",
 ]
