@@ -20,7 +20,7 @@ def mean_unknown_variance_score(
     total_samples: int,
     before_samples: np.ndarray,
 ) -> np.ndarray:
-    """Compute unknown-variance LR scores.
+    """Compute LR scores for a change in mean with unknown variance.
 
     Parameters
     ----------
@@ -31,12 +31,12 @@ def mean_unknown_variance_score(
     total_samples : int
         Total number of samples seen.
     before_samples : np.ndarray, shape (n_candidates,)
-        Candidate split sizes.
+        Pre-change candidate sample counts.
 
     Returns
     -------
     np.ndarray, shape (n_candidates,)
-        Penalisation-free score per candidate. For multivariate data this is
+        Penalisation-free score (LR) per candidate. For multivariate data this is
         the maximum of per-feature LR scores.
     """
     n_candidates = before_samples.shape[0]

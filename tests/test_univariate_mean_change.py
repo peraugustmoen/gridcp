@@ -4,7 +4,7 @@ import pytest
 import gridcp
 from gridcp.detector import GridDetector
 from gridcp.scores._mean_cusum import MeanCUSUM
-from gridcp.scores._mean_cusum_unknown_variance import MeanCUSUMUnknownVariance
+from gridcp.scores._mean_unknown_variance import MeanCUSUMUnknownVariance
 
 
 def _run_stream(data: np.ndarray, threshold: float = 10.0):

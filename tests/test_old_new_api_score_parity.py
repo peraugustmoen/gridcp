@@ -3,13 +3,13 @@ import numpy as np
 import gridcp.old_api as old_api
 from gridcp.detector import GridDetector
 from gridcp.scores import (
-    MeanOrVarianceLR,
-    MultivariateMeanAndCovarianceLR,
-    MultivariateMeanIdentityCovLR,
-    MultivariateMeanUnknownCovLR,
+    MeanOrVariance,
+    MultivariateMeanIdentityCov,
+    MultivariateMeanOrCovariance,
+    MultivariateMeanUnknownCov,
     RegressionDirect,
     RegressionMcScan,
-    VarianceLR,
+    Variance,
 )
 
 
@@ -70,13 +70,13 @@ def _run_parity_check(
         )
 
 
-def test_variance_lr_parity_with_old_api():
+def test_variance_parity_with_old_api():
     n = 40
     rng = np.random.default_rng(2026)
     x = rng.normal(0.0, 1.0, size=n)
 
     old_det = old_api.make_univariate_variance_change_detector(penalty_constant=1.0)
-    new_det = GridDetector(score=VarianceLR(n_features=1), threshold=1.0)
+    new_det = GridDetector(score=Variance(n_features=1), threshold=1.0)
 
     _run_parity_check(
         X=x,
@@ -87,7 +87,7 @@ def test_variance_lr_parity_with_old_api():
     )
 
 
-def test_mean_or_variance_lr_parity_with_old_api():
+def test_mean_or_variance_parity_with_old_api():
     n = 40
     rng = np.random.default_rng(2027)
     x = rng.normal(0.0, 1.0, size=n)
@@ -95,7 +95,7 @@ def test_mean_or_variance_lr_parity_with_old_api():
     old_det = old_api.make_univariate_mean_or_variance_change_detector(
         penalty_constant=1.0
     )
-    new_det = GridDetector(score=MeanOrVarianceLR(n_features=1), threshold=1.0)
+    new_det = GridDetector(score=MeanOrVariance(n_features=1), threshold=1.0)
 
     _run_parity_check(
         X=x,
@@ -106,7 +106,7 @@ def test_mean_or_variance_lr_parity_with_old_api():
     )
 
 
-def test_multivariate_mean_identity_cov_lr_parity_with_old_api():
+def test_multivariate_mean_identity_cov_parity_with_old_api():
     n = 40
     p = 4
     rng = np.random.default_rng(2028)
@@ -118,7 +118,7 @@ def test_multivariate_mean_identity_cov_lr_parity_with_old_api():
         mode="known_variance",
     )
     new_det = GridDetector(
-        score=MultivariateMeanIdentityCovLR(n_features=p), threshold=1.0
+        score=MultivariateMeanIdentityCov(n_features=p), threshold=1.0
     )
 
     _run_parity_check(
@@ -130,7 +130,7 @@ def test_multivariate_mean_identity_cov_lr_parity_with_old_api():
     )
 
 
-def test_multivariate_mean_unknown_cov_lr_parity_with_old_api():
+def test_multivariate_mean_unknown_cov_parity_with_old_api():
     n = 40
     p = 4
     rng = np.random.default_rng(2029)
@@ -142,7 +142,7 @@ def test_multivariate_mean_unknown_cov_lr_parity_with_old_api():
         mode="unknown_variance",
     )
     new_det = GridDetector(
-        score=MultivariateMeanUnknownCovLR(n_features=p), threshold=1.0
+        score=MultivariateMeanUnknownCov(n_features=p), threshold=1.0
     )
 
     _run_parity_check(
@@ -154,7 +154,7 @@ def test_multivariate_mean_unknown_cov_lr_parity_with_old_api():
     )
 
 
-def test_multivariate_mean_and_covariance_lr_parity_with_old_api():
+def test_multivariate_mean_or_covariance_parity_with_old_api():
     n = 40
     p = 4
     rng = np.random.default_rng(2030)
@@ -165,7 +165,7 @@ def test_multivariate_mean_and_covariance_lr_parity_with_old_api():
         penalty_constant=1.0,
     )
     new_det = GridDetector(
-        score=MultivariateMeanAndCovarianceLR(n_features=p),
+        score=MultivariateMeanOrCovariance(n_features=p),
         threshold=1.0,
     )
 

@@ -2,9 +2,9 @@ import numpy as np
 
 from gridcp.detector import GridDetector
 from gridcp.scores import (
-    MultivariateMeanAndCovarianceLR,
-    MultivariateMeanIdentityCovLR,
-    MultivariateMeanUnknownCovLR,
+    MultivariateMeanIdentityCov,
+    MultivariateMeanOrCovariance,
+    MultivariateMeanUnknownCov,
 )
 from gridcp.utils import get_changeloc_grid
 
@@ -27,7 +27,7 @@ def test_multivariate_mean_known_var_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCovLR(n_features=p),
+        score=MultivariateMeanIdentityCov(n_features=p),
         threshold=5.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -47,7 +47,7 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCovLR(n_features=p),
+        score=MultivariateMeanIdentityCov(n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -87,7 +87,7 @@ def test_multivariate_mean_known_var_reset_semantics():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCovLR(n_features=p),
+        score=MultivariateMeanIdentityCov(n_features=p),
         threshold=5.0,
     )
     state, _ = _run_stream(detector, x)
@@ -107,7 +107,7 @@ def test_multivariate_mean_unknown_var_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCovLR(n_features=p),
+        score=MultivariateMeanUnknownCov(n_features=p),
         threshold=5.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -127,7 +127,7 @@ def test_multivariate_mean_unknown_var_cumsums():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCovLR(n_features=p),
+        score=MultivariateMeanUnknownCov(n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -161,7 +161,7 @@ def test_multivariate_mean_unknown_var_no_false_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCovLR(n_features=p),
+        score=MultivariateMeanUnknownCov(n_features=p),
         threshold=50.0,
     )
     _, outputs = _run_stream(detector, x)
@@ -178,7 +178,7 @@ def test_multivariate_mean_or_covariance_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanAndCovarianceLR(n_features=p),
+        score=MultivariateMeanOrCovariance(n_features=p),
         threshold=5.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -198,7 +198,7 @@ def test_multivariate_mean_or_covariance_cumsums():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanAndCovarianceLR(n_features=p),
+        score=MultivariateMeanOrCovariance(n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -232,7 +232,7 @@ def test_multivariate_mean_or_covariance_no_false_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanAndCovarianceLR(n_features=p),
+        score=MultivariateMeanOrCovariance(n_features=p),
         threshold=50.0,
     )
     _, outputs = _run_stream(detector, x)

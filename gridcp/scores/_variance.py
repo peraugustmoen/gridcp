@@ -9,13 +9,13 @@ from gridcp.scores._score_helpers import as_obs
 
 
 @dataclass(slots=True)
-class VarianceLRState:
+class VarianceState:
     n_samples: int = 0
     sum_sq: np.ndarray = None
 
 
 @dataclass(frozen=True, slots=True)
-class VarianceLR:
+class Variance:
     """Univariate variance-change LR score.
 
     For `n_features > 1`, scores are computed per feature and the maximum is used.
@@ -23,20 +23,20 @@ class VarianceLR:
 
     n_features: int = 1
 
-    def init_state(self) -> VarianceLRState:
-        return VarianceLRState(sum_sq=np.zeros(self.n_features, dtype=np.float64))
+    def init_state(self) -> VarianceState:
+        return VarianceState(sum_sq=np.zeros(self.n_features, dtype=np.float64))
 
-    def update(self, state: VarianceLRState, x: ArrayLike) -> VarianceLRState:
+    def update(self, state: VarianceState, x: ArrayLike) -> VarianceState:
         x_arr = as_obs(x, self.n_features)
-        return VarianceLRState(
+        return VarianceState(
             n_samples=state.n_samples + 1,
             sum_sq=state.sum_sq + x_arr * x_arr,
         )
 
     def compute_penalised_scores(
         self,
-        state: VarianceLRState,
-        grid_states: list[VarianceLRState],
+        state: VarianceState,
+        grid_states: list[VarianceState],
     ) -> np.ndarray:
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples

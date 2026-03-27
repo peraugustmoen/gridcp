@@ -1,4 +1,4 @@
-"""Multivariate mean-or-covariance LR score."""
+"""Multivariate mean LR score with unknown covariance."""
 
 from dataclasses import dataclass
 
@@ -9,31 +9,31 @@ from gridcp.scores._score_helpers import as_obs
 
 
 @dataclass(slots=True)
-class MultivariateMeanAndCovarianceLRState:
+class MultivariateMeanUnknownCovState:
     n_samples: int = 0
     sum: np.ndarray = None
     sum_outer: np.ndarray = None
 
 
 @dataclass(frozen=True, slots=True)
-class MultivariateMeanAndCovarianceLR:
-    """Multivariate mean-or-covariance LR score."""
+class MultivariateMeanUnknownCov:
+    """Multivariate mean-change LR score with unknown covariance."""
 
     n_features: int
 
-    def init_state(self) -> MultivariateMeanAndCovarianceLRState:
-        return MultivariateMeanAndCovarianceLRState(
+    def init_state(self) -> MultivariateMeanUnknownCovState:
+        return MultivariateMeanUnknownCovState(
             sum=np.zeros(self.n_features, dtype=np.float64),
             sum_outer=np.zeros((self.n_features, self.n_features), dtype=np.float64),
         )
 
     def update(
         self,
-        state: MultivariateMeanAndCovarianceLRState,
+        state: MultivariateMeanUnknownCovState,
         x: ArrayLike,
-    ) -> MultivariateMeanAndCovarianceLRState:
+    ) -> MultivariateMeanUnknownCovState:
         x_arr = as_obs(x, self.n_features)
-        return MultivariateMeanAndCovarianceLRState(
+        return MultivariateMeanUnknownCovState(
             n_samples=state.n_samples + 1,
             sum=state.sum + x_arr,
             sum_outer=state.sum_outer + np.outer(x_arr, x_arr),
@@ -41,14 +41,17 @@ class MultivariateMeanAndCovarianceLR:
 
     def compute_penalised_scores(
         self,
-        state: MultivariateMeanAndCovarianceLRState,
-        grid_states: list[MultivariateMeanAndCovarianceLRState],
+        state: MultivariateMeanUnknownCovState,
+        grid_states: list[MultivariateMeanUnknownCovState],
     ) -> np.ndarray:
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
-        df = float(p + (p * (p + 1)) // 2)
+        df = float(p)
         penalty = np.sqrt(df * np.log(t / 0.05)) + np.log(t / 0.05)
+
+        if t < 2 * p:
+            return out
 
         s_tot = state.sum
         sxx_tot = state.sum_outer
@@ -57,27 +60,23 @@ class MultivariateMeanAndCovarianceLR:
             n1 = st.n_samples
             n2 = t - n1
 
-            if n1 <= 2 * p or n2 <= 2 * p:
-                out[i] = 0.0
-                continue
-
             s1 = st.sum
             sxx1 = st.sum_outer
             s2 = s_tot - s1
             sxx2 = sxx_tot - sxx1
 
-            sigma_tot = (sxx_tot - np.outer(s_tot, s_tot) / t) / t
-            sigma_1 = (sxx1 - np.outer(s1, s1) / n1) / n1
-            sigma_2 = (sxx2 - np.outer(s2, s2) / n2) / n2
+            sigma_null = (sxx_tot - np.outer(s_tot, s_tot) / t) / t
+            sigma_alt = (
+                (sxx1 - np.outer(s1, s1) / n1) + (sxx2 - np.outer(s2, s2) / n2)
+            ) / t
 
-            sign0, logdet0 = np.linalg.slogdet(sigma_tot)
-            sign1, logdet1 = np.linalg.slogdet(sigma_1)
-            sign2, logdet2 = np.linalg.slogdet(sigma_2)
-            if sign0 <= 0 or sign1 <= 0 or sign2 <= 0:
+            sign0, logdet0 = np.linalg.slogdet(sigma_null)
+            sign1, logdet1 = np.linalg.slogdet(sigma_alt)
+            if sign0 <= 0 or sign1 <= 0:
                 out[i] = 0.0
                 continue
 
-            lr = t * logdet0 - n1 * logdet1 - n2 * logdet2
+            lr = t * (logdet0 - logdet1)
             out[i] = (lr - df) / penalty
 
         return out

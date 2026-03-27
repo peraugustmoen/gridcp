@@ -9,37 +9,37 @@ from gridcp.scores._score_helpers import as_obs
 
 
 @dataclass(slots=True)
-class MultivariateMeanIdentityCovLRState:
+class MultivariateMeanIdentityCovState:
     n_samples: int = 0
     sum: np.ndarray = None
 
 
 @dataclass(frozen=True, slots=True)
-class MultivariateMeanIdentityCovLR:
+class MultivariateMeanIdentityCov:
     """Multivariate mean-change LR score under identity covariance."""
 
     n_features: int
 
-    def init_state(self) -> MultivariateMeanIdentityCovLRState:
-        return MultivariateMeanIdentityCovLRState(
+    def init_state(self) -> MultivariateMeanIdentityCovState:
+        return MultivariateMeanIdentityCovState(
             sum=np.zeros(self.n_features, dtype=np.float64)
         )
 
     def update(
         self,
-        state: MultivariateMeanIdentityCovLRState,
+        state: MultivariateMeanIdentityCovState,
         x: ArrayLike,
-    ) -> MultivariateMeanIdentityCovLRState:
+    ) -> MultivariateMeanIdentityCovState:
         x_arr = as_obs(x, self.n_features)
-        return MultivariateMeanIdentityCovLRState(
+        return MultivariateMeanIdentityCovState(
             n_samples=state.n_samples + 1,
             sum=state.sum + x_arr,
         )
 
     def compute_penalised_scores(
         self,
-        state: MultivariateMeanIdentityCovLRState,
-        grid_states: list[MultivariateMeanIdentityCovLRState],
+        state: MultivariateMeanIdentityCovState,
+        grid_states: list[MultivariateMeanIdentityCovState],
     ) -> np.ndarray:
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples

@@ -9,14 +9,14 @@ from gridcp.scores._score_helpers import as_obs
 
 
 @dataclass(slots=True)
-class MeanOrVarianceLRState:
+class MeanOrVarianceState:
     n_samples: int = 0
     sum: np.ndarray = None
     sum_sq: np.ndarray = None
 
 
 @dataclass(frozen=True, slots=True)
-class MeanOrVarianceLR:
+class MeanOrVariance:
     """Univariate mean-or-variance LR score.
 
     For `n_features > 1`, scores are computed per feature and the maximum is used.
@@ -24,17 +24,15 @@ class MeanOrVarianceLR:
 
     n_features: int = 1
 
-    def init_state(self) -> MeanOrVarianceLRState:
-        return MeanOrVarianceLRState(
+    def init_state(self) -> MeanOrVarianceState:
+        return MeanOrVarianceState(
             sum=np.zeros(self.n_features, dtype=np.float64),
             sum_sq=np.zeros(self.n_features, dtype=np.float64),
         )
 
-    def update(
-        self, state: MeanOrVarianceLRState, x: ArrayLike
-    ) -> MeanOrVarianceLRState:
+    def update(self, state: MeanOrVarianceState, x: ArrayLike) -> MeanOrVarianceState:
         x_arr = as_obs(x, self.n_features)
-        return MeanOrVarianceLRState(
+        return MeanOrVarianceState(
             n_samples=state.n_samples + 1,
             sum=state.sum + x_arr,
             sum_sq=state.sum_sq + x_arr * x_arr,
@@ -42,8 +40,8 @@ class MeanOrVarianceLR:
 
     def compute_penalised_scores(
         self,
-        state: MeanOrVarianceLRState,
-        grid_states: list[MeanOrVarianceLRState],
+        state: MeanOrVarianceState,
+        grid_states: list[MeanOrVarianceState],
     ) -> np.ndarray:
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
