@@ -83,6 +83,15 @@ pre-commit run --all-files
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
 
+### Threshold shape behavior in `GridDetector`
+
+- Threshold values must be strictly positive.
+- If penalised scores are scalar-valued (`shape (G,)`), threshold must be scalar.
+- If penalised scores are multivariate (`shape (G, K)`):
+    - A scalar threshold is silently expanded to a length-`K` vector and cached internally.
+    - A vector threshold must have length `K`.
+    - If `K` changes after scalar expansion has been cached, `update()` raises `ValueError`.
+
 ### Adding a new score/test statistic
 
 - Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.

@@ -257,12 +257,9 @@ def _mc_worker_chunk(
         raise RuntimeError("Monte Carlo worker sampler callables are missing.")
 
     n_local_paths = end - start
-    if task == "max":
-        out = np.empty(n_local_paths, dtype=np.float64)
-    elif task == "alarm":
+    if task == "alarm":
         out = np.empty(n_local_paths, dtype=np.int64)
-    else:
-        raise ValueError(f"Unknown task kind: {task}.")
+    # For "max", out is allocated lazily once we know n_tests.
 
     # One RNG per worker chunk to minimize generator construction overhead.
     local_rng = np.random.default_rng(chunk_seed)
@@ -270,14 +267,14 @@ def _mc_worker_chunk(
     pre_mode: str | None = None
     post_mode: str | None = None
     scalar_buffer = np.empty(n_features, dtype=np.float64)
+    out_allocated = task != "max"
 
     for local_idx in range(n_local_paths):
         path_idx = start + local_idx
         cp = _resolve_changepoint(_WORKER_CHANGEPOINT, local_rng, stream_len, path_idx)
 
         state = _WORKER_DETECTOR.init_state()
-        if task == "max":
-            max_score = 0.0
+        max_score = None
 
         # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
         # This ranges from 1 to stream_len, not 0 to stream_len-1.
@@ -306,9 +303,11 @@ def _mc_worker_chunk(
             state, output = _WORKER_DETECTOR.update(state, x)
 
             if task == "max":
-                temp = float(output["max_score"])
-                if temp > max_score:
-                    max_score = temp
+                temp = np.asarray(output["max_score"], dtype=np.float64)
+                if max_score is None:
+                    max_score = temp.copy() if temp.ndim > 0 else temp
+                else:
+                    max_score = np.maximum(max_score, temp)
             elif bool(output["alarm"]):
                 out[local_idx] = t - 1
                 break
@@ -317,6 +316,16 @@ def _mc_worker_chunk(
                 out[local_idx] = stream_len
 
         if task == "max":
+            if max_score is None:
+                # stream_len == 0 edge case
+                max_score = 0.0
+            if not out_allocated:
+                ms_arr = np.asarray(max_score)
+                if ms_arr.ndim == 0:
+                    out = np.empty(n_local_paths, dtype=np.float64)
+                else:
+                    out = np.empty((n_local_paths, ms_arr.shape[0]), dtype=np.float64)
+                out_allocated = True
             out[local_idx] = max_score
 
     return start, out
@@ -329,18 +338,30 @@ def _mc_max_scores_chunk_from_samples(
     """Compute max scores for a pre-generated sample chunk."""
     n_local = X_chunk.shape[0]
     stream_len = X_chunk.shape[1]
-    out = np.empty(n_local, dtype=np.float64)
+    out = None
 
     for i in range(n_local):
         state = detector.init_state()
-        max_score = 0.0
+        max_score = None
         for t in range(stream_len):
             state, output = detector.update(state, X_chunk[i, t, :])
-            temp = float(output["max_score"])
-            if temp > max_score:
-                max_score = temp
+            temp = np.asarray(output["max_score"], dtype=np.float64)
+            if max_score is None:
+                max_score = temp.copy() if temp.ndim > 0 else temp
+            else:
+                max_score = np.maximum(max_score, temp)
+        if max_score is None:
+            max_score = 0.0
+        if out is None:
+            temp_arr = np.asarray(max_score)
+            if temp_arr.ndim == 0:
+                out = np.empty(n_local, dtype=np.float64)
+            else:
+                out = np.empty((n_local, temp_arr.shape[0]), dtype=np.float64)
         out[i] = max_score
 
+    if out is None:
+        out = np.empty(n_local, dtype=np.float64)
     return out
 
 
@@ -660,7 +681,9 @@ def mc_max_scores(
             )
         n_features = int(score_n_features)
 
-    max_scores = np.empty(n_paths, dtype=np.float64)
+    # Output array allocated lazily; shape depends on whether scores are
+    # scalar (n_paths,) or multivariate (n_paths, n_tests).
+    max_scores: np.ndarray | None = None
 
     if pre_kwargs is None:
         pre_kwargs = {}
@@ -713,8 +736,14 @@ def mc_max_scores(
                 for (start, end) in chunks
             ]
 
-            for (start, end), fut in zip(chunks, futures):
-                max_scores[start:end] = fut.result()
+            results = [fut.result() for (_, _), fut in zip(chunks, futures)]
+            first = results[0]
+            if first.ndim == 1:
+                max_scores = np.empty(n_paths, dtype=np.float64)
+            else:
+                max_scores = np.empty((n_paths, first.shape[1]), dtype=np.float64)
+            for (start, end), res in zip(chunks, results):
+                max_scores[start:end] = res
         return max_scores
 
     if not parallel:
@@ -732,16 +761,7 @@ def mc_max_scores(
             changepoint=changepoint,
         )
 
-        for path_idx in range(n_paths):
-            state = detector.init_state()
-            max_score = 0.0
-            for t in range(stream_len):
-                state, output = detector.update(state, X[path_idx, t, :])
-                temp = float(output["max_score"])
-                if temp > max_score:
-                    max_score = temp
-            max_scores[path_idx] = max_score
-        return max_scores
+        return _mc_max_scores_chunk_from_samples(detector, X)
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths)
     if n_workers == 1:
@@ -800,7 +820,15 @@ def mc_max_scores(
 
             for fut in as_completed(futures):
                 start, values = fut.result()
-                max_scores[start : start + values.size] = values
+                if max_scores is None:
+                    if values.ndim == 1:
+                        max_scores = np.empty(n_paths, dtype=np.float64)
+                    else:
+                        max_scores = np.empty(
+                            (n_paths, values.shape[1]), dtype=np.float64
+                        )
+                n_vals = values.shape[0]
+                max_scores[start : start + n_vals] = values
     except Exception as exc:
         warnings.warn(
             "Parallel Monte Carlo failed; falling back to serial execution. "
@@ -1067,11 +1095,15 @@ def calibrate_threshold(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
-) -> float:
+) -> float | np.ndarray:
     """Estimate a score threshold from Monte Carlo max scores under the null.
 
-    Returns the empirical ``(1 - false_alarm_probability)`` quantile of max
-    scores.
+    For scalar scores, returns the empirical ``(1 - false_alarm_probability)``
+    quantile of max scores (a float).
+
+    For multivariate scores (K tests), applies a Bonferroni correction: each
+    per-test threshold is set at the ``(1 - alpha/K)`` quantile, and the
+    result is a 1-D array of shape ``(K,)``.
 
     Parameters
     ----------
@@ -1124,7 +1156,19 @@ def calibrate_threshold(
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
     )
-    return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
+
+    if max_scores.ndim == 1:
+        # Scalar scores: single threshold.
+        return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
+
+    # Multivariate scores: Bonferroni correction.
+    n_tests = max_scores.shape[1]
+    alpha_corrected = false_alarm_probability / n_tests
+    quantile_level = 1.0 - alpha_corrected
+    return np.array(
+        [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_tests)],
+        dtype=np.float64,
+    )
 
 
 def calibrate_detector_threshold(
@@ -1141,7 +1185,7 @@ def calibrate_detector_threshold(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
-) -> float:
+) -> float | np.ndarray:
     """Estimate threshold for an existing detector.
 
     This is a convenience wrapper around :func:`calibrate_threshold`.
@@ -1164,9 +1208,16 @@ def calibrate_detector_threshold(
 
 def with_calibrated_threshold(
     detector: GridDetector,
-    threshold: float,
+    threshold: float | np.ndarray,
 ) -> GridDetector:
     """Return a copy of ``detector`` with updated threshold."""
-    if threshold <= 0:
-        raise ValueError("threshold must be positive.")
-    return replace(detector, threshold=float(threshold))
+    th = np.asarray(threshold, dtype=np.float64)
+    if th.ndim == 0:
+        if float(th) <= 0:
+            raise ValueError("threshold must be positive.")
+    elif th.ndim == 1:
+        if np.any(th <= 0):
+            raise ValueError("All threshold entries must be positive.")
+    else:
+        raise ValueError("threshold must be a scalar or 1-D array.")
+    return replace(detector, threshold=threshold)

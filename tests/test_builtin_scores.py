@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from gridcp.detector import GridDetector
 from gridcp.scores import (
@@ -28,7 +29,7 @@ def test_multivariate_mean_known_var_alarm():
 
     detector = GridDetector(
         score=MultivariateMeanIdentityCov(n_features=p),
-        threshold=5.0,
+        threshold=np.array([5.0, 5.0], dtype=np.float64),
     )
     state, outputs = _run_stream(detector, x)
 
@@ -48,7 +49,7 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
 
     detector = GridDetector(
         score=MultivariateMeanIdentityCov(n_features=p),
-        threshold=100.0,
+        threshold=np.array([100.0, 100.0], dtype=np.float64),
     )
     state, _ = _run_stream(detector, x)
 
@@ -70,12 +71,19 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
         lr = (n1 * n2 / n) * float(np.dot(diff, diff))
         expected_raw = lr - p
 
-        score = detector.score.compute_penalised_scores(
+        scores = detector.score.compute_penalised_scores(
             state.running_score_state,
             state.candidate_score_states,
         )[i]
-        penalty = np.log(n) + np.sqrt(p * np.log(n))
-        assert np.isclose(score, expected_raw / penalty)
+
+        # Column 0: sparse statistic (max of squared diffs).
+        lr_sparse = (n1 * n2 / n) * float(np.max(diff * diff))
+        penalty_sparse = np.log(n) + np.log(p)
+        assert np.isclose(scores[0], (lr_sparse - 1) / penalty_sparse)
+
+        # Column 1: dense statistic (sum of squared diffs).
+        penalty_dense = np.sqrt(p * np.log(n)) + np.log(n)
+        assert np.isclose(scores[1], expected_raw / penalty_dense)
 
 
 def test_multivariate_mean_known_var_reset_semantics():
@@ -88,7 +96,7 @@ def test_multivariate_mean_known_var_reset_semantics():
 
     detector = GridDetector(
         score=MultivariateMeanIdentityCov(n_features=p),
-        threshold=5.0,
+        threshold=np.array([5.0, 5.0], dtype=np.float64),
     )
     state, _ = _run_stream(detector, x)
     assert state.n_samples == n
@@ -238,3 +246,54 @@ def test_multivariate_mean_or_covariance_no_false_alarm():
     _, outputs = _run_stream(detector, x)
 
     assert not any(out["alarm"] for out in outputs)
+
+
+def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
+    """A scalar threshold is broadcast and cached for multivariate scores."""
+    p = 4
+    detector = GridDetector(
+        score=MultivariateMeanIdentityCov(n_features=p),
+        threshold=1.0,
+    )
+    state = detector.init_state()
+
+    state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
+    state, out = detector.update(state, np.zeros(p, dtype=np.float64))
+    state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
+
+    assert detector._broadcast_threshold_cache is not None
+    assert detector._broadcast_threshold_cache.shape == (2,)
+    assert np.allclose(detector._broadcast_threshold_cache, np.array([1.0, 1.0]))
+    assert out["max_score"].shape == (2,)
+    assert out["max_score_index"].shape == (2,)
+
+
+def test_multivariate_identity_cov_rejects_wrong_threshold_length():
+    """Threshold vector length must match the number of score components."""
+    p = 4
+    detector = GridDetector(
+        score=MultivariateMeanIdentityCov(n_features=p),
+        threshold=np.array([1.0], dtype=np.float64),
+    )
+    state = detector.init_state()
+
+    state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
+    with pytest.raises(ValueError, match="threshold shape mismatch"):
+        detector.update(state, np.zeros(p, dtype=np.float64))
+
+
+def test_multivariate_identity_cov_accepts_matching_threshold_length():
+    """Strict mode accepts a threshold vector that matches score dimension."""
+    p = 4
+    detector = GridDetector(
+        score=MultivariateMeanIdentityCov(n_features=p),
+        threshold=np.array([1.0, 1.0], dtype=np.float64),
+    )
+    state = detector.init_state()
+
+    state, out = detector.update(state, np.zeros(p, dtype=np.float64))
+    assert out["max_score_index"].shape == (2,)
+
+    state, out = detector.update(state, np.zeros(p, dtype=np.float64))
+    assert out["max_score"].shape == (2,)
+    assert out["max_score_index"].shape == (2,)

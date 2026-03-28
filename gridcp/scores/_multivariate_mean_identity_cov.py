@@ -41,10 +41,11 @@ class MultivariateMeanIdentityCov:
         state: MultivariateMeanIdentityCovState,
         grid_states: list[MultivariateMeanIdentityCovState],
     ) -> np.ndarray:
-        out = np.zeros(len(grid_states), dtype=np.float64)
+        out = np.zeros((len(grid_states), 2), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
-        penalty = np.log(t) + np.sqrt(p * np.log(t))
+        penalty_sparse = np.log(t) + np.log(p)
+        penalty_dense = np.sqrt(p * np.log(t)) + np.log(t)
 
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
@@ -52,7 +53,9 @@ class MultivariateMeanIdentityCov:
             mean1 = st.sum / n1
             mean2 = (state.sum - st.sum) / n2
             diff = mean1 - mean2
-            lr = (n1 * n2 / t) * float(np.dot(diff, diff))
-            out[i] = (lr - p) / penalty
+            lr_dense = (n1 * n2 / t) * float(np.dot(diff, diff))
+            lr_sparse = (n1 * n2 / t) * np.max(diff * diff)
+            out[i, 0] = (lr_sparse - 1) / penalty_sparse
+            out[i, 1] = (lr_dense - p) / penalty_dense
 
         return out

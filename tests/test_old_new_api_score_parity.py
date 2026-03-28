@@ -31,6 +31,7 @@ def _run_parity_check(
     candidate_from_new_state,
     atol: float = 1e-8,
     rtol: float = 1e-8,
+    score_index: int | None = None,
 ):
     state = new_detector.init_state()
     running_new_max = 0.0
@@ -38,7 +39,10 @@ def _run_parity_check(
     for obs in X:
         old_detector.update(obs)
         state, out = new_detector.update(state, obs)
-        running_new_max = max(running_new_max, float(out["max_score"]))
+        ms = np.asarray(out["max_score"])
+        if score_index is not None and ms.ndim > 0:
+            ms = ms[score_index]
+        running_new_max = max(running_new_max, float(ms))
 
         old_state = old_detector._state
 
@@ -118,7 +122,8 @@ def test_multivariate_mean_identity_cov_parity_with_old_api():
         mode="known_variance",
     )
     new_det = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p), threshold=1.0
+        score=MultivariateMeanIdentityCov(n_features=p),
+        threshold=np.array([1.0, 1.0], dtype=np.float64),
     )
 
     _run_parity_check(
@@ -127,6 +132,7 @@ def test_multivariate_mean_identity_cov_parity_with_old_api():
         new_detector=new_det,
         running_from_new_state=lambda st: st.sum,
         candidate_from_new_state=lambda st: st.sum,
+        score_index=1,
     )
 
 

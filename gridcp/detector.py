@@ -77,18 +77,92 @@ class GridDetector:
 
     Owns:
     - A state.
-    - A threshold.
+        - A threshold (scalar or per-test array).
     - The grid of candidate changepoints.
+
+        Threshold semantics
+        -------------------
+        For scalar score outputs, threshold must be scalar.
+
+        For multivariate score outputs with shape (G, K):
+        - If threshold is scalar, it is broadcast to shape (K,) once and cached
+            internally for this detector instance.
+        - If threshold is a vector, it must have shape (K,).
+        - If the inferred multivariate dimension K changes after scalar
+            broadcasting has been cached, update() raises ValueError.
 
     """
 
     score: ScoreModel
-    threshold: float = 1.0
+    threshold: float | np.ndarray = 1.0
+    _broadcast_threshold_cache: np.ndarray | None = field(
+        default=None,
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def _resolve_threshold_for_scores(
+        self,
+        threshold: np.ndarray,
+        penalised_scores: np.ndarray,
+    ) -> np.ndarray:
+        """Return threshold shaped for score comparison.
+
+        For multivariate score outputs, a scalar threshold is explicitly
+        broadcast to all score components and cached per detector instance.
+        """
+        if penalised_scores.ndim == 1:
+            if threshold.ndim != 0:
+                raise ValueError(
+                    "threshold shape mismatch: per-candidate penalised score is "
+                    "scalar (K=1), so threshold must be scalar; "
+                    f"got threshold shape {threshold.shape}."
+                )
+            return threshold
+
+        if penalised_scores.ndim == 2:
+            n_tests = penalised_scores.shape[1]
+            if threshold.ndim == 0:
+                cached = self._broadcast_threshold_cache
+                if cached is None:
+                    scalar_threshold = float(threshold)
+                    cached = np.full(n_tests, scalar_threshold, dtype=np.float64)
+                    object.__setattr__(self, "_broadcast_threshold_cache", cached)
+                    return cached
+
+                if cached.shape[0] != n_tests:
+                    raise ValueError(
+                        "threshold shape mismatch: scalar threshold was previously "
+                        f"broadcast to K={cached.shape[0]}, but per-candidate "
+                        f"penalised score dimension is now K={n_tests}."
+                    )
+                return cached
+
+            if threshold.ndim != 1 or threshold.shape[0] != n_tests:
+                raise ValueError(
+                    "threshold shape mismatch: per-candidate penalised score "
+                    f"dimension is K={n_tests}, so threshold must have shape "
+                    f"({n_tests},); got threshold shape {threshold.shape}."
+                )
+            return threshold
+
+        raise ValueError(
+            "penalised_scores must be a 1-D or 2-D array, "
+            f"got shape {penalised_scores.shape}."
+        )
 
     def __post_init__(self):
         """Validate the threshold and score object."""
-        if self.threshold <= 0:
-            raise ValueError("threshold must be positive.")
+        th = np.asarray(self.threshold, dtype=np.float64)
+        if th.ndim == 0:
+            if float(th) <= 0:
+                raise ValueError("threshold must be positive.")
+        elif th.ndim == 1:
+            if np.any(th <= 0):
+                raise ValueError("All threshold entries must be positive.")
+        else:
+            raise ValueError("threshold must be a scalar or 1-D array.")
         if not isinstance(self.score, ScoreModel):
             raise TypeError("score must implement the ScoreModel protocol.")
 
@@ -131,14 +205,34 @@ class GridDetector:
             penalised_scores = self.score.compute_penalised_scores(
                 new_state.running_score_state, new_state.candidate_score_states
             )
-            argmax = int(np.argmax(penalised_scores))
-            max_score = float(penalised_scores[argmax])
-            max_score_index = new_state.grid[argmax]
-        else:
-            max_score = 0.0
-            max_score_index = 0
+            th = np.asarray(self.threshold, dtype=np.float64)
+            comparison_threshold = self._resolve_threshold_for_scores(
+                th, penalised_scores
+            )
 
-        alarm = max_score > self.threshold
+            if penalised_scores.ndim == 1:
+                # Scalar test: shape (G,)
+                argmax = int(np.argmax(penalised_scores))
+                max_score = float(penalised_scores[argmax])
+                max_score_index = new_state.grid[argmax]
+            else:
+                # Multivariate tests: shape (G, K)
+                # Per-test max over grid candidates.
+                max_score = np.max(penalised_scores, axis=0)
+                argmax_per_test = np.argmax(penalised_scores, axis=0)
+                max_score_index = np.array([new_state.grid[j] for j in argmax_per_test])
+        else:
+            th = np.asarray(self.threshold, dtype=np.float64)
+            comparison_threshold = th
+            if th.ndim == 0:
+                max_score = 0.0
+                max_score_index = 0
+            else:
+                n_tests = th.shape[0]
+                max_score = np.zeros(n_tests, dtype=np.float64)
+                max_score_index = np.zeros(n_tests, dtype=np.int64)
+
+        alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
         output = {
             "num_samples": new_state.n_samples,

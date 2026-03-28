@@ -58,7 +58,11 @@ class ScoreModel(Protocol[TScoreState]):
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states),)
-            Penalised score for each active candidate.
+        np.ndarray, shape (len(grid_states),) or (len(grid_states), n_tests)
+            Penalised score for each active candidate.  When the score model
+            produces a single test statistic the shape is ``(G,)``.  When the
+            model produces multiple test statistics (e.g. separate tests for
+            mean vs variance), the shape is ``(G, K)`` where ``K`` is the
+            number of tests.
         """
         ...
