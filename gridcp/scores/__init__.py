@@ -5,6 +5,7 @@ in `gridcp.typing`. This means they need to implement three methods.
 See `_mean_cusum.py` for an example implementation.
 """
 
+from gridcp.typing import PenaltyType
 from gridcp.scores._mean_cusum import MeanCUSUM, MeanCUSUMState
 from gridcp.scores._mean_unknown_variance import (
     MeanCUSUMUnknownVariance,
@@ -28,6 +29,7 @@ from gridcp.scores._regression_mcscan import RegressionMcScan, RegressionMcScanS
 from gridcp.scores._variance import Variance, VarianceState
 
 __all__ = [
+    "PenaltyType",
     "MeanCUSUM",
     "MeanCUSUMState",
     "MeanCUSUMUnknownVariance",

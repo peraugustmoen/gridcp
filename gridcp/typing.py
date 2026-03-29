@@ -1,10 +1,27 @@
 """Typing definitions for the grid detector API."""
 
+from enum import Enum
 from typing import Protocol, TypeVar, runtime_checkable
 import numpy as np
 from numpy.typing import ArrayLike
 
 TScoreState = TypeVar("TScoreState")
+
+
+class PenaltyType(Enum):
+    """Penalty mode for built-in score models.
+
+    ``TIME_DEPENDENT``
+        Time-growing penalty (e.g. log *t* + √log *t*) designed for false alarm
+        probability control.
+    ``CONSTANT``
+        No time-dependent normalisation (penalty = 1). Scores are only centered,
+        and the threshold absorbs all scaling.  Suitable for Average Run Length
+        (ARL) control where the threshold is calibrated via Monte Carlo.
+    """
+
+    TIME_DEPENDENT = "time_dependent"
+    CONSTANT = "constant"
 
 
 @runtime_checkable

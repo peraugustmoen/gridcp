@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 from gridcp.scores._score_helpers import as_obs, inv_sqrtm_pd
 
 
@@ -20,6 +20,7 @@ class RegressionDirect:
     """Direct regression-change score using covariance-normalized differences."""
 
     n_regressors: int
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     @property
     def n_features(self) -> int:
@@ -47,16 +48,15 @@ class RegressionDirect:
             xx_sum=state.xx_sum + np.outer(xx, xx),
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: RegressionDirectState,
         grid_states: list[RegressionDirectState],
     ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         q = self.n_regressors
-        p = self.n_features
-        penalty = np.sqrt((p - 1) * np.log(t)) + np.log(t)
 
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
@@ -73,7 +73,22 @@ class RegressionDirect:
             m1_inv = inv_sqrtm_pd(xx_pre)
             m2_inv = inv_sqrtm_pd(xx_post)
             diff = m1_inv @ yx_pre - m2_inv @ yx_post
-            raw = 0.5 * float(np.dot(diff, diff)) - q
-            out[i] = raw / penalty
+            out[i] = 0.5 * float(np.dot(diff, diff)) - q
 
         return out
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            p = self.n_features
+            return np.sqrt((p - 1) * np.log(n_samples)) + np.log(n_samples)
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: RegressionDirectState,
+        grid_states: list[RegressionDirectState],
+    ) -> np.ndarray:
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 from gridcp.scores._score_helpers import as_obs
 
 
@@ -20,6 +20,7 @@ class MultivariateMeanUnknownCov:
     """Multivariate mean-change LR score with unknown covariance."""
 
     n_features: int
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MultivariateMeanUnknownCovState:
         return MultivariateMeanUnknownCovState(
@@ -39,16 +40,16 @@ class MultivariateMeanUnknownCov:
             sum_outer=state.sum_outer + np.outer(x_arr, x_arr),
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: MultivariateMeanUnknownCovState,
         grid_states: list[MultivariateMeanUnknownCovState],
     ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
         df = float(p)
-        penalty = np.sqrt(df * np.log(t / 0.05)) + np.log(t / 0.05)
 
         if t < 2 * p:
             return out
@@ -77,6 +78,23 @@ class MultivariateMeanUnknownCov:
                 continue
 
             lr = t * (logdet0 - logdet1)
-            out[i] = (lr - df) / penalty
+            out[i] = lr - df
 
         return out
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            df = float(self.n_features)
+            return np.sqrt(df * np.log(n_samples / 0.05)) + np.log(n_samples / 0.05)
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: MultivariateMeanUnknownCovState,
+        grid_states: list[MultivariateMeanUnknownCovState],
+    ) -> np.ndarray:
+        """Compute penalised LR score at every active grid candidate."""
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

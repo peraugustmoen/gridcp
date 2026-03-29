@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import numba as nb
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 
 
 @nb.njit(cache=True)
@@ -122,6 +122,7 @@ class MeanCUSUMUnknownVariance:
     """
 
     n_features: int = 1
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
         """Return a fresh initial state with no observations seen."""
@@ -161,12 +162,12 @@ class MeanCUSUMUnknownVariance:
             stats=next_stats,
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: MeanCUSUMUnknownVarianceState,
         grid_states: list[MeanCUSUMUnknownVarianceState],
     ) -> np.ndarray:
-        """Compute penalised LR score at every active grid candidate."""
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -178,11 +179,25 @@ class MeanCUSUMUnknownVariance:
             grid_stats = np.stack([st.stats for st in grid_states])
 
         grid_n_samples = np.array([st.n_samples for st in grid_states], dtype=np.int64)
-        scores = mean_unknown_variance_score(
+        return mean_unknown_variance_score(
             total_stats=total_stats,
             before_stats=grid_stats,
             total_samples=state.n_samples,
             before_samples=grid_n_samples,
         )
-        penalty = mean_unknown_variance_penalty(state.n_samples)
-        return scores / penalty
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            return mean_unknown_variance_penalty(n_samples)
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: MeanCUSUMUnknownVarianceState,
+        grid_states: list[MeanCUSUMUnknownVarianceState],
+    ) -> np.ndarray:
+        """Compute penalised LR score at every active grid candidate."""
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

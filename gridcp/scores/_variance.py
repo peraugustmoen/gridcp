@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 from gridcp.scores._score_helpers import as_obs
 
 
@@ -22,6 +22,7 @@ class Variance:
     """
 
     n_features: int = 1
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> VarianceState:
         return VarianceState(sum_sq=np.zeros(self.n_features, dtype=np.float64))
@@ -33,15 +34,15 @@ class Variance:
             sum_sq=state.sum_sq + x_arr * x_arr,
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: VarianceState,
         grid_states: list[VarianceState],
     ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
-        penalty = np.log(t) + np.sqrt(np.log(t))
 
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
@@ -63,7 +64,21 @@ class Variance:
                 if score > best:
                     best = score
 
-            raw = best if has_valid else 0.0
-            out[i] = raw / penalty
+            out[i] = best if has_valid else 0.0
 
         return out
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            return np.log(n_samples) + np.sqrt(np.log(n_samples))
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: VarianceState,
+        grid_states: list[VarianceState],
+    ) -> np.ndarray:
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

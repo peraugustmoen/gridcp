@@ -1,18 +1,18 @@
 """Mean-or-variance LR score."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 from gridcp.scores._score_helpers import as_obs
 
 
 @dataclass(slots=True)
 class MeanOrVarianceState:
     n_samples: int = 0
-    sum: np.ndarray = None
-    sum_sq: np.ndarray = None
+    sum: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    sum_sq: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +23,7 @@ class MeanOrVariance:
     """
 
     n_features: int = 1
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MeanOrVarianceState:
         return MeanOrVarianceState(
@@ -38,15 +39,15 @@ class MeanOrVariance:
             sum_sq=state.sum_sq + x_arr * x_arr,
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: MeanOrVarianceState,
         grid_states: list[MeanOrVarianceState],
     ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
-        penalty = np.log(2.0 * t) + np.sqrt(np.log(2.0 * t))
 
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
@@ -78,7 +79,21 @@ class MeanOrVariance:
                 if score > best:
                     best = score
 
-            raw = best if has_valid else 0.0
-            out[i] = raw / penalty
+            out[i] = best if has_valid else 0.0
 
         return out
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            return np.log(2.0 * n_samples) + np.sqrt(np.log(2.0 * n_samples))
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: MeanOrVarianceState,
+        grid_states: list[MeanOrVarianceState],
+    ) -> np.ndarray:
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 from gridcp.scores._score_helpers import as_obs
 
 
@@ -20,6 +20,7 @@ class MultivariateMeanOrCovariance:
     """Multivariate mean-or-covariance LR score."""
 
     n_features: int
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MultivariateMeanOrCovarianceState:
         return MultivariateMeanOrCovarianceState(
@@ -39,16 +40,16 @@ class MultivariateMeanOrCovariance:
             sum_outer=state.sum_outer + np.outer(x_arr, x_arr),
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: MultivariateMeanOrCovarianceState,
         grid_states: list[MultivariateMeanOrCovarianceState],
     ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
         df = float(p + (p * (p + 1)) // 2)
-        penalty = np.sqrt(df * np.log(t / 0.05)) + np.log(t / 0.05)
 
         s_tot = state.sum
         sxx_tot = state.sum_outer
@@ -78,6 +79,23 @@ class MultivariateMeanOrCovariance:
                 continue
 
             lr = t * logdet0 - n1 * logdet1 - n2 * logdet2
-            out[i] = (lr - df) / penalty
+            out[i] = lr - df
 
         return out
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            p = self.n_features
+            df = float(p + (p * (p + 1)) // 2)
+            return np.sqrt(df * np.log(n_samples / 0.05)) + np.log(n_samples / 0.05)
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: MultivariateMeanOrCovarianceState,
+        grid_states: list[MultivariateMeanOrCovarianceState],
+    ) -> np.ndarray:
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )
