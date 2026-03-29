@@ -1,6 +1,6 @@
 """Regression direct score."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -11,8 +11,10 @@ from gridcp.scores._score_helpers import as_obs, inv_sqrtm_pd
 @dataclass(slots=True)
 class RegressionDirectState:
     n_samples: int = 0
-    yx_sum: np.ndarray = None
-    xx_sum: np.ndarray = None
+    yx_sum: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
+    xx_sum: np.ndarray = field(
+        default_factory=lambda: np.empty((0, 0), dtype=np.float64)
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,6 +1,6 @@
 """Multivariate mean LR score under identity covariance."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -11,7 +11,7 @@ from gridcp.scores._score_helpers import as_obs
 @dataclass(slots=True)
 class MultivariateMeanIdentityCovState:
     n_samples: int = 0
-    sum: np.ndarray = None
+    sum: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
 
 @dataclass(frozen=True, slots=True)

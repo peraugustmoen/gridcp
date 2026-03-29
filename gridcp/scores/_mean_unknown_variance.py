@@ -5,7 +5,7 @@ unknown-variance LR score is computed per feature and the maximum feature-wise
 score is used (matching the max-across-features behavior of ``MeanCUSUM``).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numba as nb
 import numpy as np
@@ -105,7 +105,7 @@ class MeanCUSUMUnknownVarianceState:
     """
 
     n_samples: int = 0
-    stats: np.ndarray = None
+    stats: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
 
 @dataclass(frozen=True, slots=True)
