@@ -173,6 +173,10 @@ def _init_mc_worker(
     _WORKER_POST_KWARGS = _deserialise_from_worker(post_kwargs_blob)
     _WORKER_CHANGEPOINT = _deserialise_from_worker(changepoint_blob)
 
+    # Type narrowing: these are guaranteed non-None after deserialization above.
+    assert _WORKER_PRE_SAMPLER is not None
+    assert _WORKER_PRE_ARGS is not None
+    assert _WORKER_PRE_KWARGS is not None
     _WORKER_PRE_CALL = _make_sampler_caller(
         _WORKER_PRE_SAMPLER,
         _WORKER_PRE_ARGS,
@@ -189,6 +193,7 @@ def _init_mc_worker(
 
     # Warm up a tiny detector path per worker to reduce first-call JIT latency.
     try:
+        assert _WORKER_DETECTOR is not None
         state = _WORKER_DETECTOR.init_state()
         x = np.zeros(int(n_features), dtype=np.float64)
         state, _ = _WORKER_DETECTOR.update(state, x)
@@ -257,9 +262,12 @@ def _mc_worker_chunk(
         raise RuntimeError("Monte Carlo worker sampler callables are missing.")
 
     n_local_paths = end - start
+    out: np.ndarray
     if task == "alarm":
         out = np.empty(n_local_paths, dtype=np.int64)
-    # For "max", out is allocated lazily once we know n_tests.
+    else:
+        # For "max", out is allocated lazily once we know n_tests.
+        out = np.empty(0, dtype=np.float64)  # Placeholder; will be reallocated
 
     # One RNG per worker chunk to minimize generator construction overhead.
     local_rng = np.random.default_rng(chunk_seed)
@@ -854,6 +862,7 @@ def mc_max_scores(
             strict_equivalence=False,
         )
 
+    assert max_scores is not None
     return max_scores
 
 
@@ -1095,15 +1104,17 @@ def calibrate_threshold(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
+    apply_bonferroni: bool = True,
 ) -> float | np.ndarray:
     """Estimate a score threshold from Monte Carlo max scores under the null.
 
     For scalar scores, returns the empirical ``(1 - false_alarm_probability)``
     quantile of max scores (a float).
 
-    For multivariate scores (K tests), applies a Bonferroni correction: each
-    per-test threshold is set at the ``(1 - alpha/K)`` quantile, and the
-    result is a 1-D array of shape ``(K,)``.
+    For multivariate scores (K tests), applies a Bonferroni correction by
+    default: each per-test threshold is set at the ``(1 - alpha/K)`` quantile,
+    and the result is a 1-D array of shape ``(K,)``. This can be disabled by
+    setting ``apply_bonferroni=False``.
 
     Parameters
     ----------
@@ -1127,6 +1138,10 @@ def calibrate_threshold(
         Number of features per sample. If omitted, this is inferred from
         ``score.n_features`` when available. For custom score objects that do
         not expose ``n_features``, this argument must be provided explicitly.
+    apply_bonferroni : bool, optional
+        For multivariate scores, whether to apply Bonferroni correction
+        (default=True). If False, each component uses the same quantile
+        level ``(1 - alpha)``.
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
@@ -1161,9 +1176,12 @@ def calibrate_threshold(
         # Scalar scores: single threshold.
         return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
 
-    # Multivariate scores: Bonferroni correction.
+    # Multivariate scores: apply Bonferroni correction if requested.
     n_tests = max_scores.shape[1]
-    alpha_corrected = false_alarm_probability / n_tests
+    if apply_bonferroni:
+        alpha_corrected = false_alarm_probability / n_tests
+    else:
+        alpha_corrected = false_alarm_probability
     quantile_level = 1.0 - alpha_corrected
     return np.array(
         [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_tests)],
@@ -1185,6 +1203,7 @@ def calibrate_detector_threshold(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
+    apply_bonferroni: bool = True,
 ) -> float | np.ndarray:
     """Estimate threshold for an existing detector.
 
@@ -1203,6 +1222,7 @@ def calibrate_detector_threshold(
         parallel=parallel,
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
+        apply_bonferroni=apply_bonferroni,
     )
 
 
