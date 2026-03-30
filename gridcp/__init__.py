@@ -2,7 +2,10 @@
 
 from gridcp.calibration import (
     calibrate_detector_threshold,
+    calibrate_detector_threshold_from_data,
     calibrate_threshold,
+    calibrate_threshold_from_data,
+    calibrate_threshold_from_samples,
     draw_samples,
     mc_alarm_times,
     mc_max_scores,
@@ -17,6 +20,9 @@ __all__ = [
     "mc_max_scores",
     "calibrate_threshold",
     "calibrate_detector_threshold",
+    "calibrate_threshold_from_samples",
+    "calibrate_threshold_from_data",
+    "calibrate_detector_threshold_from_data",
     "with_calibrated_threshold",
     "GridDetector",
     "DetectorState",
