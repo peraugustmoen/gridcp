@@ -109,9 +109,8 @@ pre-commit run --all-files
 - Threshold values must be strictly positive.
 - If penalised scores are scalar-valued (`shape (G,)`), threshold must be scalar.
 - If penalised scores are multivariate (`shape (G, K)`):
-    - A scalar threshold is silently expanded to a length-`K` vector and cached internally.
+    - A scalar threshold is silently expanded to a length-`K` vector on each call.
     - A vector threshold must have length `K`.
-    - If `K` changes after scalar expansion has been cached, `update()` raises `ValueError`.
 
 ### Adding a new score/test statistic
 

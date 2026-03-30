@@ -21,8 +21,9 @@ class DetectorOutput(TypedDict):
         Maximum penalised score across grid candidates.  Scalar for
         single-test scores, shape ``(K,)`` for multivariate scores.
     max_score_index : int | np.ndarray
-        Grid candidate index that achieved the max score.  Scalar for
-        single-test scores, shape ``(K,)`` for multivariate scores.
+        0-based index into the active candidate list (``state.grid``)
+        that achieved the max score. Scalar for single-test scores,
+        shape ``(K,)`` for multivariate scores.
     """
 
     n_samples: int

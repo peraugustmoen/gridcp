@@ -192,13 +192,13 @@ class GridDetector:
                 # Scalar test: shape (G,)
                 argmax = int(np.argmax(penalised_scores))
                 max_score = float(penalised_scores[argmax])
-                max_score_index = new_state.grid[argmax]
+                max_score_index = argmax
             else:
                 # Multivariate tests: shape (G, K)
                 # Per-test max over grid candidates.
                 max_score = np.max(penalised_scores, axis=0)
                 argmax_per_test = np.argmax(penalised_scores, axis=0)
-                max_score_index = np.array([new_state.grid[j] for j in argmax_per_test])
+                max_score_index = argmax_per_test.astype(np.int64, copy=False)
         else:
             th = np.asarray(self.threshold, dtype=np.float64)
             comparison_threshold = th
