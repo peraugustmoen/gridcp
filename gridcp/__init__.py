@@ -8,7 +8,8 @@ from gridcp.calibration import (
     mc_max_scores,
     with_calibrated_threshold,
 )
-from gridcp.detector import GridDetector
+from gridcp.detector import DetectorState, GridDetector
+from gridcp.typing import DetectorOutput
 
 __all__ = [
     "draw_samples",
@@ -18,4 +19,6 @@ __all__ = [
     "calibrate_detector_threshold",
     "with_calibrated_threshold",
     "GridDetector",
+    "DetectorState",
+    "DetectorOutput",
 ]

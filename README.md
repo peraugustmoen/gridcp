@@ -1,6 +1,27 @@
 # G-CHAD
 General CHAD implementation 
 
+## Quick start
+
+```python
+import numpy as np
+from gridcp.detector import GridDetector
+from gridcp.scores import MeanCUSUM
+
+# Create a detector for univariate mean changes
+detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+state = detector.init_state()
+
+# Feed observations one at a time
+rng = np.random.default_rng(0)
+for t in range(200):
+    x = rng.normal(0.0, 1.0) if t < 100 else rng.normal(3.0, 1.0)
+    state, output = detector.update(state, [x])
+    if output["alarm"]:
+        print(f"Change detected at observation {t}!")
+        break
+```
+
 ## Installation
 
 ### User installation
@@ -83,11 +104,19 @@ pre-commit run --all-files
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
 
+### Threshold shape behavior in `GridDetector`
+
+- Threshold values must be strictly positive.
+- If penalised scores are scalar-valued (`shape (G,)`), threshold must be scalar.
+- If penalised scores are multivariate (`shape (G, K)`):
+    - A scalar threshold is silently expanded to a length-`K` vector on each call.
+    - A vector threshold must have length `K`.
+
 ### Adding a new score/test statistic
 
 - Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
 - This files needs two classes:
     * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
     * `MyScoreState`: Holds running statistics used to compute penalised scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
-- Add the new score and state to `gridcp/new_api/scores/__init__.py`. Now the score can be imported from `gridcp.new_api.scores` and used with `GridDetector`.
+- Add the new score and state to `gridcp/scores/__init__.py`. Now the score can be imported from `gridcp.scores` and used with `GridDetector`.
 
