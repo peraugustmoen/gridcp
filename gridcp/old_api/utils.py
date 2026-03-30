@@ -6,8 +6,12 @@ LOG2 = math.log(2.0)
 
 
 @nb.njit(fastmath=True, cache=True)
-def fastlog(x):
+def numba_log(x):
     return math.log(x)
+
+
+# Backwards-compatible alias for old notebooks.
+fastlog = numba_log
 
 
 @nb.njit(fastmath=False, cache=True)

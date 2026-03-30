@@ -1,6 +1,6 @@
 """Variance-change LR score."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -11,14 +11,18 @@ from gridcp.scores._score_helpers import as_obs
 @dataclass(slots=True)
 class VarianceState:
     n_samples: int = 0
-    sum_sq: np.ndarray = None
+    sum_sq: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
 
 @dataclass(frozen=True, slots=True)
 class Variance:
     """Univariate variance-change LR score.
 
-    For `n_features > 1`, scores are computed per feature and the maximum is used.
+    Assumes zero-mean data.  If the data has a nonzero mean, subtract the
+    known (or estimated) mean before feeding observations to this score.
+
+    For ``n_features > 1``, scores are computed per feature and the maximum
+    is used.
     """
 
     n_features: int = 1
@@ -47,6 +51,11 @@ class Variance:
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
             n2 = t - n1
+
+            if n1 == 0 or n2 == 0:
+                out[i] = 0.0
+                continue
+
             sumsq1 = st.sum_sq
             sumsq2 = state.sum_sq - sumsq1
 

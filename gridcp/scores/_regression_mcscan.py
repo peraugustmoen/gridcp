@@ -55,6 +55,11 @@ class RegressionMcScan:
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
             n2 = t - n1
+
+            if n1 == 0 or n2 == 0:
+                out[i] = 0.0
+                continue
+
             cov1 = st.yx_sum / n1
             cov2 = (state.yx_sum - st.yx_sum) / n2
             dist = np.max(np.abs(cov1 - cov2))

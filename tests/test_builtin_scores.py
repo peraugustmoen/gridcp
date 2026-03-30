@@ -249,7 +249,7 @@ def test_multivariate_mean_or_covariance_no_false_alarm():
 
 
 def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
-    """A scalar threshold is broadcast and cached for multivariate scores."""
+    """A scalar threshold is broadcast for multivariate scores."""
     p = 4
     detector = GridDetector(
         score=MultivariateMeanIdentityCov(n_features=p),
@@ -261,11 +261,8 @@ def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
     state, out = detector.update(state, np.zeros(p, dtype=np.float64))
     state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
 
-    assert detector._broadcast_threshold_cache is not None
-    assert detector._broadcast_threshold_cache.shape == (2,)
-    assert np.allclose(detector._broadcast_threshold_cache, np.array([1.0, 1.0]))
-    assert out["max_score"].shape == (2,)
-    assert out["max_score_index"].shape == (2,)
+    assert np.asarray(out["max_score"]).shape == (2,)
+    assert np.asarray(out["max_score_index"]).shape == (2,)
 
 
 def test_multivariate_identity_cov_rejects_wrong_threshold_length():
@@ -292,8 +289,8 @@ def test_multivariate_identity_cov_accepts_matching_threshold_length():
     state = detector.init_state()
 
     state, out = detector.update(state, np.zeros(p, dtype=np.float64))
-    assert out["max_score_index"].shape == (2,)
+    assert np.asarray(out["max_score_index"]).shape == (2,)
 
     state, out = detector.update(state, np.zeros(p, dtype=np.float64))
-    assert out["max_score"].shape == (2,)
-    assert out["max_score_index"].shape == (2,)
+    assert np.asarray(out["max_score"]).shape == (2,)
+    assert np.asarray(out["max_score_index"]).shape == (2,)

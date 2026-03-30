@@ -1,11 +1,34 @@
 """Typing definitions for the grid detector API."""
 
 from enum import Enum
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Protocol, TypedDict, TypeVar, runtime_checkable
 import numpy as np
 from numpy.typing import ArrayLike
 
 TScoreState = TypeVar("TScoreState")
+
+
+class DetectorOutput(TypedDict):
+    """Output dictionary returned by ``GridDetector.update()``.
+
+    Attributes
+    ----------
+    n_samples : int
+        Total number of observations seen so far.
+    alarm : bool
+        Whether any score exceeded the threshold at this time step.
+    max_score : float | np.ndarray
+        Maximum penalised score across grid candidates.  Scalar for
+        single-test scores, shape ``(K,)`` for multivariate scores.
+    max_score_index : int | np.ndarray
+        Grid candidate index that achieved the max score.  Scalar for
+        single-test scores, shape ``(K,)`` for multivariate scores.
+    """
+
+    n_samples: int
+    alarm: bool
+    max_score: float | np.ndarray
+    max_score_index: int | np.ndarray
 
 
 class PenaltyType(Enum):
@@ -37,6 +60,11 @@ class ScoreModel(Protocol[TScoreState]):
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
     """
+
+    @property
+    def n_features(self) -> int:
+        """Observation dimension expected by the score model."""
+        ...
 
     def init_state(self) -> TScoreState:
         """Return fresh initial state with no observations seen."""

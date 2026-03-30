@@ -39,8 +39,10 @@ Randomness and changepoint inputs
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from functools import lru_cache
+import pickle
 from typing import Any, Callable, Mapping
 import inspect
 import os
@@ -49,6 +51,7 @@ import warnings
 import numpy as np
 
 from gridcp.detector import GridDetector
+from gridcp.typing import ScoreModel
 
 # Changepoint callables receive ``(rng, stream_len, path_index)`` and must
 # return an integer in ``[0, stream_len]`` representing the first post-change
@@ -647,7 +650,6 @@ def mc_max_scores(
     post_args: tuple[Any, ...] = (),
     post_kwargs: Mapping[str, Any] | None = None,
     changepoint: ChangepointSpec = None,
-    n_features: int | None = None,
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
@@ -680,14 +682,7 @@ def mc_max_scores(
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
-    if n_features is None:
-        score_n_features = getattr(detector.score, "n_features", None)
-        if score_n_features is None:
-            raise ValueError(
-                "n_features was not provided and could not be inferred "
-                "from detector.score."
-            )
-        n_features = int(score_n_features)
+    n_features: int = detector.score.n_features
 
     # Output array allocated lazily; shape depends on whether scores are
     # scalar (n_paths,) or multivariate (n_paths, n_tests).
@@ -785,7 +780,6 @@ def mc_max_scores(
             post_args=post_args,
             post_kwargs=post_kwargs,
             changepoint=changepoint,
-            n_features=n_features,
             parallel=False,
             n_jobs=1,
             strict_equivalence=False,
@@ -837,7 +831,7 @@ def mc_max_scores(
                         )
                 n_vals = values.shape[0]
                 max_scores[start : start + n_vals] = values
-    except Exception as exc:
+    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
         warnings.warn(
             "Parallel Monte Carlo failed; falling back to serial execution. "
             f"Original error: {exc}",
@@ -856,7 +850,6 @@ def mc_max_scores(
             post_args=post_args,
             post_kwargs=post_kwargs,
             changepoint=changepoint,
-            n_features=n_features,
             parallel=False,
             n_jobs=1,
             strict_equivalence=False,
@@ -879,7 +872,6 @@ def mc_alarm_times(
     post_args: tuple[Any, ...] = (),
     post_kwargs: Mapping[str, Any] | None = None,
     changepoint: ChangepointSpec = None,
-    n_features: int | None = None,
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
@@ -914,14 +906,7 @@ def mc_alarm_times(
         - callable ``f(rng, stream_len, path_index) -> int`` returning
             ``[0, stream_len]``
     """
-    if n_features is None:
-        score_n_features = getattr(detector.score, "n_features", None)
-        if score_n_features is None:
-            raise ValueError(
-                "n_features was not provided and could not be inferred "
-                "from detector.score."
-            )
-        n_features = int(score_n_features)
+    n_features: int = detector.score.n_features
 
     alarm_times = np.full(n_paths, stream_len, dtype=np.int64)
 
@@ -1018,7 +1003,6 @@ def mc_alarm_times(
             post_args=post_args,
             post_kwargs=post_kwargs,
             changepoint=changepoint,
-            n_features=n_features,
             parallel=False,
             n_jobs=1,
             strict_equivalence=False,
@@ -1062,7 +1046,7 @@ def mc_alarm_times(
             for fut in as_completed(futures):
                 start, values = fut.result()
                 alarm_times[start : start + values.size] = values
-    except Exception as exc:
+    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
         warnings.warn(
             "Parallel Monte Carlo failed; falling back to serial execution. "
             f"Original error: {exc}",
@@ -1081,7 +1065,6 @@ def mc_alarm_times(
             post_args=post_args,
             post_kwargs=post_kwargs,
             changepoint=changepoint,
-            n_features=n_features,
             parallel=False,
             n_jobs=1,
             strict_equivalence=False,
@@ -1091,7 +1074,7 @@ def mc_alarm_times(
 
 
 def calibrate_threshold(
-    score: Any,
+    score: ScoreModel,
     *,
     false_alarm_probability: float,
     n_paths: int,
@@ -1100,7 +1083,6 @@ def calibrate_threshold(
     rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
-    n_features: int | None = None,
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
@@ -1134,10 +1116,6 @@ def calibrate_threshold(
         ``None`` uses a fixed default seed for deterministic behavior.
     pre_args, pre_kwargs : optional
         Additional arguments passed to ``pre_sampler``.
-    n_features : int, optional
-        Number of features per sample. If omitted, this is inferred from
-        ``score.n_features`` when available. For custom score objects that do
-        not expose ``n_features``, this argument must be provided explicitly.
     apply_bonferroni : bool, optional
         For multivariate scores, whether to apply Bonferroni correction
         (default=True). If False, each component uses the same quantile
@@ -1145,16 +1123,6 @@ def calibrate_threshold(
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
-
-    inferred_n_features = n_features
-    if inferred_n_features is None:
-        score_n_features = getattr(score, "n_features", None)
-        if score_n_features is None:
-            raise ValueError(
-                "n_features was not provided and could not be inferred "
-                "from score.n_features."
-            )
-        inferred_n_features = int(score_n_features)
 
     detector = GridDetector(score=score, threshold=1.0)
 
@@ -1166,7 +1134,6 @@ def calibrate_threshold(
         rng=rng,
         pre_args=pre_args,
         pre_kwargs=pre_kwargs,
-        n_features=inferred_n_features,
         parallel=parallel,
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
@@ -1199,7 +1166,6 @@ def calibrate_detector_threshold(
     rng: RNGInput = None,
     pre_args: tuple[Any, ...] = (),
     pre_kwargs: Mapping[str, Any] | None = None,
-    n_features: int | None = None,
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
@@ -1218,7 +1184,6 @@ def calibrate_detector_threshold(
         rng=rng,
         pre_args=pre_args,
         pre_kwargs=pre_kwargs,
-        n_features=n_features,
         parallel=parallel,
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,

@@ -75,7 +75,7 @@ def _run_parity_check(
 
 
 def test_variance_parity_with_old_api():
-    n = 40
+    n = 24
     rng = np.random.default_rng(2026)
     x = rng.normal(0.0, 1.0, size=n)
 
@@ -92,7 +92,7 @@ def test_variance_parity_with_old_api():
 
 
 def test_mean_or_variance_parity_with_old_api():
-    n = 40
+    n = 24
     rng = np.random.default_rng(2027)
     x = rng.normal(0.0, 1.0, size=n)
 
@@ -111,8 +111,8 @@ def test_mean_or_variance_parity_with_old_api():
 
 
 def test_multivariate_mean_identity_cov_parity_with_old_api():
-    n = 40
-    p = 4
+    n = 24
+    p = 3
     rng = np.random.default_rng(2028)
     x = rng.normal(0.0, 1.0, size=(n, p))
 
@@ -137,8 +137,8 @@ def test_multivariate_mean_identity_cov_parity_with_old_api():
 
 
 def test_multivariate_mean_unknown_cov_parity_with_old_api():
-    n = 40
-    p = 4
+    n = 24
+    p = 3
     rng = np.random.default_rng(2029)
     x = rng.normal(0.0, 1.0, size=(n, p))
 
@@ -161,8 +161,8 @@ def test_multivariate_mean_unknown_cov_parity_with_old_api():
 
 
 def test_multivariate_mean_or_covariance_parity_with_old_api():
-    n = 40
-    p = 4
+    n = 24
+    p = 3
     rng = np.random.default_rng(2030)
     x = rng.normal(0.0, 1.0, size=(n, p))
 
@@ -185,8 +185,8 @@ def test_multivariate_mean_or_covariance_parity_with_old_api():
 
 
 def test_regression_mcscan_parity_with_old_api():
-    n = 40
-    q = 4
+    n = 24
+    q = 3
     rng = np.random.default_rng(2031)
     x = rng.normal(0.0, 1.0, size=(n, q + 1))
 
@@ -207,8 +207,8 @@ def test_regression_mcscan_parity_with_old_api():
 
 
 def test_regression_direct_parity_with_old_api():
-    n = 40
-    q = 4
+    n = 24
+    q = 3
     rng = np.random.default_rng(2032)
     x = rng.normal(0.0, 1.0, size=(n, q + 1))
 

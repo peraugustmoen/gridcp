@@ -18,24 +18,23 @@ def mean_cusum_score(
     """
     Calculate the CUSUM score for a change in the mean.
 
-    Compares the mean of the data before and after the split within the interval from
-    ``start:end``.
+    Compares the mean of the data before and after each candidate split point.
 
     Parameters
     ----------
-    starts : `np.ndarray`
-        Start indices of the intervals to test for a change in the mean.
-    ends : `np.ndarray`
-        End indices of the intervals to test for a change in the mean.
-    splits : `np.ndarray`
-        Split indices of the intervals to test for a change in the mean.
-    sums : `np.ndarray`
-        Cumulative sum of the input data, with a row of 0-entries as the first row.
+    total_sum : np.ndarray
+        Cumulative sum over all observations, shape ``(n_features,)``.
+    before_sums : np.ndarray
+        Cumulative sums for each grid candidate, shape ``(G, n_features)``.
+    total_samples : int
+        Total number of observations seen so far.
+    before_samples : np.ndarray
+        Number of observations before each candidate, shape ``(G,)``.
 
     Returns
     -------
-    `np.ndarray`
-        CUSUM scores for the intervals and splits.
+    np.ndarray
+        CUSUM scores for each candidate, shape ``(G,)``.
     """
     after_samples = total_samples - before_samples
     after_sums = total_sum - before_sums
@@ -105,7 +104,7 @@ class MeanCUSUM:
 
     Examples
     --------
-    >>> from gridcp.new_api.scores import MeanCUSUM
+    >>> from gridcp.scores import MeanCUSUM
     >>> score = MeanCUSUM(n_features=2)
     >>> state = score.init_state()
     >>> state = score.update(state, [1.0, 2.0])

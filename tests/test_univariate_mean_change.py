@@ -117,9 +117,9 @@ def test_short_stream_behavior_and_output_schema():
 
     assert state.n_samples == 3
     for i, out in enumerate(outputs, start=1):
-        assert out["num_samples"] == i
+        assert out["n_samples"] == i
         assert set(out.keys()) == {
-            "num_samples",
+            "n_samples",
             "alarm",
             "max_score",
             "max_score_index",

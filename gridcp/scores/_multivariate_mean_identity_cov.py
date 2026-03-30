@@ -50,6 +50,11 @@ class MultivariateMeanIdentityCov:
         for i, st in enumerate(grid_states):
             n1 = st.n_samples
             n2 = t - n1
+
+            if n1 == 0 or n2 == 0:
+                out[i, :] = 0.0
+                continue
+
             mean1 = st.sum / n1
             mean2 = (state.sum - st.sum) / n2
             diff = mean1 - mean2
