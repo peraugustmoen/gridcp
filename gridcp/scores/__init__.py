@@ -15,6 +15,8 @@ from gridcp.scores._multivariate_mean_unknown_cov import MultivariateMeanUnknown
 from gridcp.scores._regression_direct import RegressionDirect
 from gridcp.scores._regression_mcscan import RegressionMcScan
 from gridcp.scores._variance import Variance
+from gridcp.scores._exponential_family_glr import ExponentialFamilyGLR
+
 
 __all__ = [
     "PenaltyType",
@@ -27,4 +29,5 @@ __all__ = [
     "MultivariateMeanOrCovariance",
     "RegressionMcScan",
     "RegressionDirect",
+    "ExponentialFamilyGLR",
 ]
