@@ -5,8 +5,6 @@ import pytest
 from gridcp.detector import GridDetector
 from gridcp.scores import ExponentialFamilyGLR
 from gridcp.scores._exponential_family_glr import (
-    _fill_sym,
-    _p_from_v,
     make_newton_solver,
     make_vector_newton_solver,
 )
@@ -67,89 +65,6 @@ def _Ahess_mv(theta):
 
 
 # ---------------------------------------------------------------------------
-# Reusable exponential-family definitions for covariance case (v=p(p+1)/2)
-# ---------------------------------------------------------------------------
-
-
-@nb.njit(cache=True)
-def _h_cov(x):
-    p = x.shape[0]
-    v = p * (p + 1) // 2
-    out = np.empty(v)
-    idx = 0
-    for i in range(p):
-        for j in range(i, p):
-            if i == j:
-                out[idx] = x[i] * x[j]
-            else:
-                out[idx] = 2.0 * x[i] * x[j]
-            idx += 1
-    return out
-
-
-@nb.njit(cache=True)
-def _A_cov(theta):
-    p = _p_from_v(theta.shape[0])
-    Theta = _fill_sym(theta, p)
-    M = -2.0 * Theta
-    sign, ld = np.linalg.slogdet(M)
-    if sign <= 0.0:
-        return np.inf
-    return -0.5 * ld
-
-
-@nb.njit(cache=True)
-def _Agrad_cov(theta):
-    v = theta.shape[0]
-    p = _p_from_v(v)
-    Theta = _fill_sym(theta, p)
-    M = -2.0 * Theta
-    sign, _ = np.linalg.slogdet(M)
-    if sign <= 0.0:
-        return np.full(v, np.nan)
-    Mi = np.linalg.inv(M)
-    g = np.empty(v)
-    idx = 0
-    for i in range(p):
-        for j in range(i, p):
-            if i == j:
-                g[idx] = Mi[i, i]
-            else:
-                g[idx] = 2.0 * Mi[i, j]
-            idx += 1
-    return g
-
-
-@nb.njit(cache=True)
-def _Ahess_cov(theta):
-    v = theta.shape[0]
-    p = _p_from_v(v)
-    Theta = _fill_sym(theta, p)
-    M = -2.0 * Theta
-    sign, _ = np.linalg.slogdet(M)
-    if sign <= 0.0:
-        return np.full((v, v), np.nan)
-    Mi = np.linalg.inv(M)
-    rows = np.empty(v, dtype=nb.int64)
-    cols = np.empty(v, dtype=nb.int64)
-    idx = 0
-    for i in range(p):
-        for j in range(i, p):
-            rows[idx] = i
-            cols[idx] = j
-            idx += 1
-    H = np.empty((v, v))
-    for a in range(v):
-        i, j = rows[a], cols[a]
-        c_a = 1.0 if i == j else 2.0
-        for b in range(v):
-            k, l = rows[b], cols[b]  # noqa: E741
-            c_b = 1.0 if k == l else 2.0
-            H[a, b] = c_a * c_b * (Mi[i, k] * Mi[j, l] + Mi[i, l] * Mi[j, k])
-    return H
-
-
-# ---------------------------------------------------------------------------
 # Shared helpers — match the _run_stream pattern from test_univariate_mean_change
 # ---------------------------------------------------------------------------
 
@@ -192,41 +107,6 @@ def _run_stream_mv(data, n_features=3, threshold=10.0):
     return detector, state, outputs
 
 
-def _make_cov_theta_init(p):
-    """Return vech(−½ I⁻¹) as theta_init for the covariance case."""
-    Sigma_pre = np.eye(p)
-    return np.array(
-        [
-            (-0.5 * np.linalg.inv(Sigma_pre))[i, j]
-            for i in range(p)
-            for j in range(i, p)
-        ],
-        dtype=np.float64,
-    )
-
-
-def _run_stream_cov(data, p=2, threshold=10.0):
-    """Run data through a covariance-change (cov_parametrization=True) detector."""
-    v = p * (p + 1) // 2
-    score = ExponentialFamilyGLR(
-        v=v,
-        n_features=p,
-        h=_h_cov,
-        A=_A_cov,
-        A_grad=_Agrad_cov,
-        A_hess=_Ahess_cov,
-        theta_init=_make_cov_theta_init(p),
-        cov_parametrization=True,
-    )
-    detector = GridDetector(score=score, threshold=threshold)
-    state = detector.init_state()
-    outputs = []
-    for x in data:
-        state, out = detector.update(state, x)
-        outputs.append(out)
-    return detector, state, outputs
-
-
 # ---------------------------------------------------------------------------
 # Construction validation
 # ---------------------------------------------------------------------------
@@ -243,34 +123,6 @@ def test_min_seg_below_2_raises():
             A_prime=_Ap_gauss,
             A_dprime=_App_gauss,
             min_seg=1,
-        )
-
-
-def test_cov_parametrization_wrong_v_raises():
-    """Reject cov_parametrization=True when v != p*(p+1)/2."""
-    with pytest.raises(ValueError, match="cov_parametrization=True requires"):
-        ExponentialFamilyGLR(
-            v=5,
-            n_features=3,
-            h=_h_cov,
-            A=_A_cov,
-            A_grad=_Agrad_cov,
-            A_hess=_Ahess_cov,
-            cov_parametrization=True,
-        )
-
-
-def test_cov_parametrization_scalar_n_features_raises():
-    """Reject cov_parametrization=True when n_features <= 1."""
-    with pytest.raises(ValueError, match="cov_parametrization=True requires"):
-        ExponentialFamilyGLR(
-            v=1,
-            n_features=1,
-            h=_h_gauss,
-            A=_A_gauss,
-            A_prime=_Ap_gauss,
-            A_dprime=_App_gauss,
-            cov_parametrization=True,
         )
 
 
@@ -362,7 +214,7 @@ def test_update_wrong_observation_size_raises():
         A_dprime=_App_gauss,
     )
     state = score.init_state()
-    with pytest.raises(ValueError, match="expected observation of size"):
+    with pytest.raises(ValueError, match="Expected observation of size"):
         score.update(state, np.array([1.0, 2.0]))
 
 
@@ -414,36 +266,6 @@ def test_mv_detects_clear_mean_shift():
     data = np.concatenate([pre, post])
 
     _, _, outputs = _run_stream_mv(data, n_features=3, threshold=5.0)
-    post_shift_outputs = outputs[len(pre) :]
-    assert any(out["alarm"] for out in post_shift_outputs)
-
-
-# ---------------------------------------------------------------------------
-# Covariance case (cov_parametrization=True)
-# ---------------------------------------------------------------------------
-
-
-def test_covariance_p2_runs_without_error():
-    """Run a covariance-change detector on null data without error."""
-    rng = np.random.default_rng(seed=42)
-    data = rng.standard_normal((100, 2))
-
-    _, state, _ = _run_stream_cov(data, p=2, threshold=50.0)
-    assert state.running_score_state.n_samples == 100
-
-
-def test_covariance_detects_variance_shift():
-    """Detect a clear covariance change mid-stream."""
-    p = 2
-    Sigma_pre = np.eye(p)
-    Sigma_post = np.diag([1.0, 25.0])
-
-    rng = np.random.default_rng(seed=42)
-    pre = rng.multivariate_normal(np.zeros(p), Sigma_pre, size=100)
-    post = rng.multivariate_normal(np.zeros(p), Sigma_post, size=400)
-    data = np.concatenate([pre, post])
-
-    _, _, outputs = _run_stream_cov(data, p=p, threshold=3.0)
     post_shift_outputs = outputs[len(pre) :]
     assert any(out["alarm"] for out in post_shift_outputs)
 
@@ -593,37 +415,3 @@ def test_vector_newton_high_dimension():
     theta_init = np.zeros(10)
     theta = solver(S_vec, n, theta_init)
     assert np.allclose(theta, S_vec / n, atol=1e-7)
-
-
-def test_vector_newton_covariance_mle():
-    """Vector solver finds the correct MLE for the covariance parametrization."""
-    p = 2
-    Sigma_true = np.array([[2.0, 0.5], [0.5, 1.0]])
-    # True natural parameter: θ = -½ Σ⁻¹  (vech form)
-    theta_true_mat = -0.5 * np.linalg.inv(Sigma_true)
-    theta_true = np.array(
-        [theta_true_mat[i, j] for i in range(p) for j in range(i, p)],
-        dtype=np.float64,
-    )
-
-    # Generate sample and compute sufficient statistic S = Σᵢ h(xᵢ)
-    rng = np.random.default_rng(seed=42)
-    n = 5000
-    data = rng.multivariate_normal(np.zeros(p), Sigma_true, size=n)
-    S_vec = np.zeros(p * (p + 1) // 2)
-    for x in data:
-        idx = 0
-        for i in range(p):
-            for j in range(i, p):
-                if i == j:
-                    S_vec[idx] += x[i] * x[j]
-                else:
-                    S_vec[idx] += 2.0 * x[i] * x[j]
-                idx += 1
-
-    theta_init = _make_cov_theta_init(p)
-    solver = make_vector_newton_solver(_Agrad_cov, _Ahess_cov)
-    theta_hat = solver(S_vec, float(n), theta_init)
-
-    # MLE should be close to the true parameter (with sampling noise)
-    assert np.allclose(theta_hat, theta_true, atol=0.05)
