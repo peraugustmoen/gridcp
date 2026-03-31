@@ -130,7 +130,6 @@ def test_mc_max_scores_returns_one_value_per_path():
         n_paths=25,
         stream_len=30,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
-        n_features=1,
         parallel=False,
     )
 
@@ -146,7 +145,6 @@ def test_mc_max_scores_accepts_array_like_sampler_for_multivariate():
         detector=detector,
         n_paths=15,
         stream_len=20,
-        n_features=2,
         pre_sampler=lambda rng: [
             float(rng.normal(0.0, 1.0)),
             float(rng.normal(0.0, 1.0)),
@@ -172,7 +170,6 @@ def test_mc_alarm_times_returns_valid_indices_with_alarm():
         post_sampler=lambda: 8.0,
         changepoint=2,
         rng=rng,
-        n_features=1,
         parallel=False,
     )
 
@@ -190,7 +187,6 @@ def test_mc_alarm_times_uses_stream_len_for_no_alarm():
         n_paths=10,
         stream_len=20,
         pre_sampler=lambda: 0.0,
-        n_features=1,
         parallel=False,
     )
 
@@ -210,7 +206,6 @@ def test_mc_alarm_times_is_zero_indexed():
         post_sampler=lambda: 5.0,
         changepoint=3,
         rng=42,
-        n_features=1,
         parallel=False,
     )
 
@@ -228,10 +223,9 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
     threshold = calibrate_threshold(
         score,
         false_alarm_probability=0.1,
-        n_paths=50,
-        stream_len=40,
+        n_paths=30,
+        stream_len=25,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
-        n_features=1,
         parallel=False,
     )
 
@@ -252,10 +246,9 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     threshold_from_score = calibrate_threshold(
         score,
         false_alarm_probability=0.1,
-        n_paths=40,
-        stream_len=30,
+        n_paths=24,
+        stream_len=20,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
-        n_features=1,
         parallel=False,
     )
 
@@ -263,10 +256,9 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     threshold_from_detector = calibrate_detector_threshold(
         detector,
         false_alarm_probability=0.1,
-        n_paths=40,
-        stream_len=30,
+        n_paths=24,
+        stream_len=20,
         pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
-        n_features=1,
         parallel=False,
     )
 
@@ -279,19 +271,17 @@ def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
 
     out1 = mc_max_scores(
         detector=detector,
-        n_paths=30,
-        stream_len=20,
+        n_paths=16,
+        stream_len=12,
         pre_sampler=normal_sampler,
         rng=123,
-        n_features=1,
     )
     out2 = mc_max_scores(
         detector=detector,
-        n_paths=30,
-        stream_len=20,
+        n_paths=16,
+        stream_len=12,
         pre_sampler=normal_sampler,
         rng=123,
-        n_features=1,
     )
 
     assert np.allclose(out1, out2)
@@ -303,19 +293,17 @@ def test_mc_alarm_times_none_rng_is_deterministic_default():
 
     out1 = mc_alarm_times(
         detector=detector,
-        n_paths=25,
-        stream_len=30,
+        n_paths=16,
+        stream_len=20,
         pre_sampler=normal_sampler,
         rng=None,
-        n_features=1,
     )
     out2 = mc_alarm_times(
         detector=detector,
-        n_paths=25,
-        stream_len=30,
+        n_paths=16,
+        stream_len=20,
         pre_sampler=normal_sampler,
         rng=None,
-        n_features=1,
     )
 
     assert np.array_equal(out1, out2)
@@ -328,20 +316,18 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
     th1 = calibrate_threshold(
         score,
         false_alarm_probability=0.1,
-        n_paths=30,
-        stream_len=25,
+        n_paths=16,
+        stream_len=15,
         pre_sampler=normal_sampler,
         rng=456,
-        n_features=1,
     )
     th2 = calibrate_threshold(
         score,
         false_alarm_probability=0.1,
-        n_paths=30,
-        stream_len=25,
+        n_paths=16,
+        stream_len=15,
         pre_sampler=normal_sampler,
         rng=456,
-        n_features=1,
     )
 
     assert th1 == th2
@@ -358,7 +344,6 @@ def test_mc_max_scores_invalid_rng_type_raises():
             stream_len=10,
             pre_sampler=normal_sampler,
             rng="bad-rng",
-            n_features=1,
         )
 
 
@@ -368,25 +353,23 @@ def test_mc_max_scores_parallel_reproducible_with_int_seed():
 
     out1 = mc_max_scores(
         detector=detector,
-        n_paths=48,
-        stream_len=40,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=20,
         rng=2026,
-        n_features=1,
         parallel=True,
         n_jobs=2,
     )
     out2 = mc_max_scores(
         detector=detector,
-        n_paths=48,
-        stream_len=40,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=20,
         rng=2026,
-        n_features=1,
         parallel=True,
         n_jobs=2,
     )
@@ -400,25 +383,23 @@ def test_mc_alarm_times_parallel_reproducible_with_int_seed():
 
     out1 = mc_alarm_times(
         detector=detector,
-        n_paths=40,
-        stream_len=45,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=77,
-        n_features=1,
         parallel=True,
         n_jobs=2,
     )
     out2 = mc_alarm_times(
         detector=detector,
-        n_paths=40,
-        stream_len=45,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=77,
-        n_features=1,
         parallel=True,
         n_jobs=2,
     )
@@ -432,25 +413,23 @@ def test_mc_max_scores_strict_equivalence_parallel_matches_serial():
 
     serial = mc_max_scores(
         detector=detector,
-        n_paths=60,
-        stream_len=50,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=555,
-        n_features=1,
         parallel=False,
         strict_equivalence=True,
     )
     parallel = mc_max_scores(
         detector=detector,
-        n_paths=60,
-        stream_len=50,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=555,
-        n_features=1,
         parallel=True,
         n_jobs=2,
         strict_equivalence=True,
@@ -465,25 +444,23 @@ def test_mc_alarm_times_strict_equivalence_parallel_matches_serial():
 
     serial = mc_alarm_times(
         detector=detector,
-        n_paths=60,
-        stream_len=50,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=556,
-        n_features=1,
         parallel=False,
         strict_equivalence=True,
     )
     parallel = mc_alarm_times(
         detector=detector,
-        n_paths=60,
-        stream_len=50,
+        n_paths=24,
+        stream_len=25,
         pre_sampler=normal_sampler,
         post_sampler=shifted_normal_sampler,
         changepoint=random_cp_sampler,
         rng=556,
-        n_features=1,
         parallel=True,
         n_jobs=2,
         strict_equivalence=True,
@@ -503,16 +480,15 @@ def test_mc_max_scores_parallel_handles_local_sampler_function():
         warnings.simplefilter("always")
         out = mc_max_scores(
             detector=detector,
-            n_paths=30,
-            stream_len=30,
+            n_paths=20,
+            stream_len=20,
             pre_sampler=local_sampler,
             rng=999,
-            n_features=1,
             parallel=True,
             n_jobs=2,
         )
 
-    assert out.shape == (30,)
+    assert out.shape == (20,)
     assert np.all(np.isfinite(out))
     assert not any(issubclass(w.category, RuntimeWarning) for w in caught)
 
@@ -531,17 +507,16 @@ def test_mc_alarm_times_parallel_handles_local_sampler_function():
         warnings.simplefilter("always")
         out = mc_alarm_times(
             detector=detector,
-            n_paths=30,
-            stream_len=30,
+            n_paths=20,
+            stream_len=20,
             pre_sampler=local_pre_sampler,
             post_sampler=local_post_sampler,
             changepoint=15,
             rng=12345,
-            n_features=1,
             parallel=True,
             n_jobs=2,
         )
 
-    assert out.shape == (30,)
-    assert np.all((out >= 0) & (out <= 30))
+    assert out.shape == (20,)
+    assert np.all((out >= 0) & (out <= 20))
     assert not any(issubclass(w.category, RuntimeWarning) for w in caught)

@@ -1,16 +1,16 @@
 """Mean-change score with unknown variance.
 
-Supports both univariate and multivariate data. For multivariate data, the
+Note: Supports both univariate and multivariate data. For multivariate data, the
 unknown-variance LR score is computed per feature and the maximum feature-wise
 score is used (matching the max-across-features behavior of ``MeanCUSUM``).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numba as nb
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 
 
 @nb.njit(cache=True)
@@ -20,7 +20,7 @@ def mean_unknown_variance_score(
     total_samples: int,
     before_samples: np.ndarray,
 ) -> np.ndarray:
-    """Compute unknown-variance LR scores.
+    """Compute LR scores for a change in mean with unknown variance.
 
     Parameters
     ----------
@@ -31,12 +31,12 @@ def mean_unknown_variance_score(
     total_samples : int
         Total number of samples seen.
     before_samples : np.ndarray, shape (n_candidates,)
-        Candidate split sizes.
+        Pre-change candidate sample counts.
 
     Returns
     -------
     np.ndarray, shape (n_candidates,)
-        Penalisation-free score per candidate. For multivariate data this is
+        Penalisation-free score (LR) per candidate. For multivariate data this is
         the maximum of per-feature LR scores.
     """
     n_candidates = before_samples.shape[0]
@@ -105,7 +105,7 @@ class MeanCUSUMUnknownVarianceState:
     """
 
     n_samples: int = 0
-    stats: np.ndarray = None
+    stats: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.float64))
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +122,7 @@ class MeanCUSUMUnknownVariance:
     """
 
     n_features: int = 1
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
         """Return a fresh initial state with no observations seen."""
@@ -161,12 +162,12 @@ class MeanCUSUMUnknownVariance:
             stats=next_stats,
         )
 
-    def compute_penalised_scores(
+    def _compute_centered_scores(
         self,
         state: MeanCUSUMUnknownVarianceState,
         grid_states: list[MeanCUSUMUnknownVarianceState],
     ) -> np.ndarray:
-        """Compute penalised LR score at every active grid candidate."""
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -178,11 +179,25 @@ class MeanCUSUMUnknownVariance:
             grid_stats = np.stack([st.stats for st in grid_states])
 
         grid_n_samples = np.array([st.n_samples for st in grid_states], dtype=np.int64)
-        scores = mean_unknown_variance_score(
+        return mean_unknown_variance_score(
             total_stats=total_stats,
             before_stats=grid_stats,
             total_samples=state.n_samples,
             before_samples=grid_n_samples,
         )
-        penalty = mean_unknown_variance_penalty(state.n_samples)
-        return scores / penalty
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            return mean_unknown_variance_penalty(n_samples)
+        return 1.0
+
+    def compute_penalised_scores(
+        self,
+        state: MeanCUSUMUnknownVarianceState,
+        grid_states: list[MeanCUSUMUnknownVarianceState],
+    ) -> np.ndarray:
+        """Compute penalised LR score at every active grid candidate."""
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
+        )

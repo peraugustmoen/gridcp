@@ -53,6 +53,8 @@ ignore = ["E501"]       # long lines are handled pragmatically by formatter
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D"]
 "gridcp/old_api/**/*.py" = ["D"]
+"notebooks/*.ipynb" = ["D", "F401", "F811"]
+"old_notebooks/*.ipynb" = ["D", "E", "F"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"  # or "pep257", "google", etc.

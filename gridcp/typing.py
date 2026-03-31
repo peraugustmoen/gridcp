@@ -1,10 +1,51 @@
 """Typing definitions for the grid detector API."""
 
-from typing import Protocol, TypeVar, runtime_checkable
+from enum import Enum
+from typing import Protocol, TypedDict, TypeVar, runtime_checkable
 import numpy as np
 from numpy.typing import ArrayLike
 
 TScoreState = TypeVar("TScoreState")
+
+
+class DetectorOutput(TypedDict):
+    """Output dictionary returned by ``GridDetector.update()``.
+
+    Attributes
+    ----------
+    n_samples : int
+        Total number of observations seen so far.
+    alarm : bool
+        Whether any score exceeded the threshold at this time step.
+    max_score : float | np.ndarray
+        Maximum penalised score across grid candidates.  Scalar for
+        single-test scores, shape ``(K,)`` for multivariate scores.
+    max_score_index : int | np.ndarray
+        0-based index into the active candidate list (``state.grid``)
+        that achieved the max score. Scalar for single-test scores,
+        shape ``(K,)`` for multivariate scores.
+    """
+
+    n_samples: int
+    alarm: bool
+    max_score: float | np.ndarray
+    max_score_index: int | np.ndarray
+
+
+class PenaltyType(Enum):
+    """Penalty mode for built-in score models.
+
+    ``TIME_DEPENDENT``
+        Time-growing penalty (e.g. log *t* + √log *t*) designed for false alarm
+        probability control.
+    ``CONSTANT``
+        No time-dependent normalisation (penalty = 1). Scores are only centered,
+        and the threshold absorbs all scaling.  Suitable for Average Run Length
+        (ARL) control where the threshold is calibrated via Monte Carlo.
+    """
+
+    TIME_DEPENDENT = "time_dependent"
+    CONSTANT = "constant"
 
 
 @runtime_checkable
@@ -20,6 +61,11 @@ class ScoreModel(Protocol[TScoreState]):
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
     """
+
+    @property
+    def n_features(self) -> int:
+        """Observation dimension expected by the score model."""
+        ...
 
     def init_state(self) -> TScoreState:
         """Return fresh initial state with no observations seen."""
@@ -58,7 +104,11 @@ class ScoreModel(Protocol[TScoreState]):
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states),)
-            Penalised score for each active candidate.
+        np.ndarray, shape (len(grid_states),) or (len(grid_states), n_tests)
+            Penalised score for each active candidate.  When the score model
+            produces a single test statistic the shape is ``(G,)``.  When the
+            model produces multiple test statistics (e.g. separate tests for
+            mean vs variance), the shape is ``(G, K)`` where ``K`` is the
+            number of tests.
         """
         ...

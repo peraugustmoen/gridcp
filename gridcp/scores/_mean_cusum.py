@@ -1,11 +1,11 @@
 """The Mean CUSUM score."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numba as nb
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.typing import ArrayLike, PenaltyType
 
 
 @nb.njit(cache=True)
@@ -18,24 +18,23 @@ def mean_cusum_score(
     """
     Calculate the CUSUM score for a change in the mean.
 
-    Compares the mean of the data before and after the split within the interval from
-    ``start:end``.
+    Compares the mean of the data before and after each candidate split point.
 
     Parameters
     ----------
-    starts : `np.ndarray`
-        Start indices of the intervals to test for a change in the mean.
-    ends : `np.ndarray`
-        End indices of the intervals to test for a change in the mean.
-    splits : `np.ndarray`
-        Split indices of the intervals to test for a change in the mean.
-    sums : `np.ndarray`
-        Cumulative sum of the input data, with a row of 0-entries as the first row.
+    total_sum : np.ndarray
+        Cumulative sum over all observations, shape ``(n_features,)``.
+    before_sums : np.ndarray
+        Cumulative sums for each grid candidate, shape ``(G, n_features)``.
+    total_samples : int
+        Total number of observations seen so far.
+    before_samples : np.ndarray
+        Number of observations before each candidate, shape ``(G,)``.
 
     Returns
     -------
-    `np.ndarray`
-        CUSUM scores for the intervals and splits.
+    np.ndarray
+        CUSUM scores for each candidate, shape ``(G,)``.
     """
     after_samples = total_samples - before_samples
     after_sums = total_sum - before_sums
@@ -84,7 +83,9 @@ class MeanCUSUMState:
     """
 
     n_samples: int = 0
-    sum: np.ndarray = None  # shape (n_features,); set by MeanCUSUM.init_state
+    sum: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=np.float64)
+    )  # shape (n_features,); set by MeanCUSUM.init_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +104,7 @@ class MeanCUSUM:
 
     Examples
     --------
-    >>> from gridcp.new_api.scores import MeanCUSUM
+    >>> from gridcp.scores import MeanCUSUM
     >>> score = MeanCUSUM(n_features=2)
     >>> state = score.init_state()
     >>> state = score.update(state, [1.0, 2.0])
@@ -113,6 +114,7 @@ class MeanCUSUM:
     """
 
     n_features: int = 1
+    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
 
     def init_state(self) -> MeanCUSUMState:
         """Return a fresh initial state with no observations seen."""
@@ -148,6 +150,30 @@ class MeanCUSUM:
         next_sum = state.sum + x_arr
         return MeanCUSUMState(n_samples=next_n_samples, sum=next_sum)
 
+    def _compute_centered_scores(
+        self,
+        state: MeanCUSUMState,
+        grid_states: list[MeanCUSUMState],
+    ) -> np.ndarray:
+        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        if len(grid_states) == 0:
+            raise ValueError("grid_states is empty.")
+
+        grid_sums = np.stack([st.sum for st in grid_states])
+        grid_n_samples = np.array([st.n_samples for st in grid_states], dtype=np.int64)
+        return mean_cusum_score(
+            total_sum=state.sum,
+            before_sums=grid_sums,
+            total_samples=state.n_samples,
+            before_samples=grid_n_samples,
+        )
+
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            return mean_cusum_penalty(n_samples)
+        return 1.0
+
     def compute_penalised_scores(
         self,
         state: MeanCUSUMState,
@@ -167,16 +193,6 @@ class MeanCUSUM:
         np.ndarray, shape (len(grid_states),)
             Penalised score for each active candidate.
         """
-        if len(grid_states) == 0:
-            raise ValueError("grid_states is empty.")
-
-        grid_sums = np.stack([st.sum for st in grid_states])
-        grid_n_samples = np.array([st.n_samples for st in grid_states], dtype=np.int64)
-        scores = mean_cusum_score(
-            total_sum=state.sum,
-            before_sums=grid_sums,
-            total_samples=state.n_samples,
-            before_samples=grid_n_samples,
+        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+            state.n_samples
         )
-        penalty = mean_cusum_penalty(state.n_samples)
-        return scores / penalty

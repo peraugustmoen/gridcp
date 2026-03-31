@@ -1,7 +1,7 @@
 import numpy as np
 import numba as nb
 import math
-from .utils import fastlog, logdet_spd, inv_sqrtm_pd
+from .utils import numba_log, logdet_spd, inv_sqrtm_pd
 
 
 #### Univariate Mean Change with known variance ####
@@ -21,7 +21,7 @@ def f_univariate_mean_known_var_LR(sum_pre_j, sum_post_j, pos, t):
 
 @nb.njit(cache=True)
 def penalty_univariate_mean_known_var_LR(pos, t, p):
-    logg = fastlog(t)
+    logg = numba_log(t)
     logg = logg + math.sqrt(logg)
     return logg
 
@@ -66,7 +66,7 @@ def f_univariate_mean_unknown_var_LR(sum_pre_j, sum_post_j, pos, t):
 
 @nb.njit(cache=True)
 def penalty_univariate_mean_unknown_var_LR(pos, t, p):
-    logg = fastlog(2 * t)
+    logg = numba_log(2 * t)
     logg = logg + math.sqrt(logg)
     return logg
 
@@ -101,7 +101,7 @@ def f_univariate_variance_LR(sum_pre_j, sum_post_j, pos, t):
 
 @nb.njit(cache=True)
 def penalty_univariate_variance_LR(pos, t, p):
-    logg = fastlog(t)
+    logg = numba_log(t)
     logg = logg + math.sqrt(logg)
     return logg
 
@@ -152,7 +152,7 @@ def f_univariate_mean_or_variance_LR(sum_pre_j, sum_post_j, pos, t):
 
 @nb.njit(cache=True)
 def penalty_univariate_mean_or_variance_LR(pos, t, p):
-    logg = fastlog(2 * t)
+    logg = numba_log(2 * t)
     logg = logg + math.sqrt(logg)
     return logg
 
@@ -184,7 +184,7 @@ def f_multivariate_mean_id_cov_LR(sum_pre_j, sum_post_j, pos, t):
 
 @nb.njit(cache=True)
 def penalty_multivariate_mean_id_cov_LR(pos, t, p):
-    logg = fastlog(t)
+    logg = numba_log(t)
     logg = logg + math.sqrt(p * logg)
     return logg
 
@@ -256,7 +256,7 @@ def f_multivariate_mean_unknown_cov_LR(sum_pre_j, sum_post_j, pos, t):
 @nb.njit(cache=True)
 def penalty_multivariate_mean_unknown_cov_LR(pos, t, p):
     df = p
-    logg = fastlog(t / 0.05)
+    logg = numba_log(t / 0.05)
     rr = math.sqrt(df * logg) + logg
 
     return rr
@@ -328,7 +328,7 @@ def f_multivariate_mean_and_covariance_LR(sum_pre_j, sum_post_j, pos, t):
 @nb.njit(cache=True)
 def penalty_multivariate_mean_and_covariance_LR(pos, t, p):
     df = (p * (p + 1)) // 2 + p
-    logg = fastlog(t / 0.05)
+    logg = numba_log(t / 0.05)
     rr = math.sqrt(df * logg) + logg
 
     return rr
@@ -469,6 +469,6 @@ def change_univariate_simple_h(x):
 
 @nb.njit(cache=True)
 def change_univariate_simple_penalty(pos, t, p):
-    logg = fastlog(t)
+    logg = numba_log(t)
     logg = logg + math.sqrt(logg)
     return logg
