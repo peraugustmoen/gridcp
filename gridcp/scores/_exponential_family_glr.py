@@ -1,10 +1,20 @@
 """Generalised Likelihood Ratio (GLR) score for canonical exponential families.
 
-Supports any exponential family whose log-partition function A has known first
-and second derivatives (or gradient and Hessian for v > 1) that can be supplied
-as Numba-compiled or plain NumPy callables.  The user provides the sufficient
-statistic h, the log-partition A, and its derivatives; the module builds MLE
-solvers and GLR kernels at construction time.
+Pipeline
+--------
+1. ``ExponentialFamilyGLR.__init__`` / ``from_family``:
+   Builds a Newton MLE solver (``make_newton_solver`` for v=1,
+   ``make_vector_newton_solver`` for v>1) and closes it together with the
+   user-supplied callables into a GLR kernel (``_make_scalar_glr_kernel`` or
+   ``_make_vector_glr_kernel``).
+
+2. ``update``: Accumulates ``h(x)`` into ``ExponentialFamilyGLRState``
+   (running sufficient statistic + sample count).
+
+3. ``compute_penalised_scores``: Passes the sufficient statistics of all
+   O(log t) grid candidates to the pre-built kernel, which computes the GLR
+   score for each candidate by fitting three MLEs (pre, post, null) via
+   Newton's method.  Raw scores are divided by the penalty before returning.
 """
 
 import math
@@ -13,6 +23,7 @@ from dataclasses import dataclass, field
 import numba as nb
 import numpy as np
 
+from gridcp.scores._families import FAMILIES, VALID_FAMILIES
 from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike, PenaltyType
 
@@ -32,7 +43,7 @@ def _norm(a):
 
 @nb.njit(cache=True, inline="always")
 def _solve(H_reg, residual):
-    """Solve H_reg @ x = residual with explicit formulas for n<=3."""
+    """Solve H_reg @ x = residual with an explicit formula for n=2."""
     n = H_reg.shape[0]
     if n == 2:
         det = H_reg[0, 0] * H_reg[1, 1] - H_reg[0, 1] * H_reg[1, 0]
@@ -40,28 +51,6 @@ def _solve(H_reg, residual):
         x0 = (H_reg[1, 1] * residual[0] - H_reg[0, 1] * residual[1]) * inv_det
         x1 = (H_reg[0, 0] * residual[1] - H_reg[1, 0] * residual[0]) * inv_det
         return np.array([x0, x1])
-    elif n == 3:
-        a, b, c = H_reg[0, 0], H_reg[0, 1], H_reg[0, 2]
-        d, e, f = H_reg[1, 0], H_reg[1, 1], H_reg[1, 2]
-        g, h, k = H_reg[2, 0], H_reg[2, 1], H_reg[2, 2]
-        det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g)
-        inv_det = 1.0 / det
-        x0 = (
-            (e * k - f * h) * residual[0]
-            + (c * h - b * k) * residual[1]
-            + (b * f - c * e) * residual[2]
-        ) * inv_det
-        x1 = (
-            (f * g - d * k) * residual[0]
-            + (a * k - c * g) * residual[1]
-            + (c * d - a * f) * residual[2]
-        ) * inv_det
-        x2 = (
-            (d * h - e * g) * residual[0]
-            + (b * g - a * h) * residual[1]
-            + (a * e - b * d) * residual[2]
-        ) * inv_det
-        return np.array([x0, x1, x2])
     else:
         return np.linalg.solve(H_reg, residual)
 
@@ -539,16 +528,10 @@ class ExponentialFamilyGLRState:
 
 
 class ExponentialFamilyGLR:
-    """General GLR score for canonical exponential families.
+    """GLR score for canonical exponential families.
 
-    Implements the ``ScoreModel`` protocol from ``gridcp.typing`` so it can
-    be used directly with ``GridDetector``.
-
-    The user provides the exponential-family specification (``h``, ``A``, and
-    its derivatives) and the constructor builds MLE solvers and GLR kernels
-    once at construction time.  All subsequent per-step computations run at
-    full speed with no Python callback overhead when Numba-compiled functions
-    are supplied.
+    The user supplies the sufficient statistic ``h``, log-partition ``A``, and
+    its derivatives.  Built-in families are available via :meth:`from_family`.
 
     Parameters
     ----------
@@ -613,6 +596,8 @@ class ExponentialFamilyGLR:
 
     Examples
     --------
+    Scalar Gaussian mean model (known variance = 1):
+
     >>> import numba as nb
     >>> import numpy as np
     >>> @nb.njit
@@ -686,7 +671,103 @@ class ExponentialFamilyGLR:
         self.penalty = penalty
         self._theta_init = theta_init
 
+    @classmethod
+    def from_family(
+        cls,
+        family: str,
+        n_features: int = 1,
+        *,
+        theta_init=None,
+        min_seg: int | None = None,
+        penalty: PenaltyType = PenaltyType.TIME_DEPENDENT,
+    ) -> "ExponentialFamilyGLR":
+        """Construct a GLR score for a built-in exponential family.
+
+        Parameters
+        ----------
+        family : str
+            Name of the exponential family.  Valid choices are:
+
+            - ``'gaussian_mean'`` — Gaussian mean (known variance = 1);
+              scalar (v=1) when ``n_features=1``, multivariate (v=p) when
+              ``n_features>1``.  For large p, prefer
+              ``MultivariateMeanIdentityCov`` or ``MeanCUSUM``, which use
+              closed-form O(p) scores for the same model.
+            - ``'gaussian_variance'`` — Gaussian variance (known mean = 0);
+              scalar (v=1).
+            - ``'gaussian_mean_variance'`` — joint Gaussian mean and
+              variance; v=2, ``n_features=1``.
+            - ``'gaussian_covariance'`` — multivariate Gaussian covariance
+              (known mean = 0); v=p(p+1)/2, requires ``n_features>1``.
+            - ``'poisson'`` — Poisson rate; scalar (v=1).
+            - ``'exponential'`` — Exponential rate; scalar (v=1).
+            - ``'bernoulli'`` — Bernoulli probability; scalar (v=1).
+        n_features : int, optional
+            Dimension of each observation vector.  For ``'gaussian_mean'``
+            and ``'gaussian_covariance'`` this controls the vector
+            dimension.  All other families are scalar (``n_features=1``)
+            regardless of this parameter.
+        theta_init : float or np.ndarray, optional
+            Override the family's default Newton starting point.  If
+            ``None`` (default), the canonical starting point is used.
+        min_seg : int or None, optional
+            Passed through to ``__init__``.  Defaults to ``v + 1``.
+        penalty : PenaltyType, optional
+            Passed through to ``__init__``.
+
+        Returns
+        -------
+        ExponentialFamilyGLR
+            Fully constructed score object.
+
+        Raises
+        ------
+        ValueError
+            If ``family`` is not a recognised name.
+
+        Examples
+        --------
+        >>> score = ExponentialFamilyGLR.from_family("gaussian_mean")
+        >>> score = ExponentialFamilyGLR.from_family("gaussian_mean", n_features=3)
+        >>> score = ExponentialFamilyGLR.from_family("gaussian_variance")
+        >>> score = ExponentialFamilyGLR.from_family("gaussian_mean_variance")
+        >>> score = ExponentialFamilyGLR.from_family("gaussian_covariance", n_features=3)
+        >>> score = ExponentialFamilyGLR.from_family("poisson")
+        >>> score = ExponentialFamilyGLR.from_family("bernoulli")
+        >>> score = ExponentialFamilyGLR.from_family("exponential")
+        """
+        if family not in FAMILIES:
+            raise ValueError(
+                f"Unknown family {family!r}. "
+                f"Valid choices are: {', '.join(VALID_FAMILIES)}."
+            )
+        spec = FAMILIES[family]
+        if callable(spec) and not hasattr(spec, "py_func"):
+            spec = spec(n_features)
+        effective_theta_init = (
+            theta_init if theta_init is not None else spec["theta_init"]
+        )
+        effective_n_features = n_features if spec["v"] > 1 else 1
+        effective_min_seg = min_seg if min_seg is not None else spec.get("min_seg")
+        kwargs: dict = dict(
+            v=spec["v"],
+            n_features=effective_n_features,
+            h=spec["h"],
+            A=spec["A"],
+            theta_init=effective_theta_init,
+            min_seg=effective_min_seg,
+            penalty=penalty,
+        )
+        if spec["v"] == 1:
+            kwargs["A_prime"] = spec["A_prime"]
+            kwargs["A_dprime"] = spec["A_dprime"]
+        else:
+            kwargs["A_grad"] = spec["A_grad"]
+            kwargs["A_hess"] = spec["A_hess"]
+        return cls(**kwargs)
+
     def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
             log_t = np.log(n_samples)
             return self.v * (log_t + np.sqrt(log_t))
