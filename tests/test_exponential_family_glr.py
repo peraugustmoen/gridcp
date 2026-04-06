@@ -658,7 +658,7 @@ def test_from_family_gaussian_covariance_larger_p():
 def test_gaussian_mean_mv_min_seg_is_2(p):
     """gaussian_mean min_seg must be 2 (not p+1) so high-dim streams can be scored."""
     score = ExponentialFamilyGLR.from_family("gaussian_mean", n_features=p)
-    assert score._glr_kernel is not None
+    assert score._glr_score_fn is not None
     # With min_seg=2, a short stream should produce non-zero scores.
     # If min_seg were p+1, all candidates would be skipped and max_score==0.
     rng = np.random.default_rng(seed=0)
@@ -676,7 +676,7 @@ def test_gaussian_mean_mv_min_seg_is_2(p):
 def test_gaussian_covariance_min_seg_is_p_plus_1(p):
     """gaussian_covariance min_seg must be p+1, not p*(p+1)//2+1."""
     score = ExponentialFamilyGLR.from_family("gaussian_covariance", n_features=p)
-    assert score._glr_kernel is not None
+    assert score._glr_score_fn is not None
     # Check that a stream of length 4*(p+1) produces some non-zero scores.
     rng = np.random.default_rng(seed=1)
     n = 4 * (p + 1)

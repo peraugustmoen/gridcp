@@ -5,14 +5,14 @@ Pipeline
 1. ``ExponentialFamilyGLR.__init__`` / ``from_family``:
    Builds a Newton MLE solver (``make_newton_solver`` for v=1,
    ``make_vector_newton_solver`` for v>1) and closes it together with the
-   user-supplied callables into a GLR kernel (``_make_scalar_glr_kernel`` or
-   ``_make_vector_glr_kernel``).
+   user-supplied callables into a GLR score function (``_make_scalar_glr_score_fn`` or
+   ``_make_vector_glr_score_fn``).
 
 2. ``update``: Accumulates ``h(x)`` into ``ExponentialFamilyGLRState``
    (running sufficient statistic + sample count).
 
 3. ``compute_penalised_scores``: Passes the sufficient statistics of all
-   O(log t) grid candidates to the pre-built kernel, which computes the GLR
+   O(log t) grid candidates to the pre-built GLR score function, which computes the GLR
    score for each candidate by fitting three MLEs (pre, post, null) via
    Newton's method.  Raw scores are divided by the penalty before returning.
 """
@@ -259,7 +259,7 @@ def make_vector_newton_solver(A_grad, A_hess):
 # ---------------------------------------------------------------------------
 
 
-def _make_scalar_glr_kernel(A, solver, A_prime, A_dprime, theta_init, min_seg):
+def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg):
     """Build a GLR kernel for the scalar (v=1) case.
 
     Parameters
@@ -403,7 +403,7 @@ def _make_scalar_glr_kernel(A, solver, A_prime, A_dprime, theta_init, min_seg):
     return kernel
 
 
-def _make_vector_glr_kernel(A, solver, A_grad, A_hess, theta_init, min_seg):
+def _make_vector_glr_score_fn(A, solver, A_grad, A_hess, theta_init, min_seg):
     """Build a GLR kernel for the vector (v > 1) case.
 
     Parameters
@@ -655,7 +655,7 @@ class ExponentialFamilyGLR:
                     "A_prime and A_dprime are required for scalar case (v=1)."
                 )
             solver = make_newton_solver(A_prime, A_dprime)
-            self._glr_kernel = _make_scalar_glr_kernel(
+            self._glr_score_fn = _make_scalar_glr_score_fn(
                 A, solver, A_prime, A_dprime, theta_init, min_seg
             )
         else:
@@ -664,7 +664,7 @@ class ExponentialFamilyGLR:
                     "A_grad and A_hess are required for vector case (v>1)."
                 )
             solver = make_vector_newton_solver(A_grad, A_hess)
-            self._glr_kernel = _make_vector_glr_kernel(
+            self._glr_score_fn = _make_vector_glr_score_fn(
                 A, solver, A_grad, A_hess, theta_init, min_seg
             )
 
@@ -840,7 +840,7 @@ class ExponentialFamilyGLR:
         before_stats = np.stack([gs.suff_stat for gs in grid_states])
         before_n = np.array([gs.n_samples for gs in grid_states], dtype=np.int64)
 
-        raw_scores = self._glr_kernel(
+        raw_scores = self._glr_score_fn(
             state.suff_stat, before_stats, state.n_samples, before_n
         )
         penalty = self._get_penalty(state.n_samples)
