@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from gridcp import calibrate_detector_threshold, mc_alarm_times, with_calibrated_threshold
+from gridcp import (
+    calibrate_detector_threshold,
+    mc_alarm_times,
+    with_calibrated_threshold,
+)
 from gridcp.detector import GridDetector
 from gridcp.scores import NPFOCuS
 
