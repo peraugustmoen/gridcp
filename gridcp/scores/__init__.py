@@ -16,6 +16,7 @@ from gridcp.scores._regression_direct import RegressionDirect
 from gridcp.scores._regression_mcscan import RegressionMcScan
 from gridcp.scores._variance import Variance
 from gridcp.scores._exponential_family_glr import ExponentialFamilyGLR
+from gridcp.scores._npfocus import NPFOCuS
 
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "RegressionMcScan",
     "RegressionDirect",
     "ExponentialFamilyGLR",
+    "NPFOCuS",
 ]
