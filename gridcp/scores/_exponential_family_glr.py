@@ -295,7 +295,9 @@ def make_vector_newton_solver(A_grad, A_hess):
 # ---------------------------------------------------------------------------
 
 
-def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg):
+def _make_scalar_glr_score_fn(
+    A, solver, A_prime, A_dprime, theta_init, min_seg, theta_min, theta_max
+):
     """Build a GLR kernel for the scalar (v=1) case.
 
     Parameters
@@ -313,6 +315,10 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
     min_seg : int
         Minimum number of observations required on each side of a candidate
         changepoint; candidates with fewer are assigned a score of 0.
+    theta_min : float
+        Lower bound of the natural parameter domain (exclusive).
+    theta_max : float
+        Upper bound of the natural parameter domain (exclusive).
 
     Returns
     -------
@@ -320,6 +326,10 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
         ``kernel(total_stat, before_stats, t, before_n) -> np.ndarray``
         returning raw (unpenalised) GLR scores for all candidates.
     """
+    _eps = 1e-10  # small buffer to keep warm-starts strictly inside the domain
+    _lo = theta_min + _eps if math.isfinite(theta_min) else theta_min
+    _hi = theta_max - _eps if math.isfinite(theta_max) else theta_max
+
     use_numba = (
         _is_numba_compiled(A)
         and _is_numba_compiled(solver)
@@ -348,10 +358,22 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
                 S_pre = before_stats[i, 0]
                 S_post = S_total - S_pre
 
-                # Warm-start: one Newton step from theta_init
+                # Warm-start: one Newton step from theta_init, clamped to domain
                 warm_pre = theta_init + (S_pre / n_pre - A_prime_init) / adp0
                 warm_post = theta_init + (S_post / n_post - A_prime_init) / adp0
                 warm_null = theta_init + (S_total / t - A_prime_init) / adp0
+                if warm_pre < _lo:
+                    warm_pre = _lo
+                elif warm_pre > _hi:
+                    warm_pre = _hi
+                if warm_post < _lo:
+                    warm_post = _lo
+                elif warm_post > _hi:
+                    warm_post = _hi
+                if warm_null < _lo:
+                    warm_null = _lo
+                elif warm_null > _hi:
+                    warm_null = _hi
 
                 th_pre = solver(S_pre, n_pre, warm_pre)
                 th_post = solver(S_post, n_post, warm_post)
@@ -386,10 +408,13 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
                 S_pre = before_stats[i, 0]
                 S_post = S_total - S_pre
 
-                # Warm-start: one Newton step from theta_init
+                # Warm-start: one Newton step from theta_init, clamped to domain
                 warm_pre = theta_init + (S_pre / n_pre - A_prime_init) / adp0
                 warm_post = theta_init + (S_post / n_post - A_prime_init) / adp0
                 warm_null = theta_init + (S_total / t - A_prime_init) / adp0
+                warm_pre = max(_lo, min(_hi, warm_pre))
+                warm_post = max(_lo, min(_hi, warm_post))
+                warm_null = max(_lo, min(_hi, warm_null))
 
                 th_pre = solver(S_pre, n_pre, warm_pre)
                 th_post = solver(S_post, n_post, warm_post)
@@ -675,7 +700,7 @@ class ExponentialFamilyGLR:
                 )
             solver = make_newton_solver(A_prime, A_dprime, theta_min, theta_max)
             self._glr_score_fn = _make_scalar_glr_score_fn(
-                A, solver, A_prime, A_dprime, theta_init, min_seg
+                A, solver, A_prime, A_dprime, theta_init, min_seg, theta_min, theta_max
             )
         else:
             if A_grad is None or A_hess is None:
