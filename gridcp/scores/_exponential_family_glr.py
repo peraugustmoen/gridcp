@@ -65,13 +65,19 @@ def _is_numba_compiled(fn):
 # ---------------------------------------------------------------------------
 
 
-def make_newton_solver(A_prime, A_dprime):
+def make_newton_solver(
+    A_prime,
+    A_dprime,
+    theta_min: float = -math.inf,
+    theta_max: float = math.inf,
+):
     """Build a scalar Newton MLE solver for a 1D exponential family.
 
-    Solves the MLE equation A'(θ) = S / n by Newton iterations.  A domain
-    guard prevents the iterate from crossing zero when ``theta_init`` is
-    non-zero, which is necessary for families whose natural parameter domain
-    excludes zero (e.g. Gaussian-variance with θ < 0, Exponential with θ < 0).
+    Solves the MLE equation A'(θ) = S / n by Newton iterations with
+    backtracking line search.  Each candidate step is rejected if it leaves
+    the natural parameter domain ``(theta_min, theta_max)`` or if it does not
+    reduce the residual ``|A'(θ) − S/n|``.  The step is halved up to 20
+    times; if no acceptable step is found the current iterate is returned.
 
     Parameters
     ----------
@@ -79,6 +85,12 @@ def make_newton_solver(A_prime, A_dprime):
         First derivative of the log-partition function A.
     A_dprime : callable
         Second derivative of A (must return a positive float).
+    theta_min : float, optional
+        Lower bound of the natural parameter domain (exclusive).
+        Defaults to ``-inf`` (unbounded below).
+    theta_max : float, optional
+        Upper bound of the natural parameter domain (exclusive).
+        Defaults to ``+inf`` (unbounded above).
 
     Returns
     -------
@@ -101,12 +113,22 @@ def make_newton_solver(A_prime, A_dprime):
                 adp = A_dprime(theta)
                 if adp < 1e-15:
                     return theta
-                theta_new = theta - residual / adp
-                if theta_init < 0.0 and theta_new >= 0.0:
-                    theta_new = theta * 0.1
-                elif theta_init > 0.0 and theta_new <= 0.0:
-                    theta_new = theta * 0.1
-                theta = theta_new
+                step = residual / adp
+                step_scale = 1.0
+                accepted = False
+                for _ in range(20):
+                    theta_cand = theta - step_scale * step
+                    if theta_cand <= theta_min or theta_cand >= theta_max:
+                        step_scale *= 0.5
+                        continue
+                    res_cand = A_prime(theta_cand) - target
+                    if math.isfinite(res_cand) and abs(res_cand) <= abs(residual):
+                        theta = theta_cand
+                        accepted = True
+                        break
+                    step_scale *= 0.5
+                if not accepted:
+                    return theta
             return theta
 
     else:
@@ -121,12 +143,26 @@ def make_newton_solver(A_prime, A_dprime):
                 adp = A_dprime(theta)
                 if adp < 1e-15:
                     return theta
-                theta_new = theta - residual / adp
-                if theta_init < 0.0 and theta_new >= 0.0:
-                    theta_new = theta * 0.1
-                elif theta_init > 0.0 and theta_new <= 0.0:
-                    theta_new = theta * 0.1
-                theta = theta_new
+                step = residual / adp
+                step_scale = 1.0
+                accepted = False
+                for _ in range(20):
+                    theta_cand = theta - step_scale * step
+                    if theta_cand <= theta_min or theta_cand >= theta_max:
+                        step_scale *= 0.5
+                        continue
+                    try:
+                        res_cand = A_prime(theta_cand) - target
+                        ok = math.isfinite(res_cand) and abs(res_cand) <= abs(residual)
+                    except (ZeroDivisionError, OverflowError, ValueError):
+                        ok = False
+                    if ok:
+                        theta = theta_cand
+                        accepted = True
+                        break
+                    step_scale *= 0.5
+                if not accepted:
+                    return theta
             return theta
 
     return solver
@@ -317,22 +353,6 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
                 warm_post = theta_init + (S_post / n_post - A_prime_init) / adp0
                 warm_null = theta_init + (S_total / t - A_prime_init) / adp0
 
-                # Domain guard: keep warm-start on same side of zero as theta_init
-                if theta_init < 0.0:
-                    if warm_pre >= 0.0:
-                        warm_pre = theta_init * 0.1
-                    if warm_post >= 0.0:
-                        warm_post = theta_init * 0.1
-                    if warm_null >= 0.0:
-                        warm_null = theta_init * 0.1
-                elif theta_init > 0.0:
-                    if warm_pre <= 0.0:
-                        warm_pre = theta_init * 0.1
-                    if warm_post <= 0.0:
-                        warm_post = theta_init * 0.1
-                    if warm_null <= 0.0:
-                        warm_null = theta_init * 0.1
-
                 th_pre = solver(S_pre, n_pre, warm_pre)
                 th_post = solver(S_post, n_post, warm_post)
                 th_null = solver(S_total, t, warm_null)
@@ -370,22 +390,6 @@ def _make_scalar_glr_score_fn(A, solver, A_prime, A_dprime, theta_init, min_seg)
                 warm_pre = theta_init + (S_pre / n_pre - A_prime_init) / adp0
                 warm_post = theta_init + (S_post / n_post - A_prime_init) / adp0
                 warm_null = theta_init + (S_total / t - A_prime_init) / adp0
-
-                # Domain guard: keep warm-start on same side of zero as theta_init
-                if theta_init < 0.0:
-                    if warm_pre >= 0.0:
-                        warm_pre = theta_init * 0.1
-                    if warm_post >= 0.0:
-                        warm_post = theta_init * 0.1
-                    if warm_null >= 0.0:
-                        warm_null = theta_init * 0.1
-                elif theta_init > 0.0:
-                    if warm_pre <= 0.0:
-                        warm_pre = theta_init * 0.1
-                    if warm_post <= 0.0:
-                        warm_post = theta_init * 0.1
-                    if warm_null <= 0.0:
-                        warm_null = theta_init * 0.1
 
                 th_pre = solver(S_pre, n_pre, warm_pre)
                 th_post = solver(S_post, n_post, warm_post)
@@ -530,8 +534,16 @@ class ExponentialFamilyGLRState:
 class ExponentialFamilyGLR:
     """GLR score for canonical exponential families.
 
+    Canonical exponential families have density of the form
+
+        f(x; θ) = c(x) exp(θᵀ h(x) - A(θ)).
+
+    Here, θ is the natural parameter, h(x) is the sufficient statistic, and
+    A(θ) is the log-partition function. c(x) is the base measure, which does not depend on θ and
+    is thus not needed to compute the GLR score.
+
     The user supplies the sufficient statistic ``h``, log-partition ``A``, and
-    its derivatives.  Built-in families are available via :meth:`from_family`.
+    first and second derivatives of A. Built-in families are available via :meth:`from_family`.
 
     Parameters
     ----------
@@ -561,10 +573,15 @@ class ExponentialFamilyGLR:
         ignored otherwise.
     theta_init : float or np.ndarray, optional
         Starting point for the Newton MLE solver.  Defaults to ``0.0``
-        (scalar) or ``np.zeros(v)`` (vector).  For families whose natural
-        parameter domain excludes zero (e.g. ``θ < 0`` for Gaussian-variance
-        or Exponential), you **must** supply a ``theta_init`` on the correct
-        side; the Newton solver applies a domain guard to keep iterates there.
+        (scalar) or ``np.zeros(v)`` (vector).
+    theta_min : float, optional
+        Exclusive lower bound of the natural parameter domain.  The Newton
+        solver will never propose a candidate ≤ ``theta_min``.  Defaults to
+        ``-inf`` (unbounded).  Only used when ``v=1``.
+    theta_max : float, optional
+        Exclusive upper bound of the natural parameter domain.  The Newton
+        solver will never propose a candidate ≥ ``theta_max``.  Defaults to
+        ``+inf`` (unbounded).  Only used when ``v=1``.
     min_seg : int or None, optional
         Minimum number of observations required on each side of a candidate
         changepoint.  Candidates with fewer observations are assigned a score
@@ -629,6 +646,8 @@ class ExponentialFamilyGLR:
         A_grad=None,
         A_hess=None,
         theta_init=None,
+        theta_min: float = -math.inf,
+        theta_max: float = math.inf,
         min_seg: int | None = None,
         penalty: PenaltyType = PenaltyType.TIME_DEPENDENT,
     ):
@@ -654,7 +673,7 @@ class ExponentialFamilyGLR:
                 raise ValueError(
                     "A_prime and A_dprime are required for scalar case (v=1)."
                 )
-            solver = make_newton_solver(A_prime, A_dprime)
+            solver = make_newton_solver(A_prime, A_dprime, theta_min, theta_max)
             self._glr_score_fn = _make_scalar_glr_score_fn(
                 A, solver, A_prime, A_dprime, theta_init, min_seg
             )
@@ -680,6 +699,7 @@ class ExponentialFamilyGLR:
         theta_init=None,
         min_seg: int | None = None,
         penalty: PenaltyType = PenaltyType.TIME_DEPENDENT,
+        **family_kwargs,
     ) -> "ExponentialFamilyGLR":
         """Construct a GLR score for a built-in exponential family.
 
@@ -702,6 +722,10 @@ class ExponentialFamilyGLR:
             - ``'poisson'`` — Poisson rate; scalar (v=1).
             - ``'exponential'`` — Exponential rate; scalar (v=1).
             - ``'bernoulli'`` — Bernoulli probability; scalar (v=1).
+            - ``'gamma_rate'`` — Gamma rate (known shape k); scalar (v=1).
+              Pass ``shape=k`` via ``**family_kwargs``, e.g.
+              ``from_family("gamma_rate", shape=2.0)``.
+              Defaults to ``shape=1.0`` (equivalent to Exponential).
         n_features : int, optional
             Dimension of each observation vector.  For ``'gaussian_mean'``
             and ``'gaussian_covariance'`` this controls the vector
@@ -735,6 +759,7 @@ class ExponentialFamilyGLR:
         >>> score = ExponentialFamilyGLR.from_family("poisson")
         >>> score = ExponentialFamilyGLR.from_family("bernoulli")
         >>> score = ExponentialFamilyGLR.from_family("exponential")
+        >>> score = ExponentialFamilyGLR.from_family("gamma_rate", shape=2.0)
         """
         if family not in FAMILIES:
             raise ValueError(
@@ -743,7 +768,7 @@ class ExponentialFamilyGLR:
             )
         spec = FAMILIES[family]
         if callable(spec) and not hasattr(spec, "py_func"):
-            spec = spec(n_features)
+            spec = spec(n_features, **family_kwargs)
         effective_theta_init = (
             theta_init if theta_init is not None else spec["theta_init"]
         )
@@ -755,6 +780,8 @@ class ExponentialFamilyGLR:
             h=spec["h"],
             A=spec["A"],
             theta_init=effective_theta_init,
+            theta_min=spec.get("theta_min", -math.inf),
+            theta_max=spec.get("theta_max", math.inf),
             min_seg=effective_min_seg,
             penalty=penalty,
         )

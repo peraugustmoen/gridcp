@@ -284,8 +284,8 @@ def test_scalar_newton_finds_gaussian_mle():
     assert np.isclose(theta, 2.5, atol=1e-7)
 
 
-def test_scalar_newton_domain_guard_negative_init():
-    """Scalar solver with negative theta_init does not cross zero."""
+def test_scalar_newton_stays_in_domain_negative_init():
+    """Scalar solver with negative theta_init stays negative via backtracking."""
 
     # Exponential family for variance: A(θ) = -0.5 * log(-θ), θ < 0
     # A'(θ) = -1 / (2θ),  A''(θ) = 1 / (2θ²)
@@ -301,7 +301,7 @@ def test_scalar_newton_domain_guard_negative_init():
     # MLE for A'(θ) = S/n  =>  -1/(2θ) = S/n  =>  θ = -n/(2S)
     # With S = 50, n = 10: θ_MLE = -10/100 = -0.1
     theta = solver(50.0, 10.0, theta_init=-1.0)
-    assert theta < 0.0, "Domain guard should keep theta negative"
+    assert theta < 0.0, "Backtracking should keep theta in the valid domain (θ < 0)"
     assert np.isclose(theta, -0.1, atol=1e-6)
 
 
@@ -406,7 +406,9 @@ def test_from_family_bernoulli_mle():
 def test_from_family_exponential_mle():
     """Exponential MLE: A'(theta)=-1/theta=S/n => theta=-n/S."""
     spec = FAMILIES["exponential"]
-    solver = make_newton_solver(spec["A_prime"], spec["A_dprime"])
+    solver = make_newton_solver(
+        spec["A_prime"], spec["A_dprime"], theta_max=spec["theta_max"]
+    )
     S, n = 50.0, 10.0  # theta_MLE = -10/50 = -0.2
     theta = solver(S, n, theta_init=-1.0)
     assert np.isclose(theta, -0.2, atol=1e-7)
@@ -416,10 +418,25 @@ def test_from_family_exponential_mle():
 def test_from_family_gaussian_variance_mle():
     """Gaussian variance MLE: A'(theta)=-1/(2*theta)=S/n => theta=-n/(2*S)."""
     spec = FAMILIES["gaussian_variance"]
-    solver = make_newton_solver(spec["A_prime"], spec["A_dprime"])
+    solver = make_newton_solver(
+        spec["A_prime"], spec["A_dprime"], theta_max=spec["theta_max"]
+    )
     S, n = 40.0, 10.0  # theta_MLE = -10/80 = -0.125
     theta = solver(S, n, theta_init=-0.5)
     assert np.isclose(theta, -0.125, atol=1e-7)
+    assert theta < 0.0
+
+
+def test_from_family_gamma_rate_mle():
+    """Gamma-rate MLE: A'(theta)=-k/theta=S/n => theta=-k*n/S."""
+    # With k=3, S=30, n=10: theta_MLE = -3*10/30 = -1.0
+    spec = FAMILIES["gamma_rate"](1, shape=3.0)
+    solver = make_newton_solver(
+        spec["A_prime"], spec["A_dprime"], theta_max=spec["theta_max"]
+    )
+    S, n = 30.0, 10.0
+    theta = solver(S, n, theta_init=-1.0)
+    assert np.isclose(theta, -1.0, atol=1e-7)
     assert theta < 0.0
 
 
@@ -456,6 +473,24 @@ def test_from_family_gaussian_mean_mv_detects_shift():
     for i, x in enumerate(data):
         state, out = detector.update(state, x)
         if i >= 100 and out["alarm"]:
+            post_shift_alarms.append(i)
+    assert len(post_shift_alarms) > 0
+
+
+def test_from_family_gamma_rate_detects_rate_shift():
+    """gamma_rate factory detects a change in rate with known shape."""
+    rng = np.random.default_rng(seed=42)
+    # Pre: Gamma(shape=3, rate=1) → mean=3; Post: Gamma(shape=3, rate=3) → mean=1
+    pre = rng.gamma(shape=3.0, scale=1.0, size=150).astype(float)  # scale=1/rate
+    post = rng.gamma(shape=3.0, scale=1.0 / 3.0, size=150).astype(float)
+    data = np.concatenate([pre, post])
+    score = ExponentialFamilyGLR.from_family("gamma_rate", shape=3.0)
+    detector = GridDetector(score=score, threshold=5.0)
+    state = detector.init_state()
+    post_shift_alarms = []
+    for i, x in enumerate(data):
+        state, out = detector.update(state, np.array([x]))
+        if i >= 150 and out["alarm"]:
             post_shift_alarms.append(i)
     assert len(post_shift_alarms) > 0
 
