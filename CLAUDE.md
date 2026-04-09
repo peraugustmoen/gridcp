@@ -113,3 +113,7 @@ from gridcp.scores import (
 - Line length: 88
 - Tests directory: `tests/` (old_api_tests excluded)
 - CI tests Python 3.10 and 3.13
+
+## Coding notes
+
+- whenever you edit code, you must allways apply ruff linting afterwards, so that the pre-commit hooks will pass

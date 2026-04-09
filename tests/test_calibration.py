@@ -94,6 +94,80 @@ def test_draw_samples_random_changepoint_callable():
     assert np.any(X == 2.0)
 
 
+def test_draw_samples_rejects_changepoint_callable_wrong_arity():
+    """Reject changepoint callable without required path_index argument."""
+    with pytest.raises(TypeError, match="must accept arguments"):
+        draw_samples(
+            n_paths=3,
+            stream_len=10,
+            n_features=1,
+            pre_sampler=lambda rng: -1.0,
+            post_sampler=lambda rng: 2.0,
+            changepoint=lambda rng, stream_len: 4,
+            rng=0,
+        )
+
+
+def test_mc_alarm_times_rejects_changepoint_callable_extra_required_arg():
+    """Reject changepoint callable requiring extra mandatory arguments."""
+
+    def bad_cp(rng, stream_len, path_index, extra):
+        return 3
+
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(TypeError, match="must accept arguments"):
+        mc_alarm_times(
+            detector=detector,
+            n_paths=4,
+            stream_len=12,
+            pre_sampler=lambda rng: 0.0,
+            post_sampler=lambda rng: 1.0,
+            changepoint=bad_cp,
+            rng=0,
+            parallel=False,
+        )
+
+
+def test_draw_samples_rejects_changepoint_callable_non_integer_return():
+    """Reject changepoint callable that returns a non-integer-like value."""
+
+    def bad_cp(rng, stream_len, path_index):
+        return "not-an-int"
+
+    with pytest.raises(TypeError, match="callable returning an integer"):
+        draw_samples(
+            n_paths=3,
+            stream_len=10,
+            n_features=1,
+            pre_sampler=lambda rng: -1.0,
+            post_sampler=lambda rng: 2.0,
+            changepoint=bad_cp,
+            rng=0,
+        )
+
+
+def test_mc_max_scores_rejects_changepoint_callable_out_of_range_return():
+    """Reject changepoint callable that returns values outside [0, stream_len]."""
+
+    def bad_cp(rng, stream_len, path_index):
+        return stream_len + 1
+
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(ValueError, match="changepoint must be in"):
+        mc_max_scores(
+            detector=detector,
+            n_paths=4,
+            stream_len=12,
+            pre_sampler=lambda rng: 0.0,
+            post_sampler=lambda rng: 1.0,
+            changepoint=bad_cp,
+            rng=0,
+            parallel=False,
+        )
+
+
 def test_draw_samples_accepts_flattenable_array_output_for_multivariate():
     """Accept flattenable array-like sampler outputs in multivariate mode."""
     X = draw_samples(

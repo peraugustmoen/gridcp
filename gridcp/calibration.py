@@ -43,7 +43,8 @@ Randomness and changepoint inputs
         observations ``[k, stream_len)`` are post-change
     - changepoint=stream_len: all observations are pre-change
 - a callable ``f(rng, stream_len, path_index) -> int`` returning a value in
-    ``[0, stream_len]``
+    ``[0, stream_len]``. The callable must accept these three arguments in
+    that order.
 """
 
 from __future__ import annotations
@@ -583,6 +584,48 @@ def _validate_sampler_preflight(
         )
 
 
+def _validate_changepoint_preflight(
+    changepoint: ChangepointSpec,
+    *,
+    stream_len: int,
+) -> None:
+    """Validate changepoint type, callable signature, and value range."""
+    if changepoint is None:
+        return
+
+    if callable(changepoint):
+        try:
+            sig = inspect.signature(changepoint)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                "changepoint must be an inspectable callable with signature "
+                "`def changepoint(rng, stream_len, path_index): ...`."
+            ) from exc
+
+        probe_rng = np.random.default_rng(DEFAULT_MC_SEED)
+        try:
+            sig.bind(probe_rng, stream_len, 0)
+        except TypeError as exc:
+            raise TypeError(
+                "changepoint callable must accept arguments "
+                "(rng, stream_len, path_index)."
+            ) from exc
+
+        cp_raw = changepoint(probe_rng, stream_len, 0)
+    else:
+        cp_raw = changepoint
+
+    try:
+        cp = int(cp_raw)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "changepoint must be None, an integer, or a callable returning an integer."
+        ) from exc
+
+    if cp < 0 or cp > stream_len:
+        raise ValueError(f"changepoint must be in [0, {stream_len}], got {cp}.")
+
+
 def _resolve_changepoint(
     changepoint: ChangepointSpec,
     rng: np.random.Generator,
@@ -669,7 +712,8 @@ def draw_samples(
         Allowed range: [0, stream_len], where 0 means all post-change and
         stream_len means all pre-change.
         If callable, called as ``changepoint(rng, stream_len, path_idx)`` and
-        must return an integer in ``[0, stream_len]``.
+        must return an integer in ``[0, stream_len]``. Callable signature is
+        validated before simulation starts.
 
     Returns
     -------
@@ -691,6 +735,8 @@ def draw_samples(
 
     if changepoint is not None and post_sampler is None:
         raise ValueError("post_sampler must be provided when changepoint is set.")
+
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
     _validate_sampler_preflight(
         pre_sampler,
@@ -813,7 +859,8 @@ def mc_max_scores(
                 - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
                     ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``
+            ``[0, stream_len]``. The callable must accept these three
+            arguments in that order.
     """
     n_features: int = detector.score.n_features
 
@@ -825,6 +872,8 @@ def mc_max_scores(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
     _validate_sampler_preflight(
         pre_sampler,
@@ -1048,7 +1097,8 @@ def mc_alarm_times(
                 - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
                     ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``
+            ``[0, stream_len]``. The callable must accept these three
+            arguments in that order.
     """
     n_features: int = detector.score.n_features
 
@@ -1058,6 +1108,8 @@ def mc_alarm_times(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
     _validate_sampler_preflight(
         pre_sampler,
