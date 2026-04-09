@@ -94,9 +94,13 @@ def calibrate_threshold_arl(
     Returns
     -------
     float or np.ndarray
-        The ARL threshold: (1/e)-quantile of null max scores.  For scalar
-        scores, a float.  For multivariate scores (K tests), a 1-D array of
-        shape ``(K,)`` with one threshold per test.
+        The ARL threshold.  For scalar scores (K=1), a float equal to the
+        (1/e)-quantile of null max scores.  For multivariate scores (K>1),
+        a 1-D array of shape ``(K,)`` with *combined* thresholds that
+        control the *joint* ARL: each individual threshold is first derived
+        from a separate (1/e)-quantile per test, then scaled by a common
+        factor ``c`` found from a second MC pass that standardises scores
+        across tests and ensures the overall ARL equals *target_arl*.
 
     Notes
     -----
@@ -152,14 +156,24 @@ def calibrate_threshold_arl(
     )
 
     if max_scores.ndim == 1:
+        # K = 1: single threshold, no standardization needed.
         return float(np.quantile(max_scores, 1.0 / np.e))
 
-    # Multivariate scores: one threshold per test.
+    # K > 1 — two-step procedure following the OCD paper.
+    # Step 1: per-test (1/e)-quantiles from the first MC pass.
     n_tests = max_scores.shape[1]
-    return np.array(
+    individual_thresholds = np.array(
         [float(np.quantile(max_scores[:, k], 1.0 / np.e)) for k in range(n_tests)],
         dtype=np.float64,
     )
+
+    # Step 2: reuse the first-pass results.  Since τ_k > 0, dividing by
+    # τ_k commutes with the time-max already stored in max_scores, so no
+    # second simulation is needed.
+    standardized = max_scores / individual_thresholds  # (n_paths, K)
+    combined_max = np.max(standardized, axis=1)        # (n_paths,)
+    c = float(np.quantile(combined_max, 1.0 / np.e))
+    return c * individual_thresholds
 
 
 def calibrate_detector_threshold_arl(
