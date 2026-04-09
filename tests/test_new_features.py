@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from gridcp.calibration import calibrate_threshold
+from gridcp.calibration import calibrate_threshold_false_alarm
 from gridcp.detector import GridDetector
 from gridcp.typing import PenaltyType
 from gridcp.scores import (
@@ -127,12 +127,12 @@ def _mv_normal_sampler(rng: np.random.Generator) -> np.ndarray:
 
 
 class TestApplyBonferroni:
-    """Verify the apply_bonferroni parameter in calibrate_threshold."""
+    """Verify the apply_bonferroni parameter in calibrate_threshold_false_alarm."""
 
     def test_multivariate_threshold_returns_array(self):
         """Multivariate score should return an array threshold."""
         score = MultivariateMeanIdentityCov(n_features=3)
-        threshold = calibrate_threshold(
+        threshold = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
             n_paths=50,
@@ -148,7 +148,7 @@ class TestApplyBonferroni:
     def test_bonferroni_higher_than_uncorrected(self):
         """Bonferroni-corrected threshold should be >= uncorrected."""
         score = MultivariateMeanIdentityCov(n_features=3)
-        th_bonf = calibrate_threshold(
+        th_bonf = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
             n_paths=80,
@@ -158,7 +158,7 @@ class TestApplyBonferroni:
             parallel=False,
             apply_bonferroni=True,
         )
-        th_no_bonf = calibrate_threshold(
+        th_no_bonf = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
             n_paths=80,
@@ -183,7 +183,7 @@ class TestApplyBonferroni:
         def sampler(rng: np.random.Generator) -> float:
             return float(rng.normal())
 
-        th_bonf = calibrate_threshold(
+        th_bonf = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
             n_paths=50,
@@ -193,7 +193,7 @@ class TestApplyBonferroni:
             parallel=False,
             apply_bonferroni=True,
         )
-        th_no_bonf = calibrate_threshold(
+        th_no_bonf = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
             n_paths=50,

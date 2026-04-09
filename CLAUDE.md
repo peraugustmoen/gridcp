@@ -57,7 +57,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 
 **`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration:
 - `draw_samples`, `mc_max_scores`, `mc_alarm_times`
-- `calibrate_threshold`, `calibrate_detector_threshold`, `with_calibrated_threshold`
+- `calibrate_threshold_false_alarm`, `calibrate_detector_threshold_false_alarm`, `with_calibrated_threshold`
 - Supports parallel execution via `n_jobs` parameter
 
 **`gridcp/utils.py`** — Internal utilities: `v2(r)` (grid pruning), `fastlog`, `get_changeloc_grid`/`get_G_grid` (debugging)
@@ -65,7 +65,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 ### Public API
 
 ```python
-from gridcp import GridDetector, calibrate_detector_threshold, with_calibrated_threshold, ...
+from gridcp import GridDetector, calibrate_detector_threshold_false_alarm, with_calibrated_threshold, ...
 from gridcp.scores import (
     MeanCUSUM, MeanCUSUMUnknownVariance, Variance, MeanOrVariance,
     MultivariateMeanIdentityCov, MultivariateMeanUnknownCov, MultivariateMeanOrCovariance,
@@ -95,14 +95,14 @@ from gridcp.scores import (
 ## Upcoming work
 
 - **Built-in exponential families — open question:** Whether to add a family for multivariate Gaussian with *both* mean and covariance unknown, to compare against the built-in `MultivariateMeanUnknownCov` score.
-- **Promote ARL calibration to `gridcp/calibration.py`:** `calibrate_threshold_arl` and `calibrate_detector_threshold_arl` are currently prototyped in `old_notebooks/arl_calibration.py`. They should be moved into the main package (`gridcp/calibration.py`) and exported from `gridcp/__init__.py`, following the same pattern as `calibrate_threshold` / `calibrate_detector_threshold`.
+- **Promote ARL calibration to `gridcp/calibration.py`:** `calibrate_threshold_arl` and `calibrate_detector_threshold_arl` are currently prototyped in `old_notebooks/arl_calibration.py`. They should be moved into the main package (`gridcp/calibration.py`) and exported from `gridcp/__init__.py`, following the same pattern as `calibrate_threshold_false_alarm` / `calibrate_detector_threshold_false_alarm`.
 
 ## Recent work
 
 - **`ExponentialFamilyGLR` `min_seg` fix:** Default `min_seg = v + 1` was too large for high-dimensional families (e.g. `gaussian_mean` with p=1000 → `min_seg=1001`, blocking all candidates on short streams). Fixed by adding family-specific defaults to `_families.py`: `gaussian_mean` → 2, scalar families → 2, `gaussian_mean_variance` → 3, `gaussian_covariance` → p+1. `from_family` reads these via `spec.get("min_seg")`.
 - **Built-in exponential families:** `gridcp/scores/_families.py` implements `gaussian_mean` (scalar and multivariate), `gaussian_variance`, `gaussian_mean_variance`, `gaussian_covariance`, `poisson`, `exponential`, `bernoulli`. All accessible via `ExponentialFamilyGLR.from_family(name)`.
 - **Simulation metrics in `sandbox_Espen.ipynb`:** `run_scenario` now reports FA% (alarms before changepoint), ms/str, and ms/obs.
-- **ARL calibration prototype:** `old_notebooks/arl_calibration.py` implements `calibrate_threshold_arl` and `calibrate_detector_threshold_arl`. API mirrors `calibrate_threshold`/`calibrate_detector_threshold` — same parameters, just replacing `false_alarm_probability + stream_len` with `target_arl`. Uses `mc_max_scores` with `stream_len=target_arl` and returns the (1/e)-quantile. Requires `PenaltyType.CONSTANT` on the score (all built-in scores support this via their `penalty` field). Tested in `old_notebooks/sandbox_Espen.ipynb` (cells 64–67): exponential assumption check (QQ-plot + histogram) and 3-scenario detection delay sweep (Gaussian mean, Gaussian mean+var, Poisson).
+- **ARL calibration prototype:** `old_notebooks/arl_calibration.py` implements `calibrate_threshold_arl` and `calibrate_detector_threshold_arl`. API mirrors `calibrate_threshold_false_alarm`/`calibrate_detector_threshold_false_alarm` — same parameters, just replacing `false_alarm_probability + stream_len` with `target_arl`. Uses `mc_max_scores` with `stream_len=target_arl` and returns the (1/e)-quantile. Requires `PenaltyType.CONSTANT` on the score (all built-in scores support this via their `penalty` field). Tested in `old_notebooks/sandbox_Espen.ipynb` (cells 64–67): exponential assumption check (QQ-plot + histogram) and 3-scenario detection delay sweep (Gaussian mean, Gaussian mean+var, Poisson).
 - **`_solve` simplification:** Removed the explicit 3×3 Cramer's rule case from `_solve` in `_exponential_family_glr.py` — only the 2×2 case is kept; n≥3 falls through to `np.linalg.solve`. No measurable performance impact given O(log n) solver calls per step.
 - **`ExponentialFamilyGLR` documentation pass:** Module docstring expanded with a pipeline overview (GLR formula, construction, per-step computation). Class docstring trimmed to match the style of other score classes (removed ScoreModel protocol mention and internal implementation details).
 

@@ -362,9 +362,9 @@ class TestValidateSamplerPreflight:
                 kwargs={},
             )
 
-    def test_scalar_for_multivariate_raises(self):
-        """A scalar sampler with n_features > 1 raises ValueError."""
-        with pytest.raises(ValueError, match="scalar"):
+    def test_scalar_for_multivariate_is_allowed(self):
+        """A scalar sampler is allowed but should issue a broadcast warning."""
+        with pytest.warns(UserWarning, match="broadcast"):
             _validate_sampler_preflight(
                 lambda rng: rng.normal(),
                 sampler_name="test",
