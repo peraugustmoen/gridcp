@@ -36,6 +36,11 @@ Scalar families (v=1, n_features=1)
     h(x) = x,  A(θ) = log(1 + exp(θ)),  θ ∈ ℝ.
     Canonical parametrisation: θ = log(p/(1−p)) (log-odds).
 
+``gamma_rate``
+    Gamma, change in rate (known shape k).
+    h(x) = x,  A(θ) = -k * log(-θ),  θ < 0.
+    Canonical parametrisation: θ = −rate (so mean = −k/θ).
+
 Vector families (v > 1)
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -366,6 +371,51 @@ def _App_exponential(theta):
 
 
 # ---------------------------------------------------------------------------
+# Gamma rate  (theta < 0, rate = -theta, known shape k)
+# h(x) = x,  A(theta) = -k * log(-theta)
+# Special case k=1 is identical to Exponential.
+# ---------------------------------------------------------------------------
+
+
+def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
+    """Return a Gamma-rate spec with the given shape parameter.
+
+    Parameters
+    ----------
+    shape : float
+        Known shape parameter k > 0.  Defaults to 1.0 (Exponential).
+    """
+    k = float(shape)
+
+    @nb.njit
+    def _h_gr(x):
+        return x[0]
+
+    @nb.njit
+    def _A_gr(theta):
+        return -k * math.log(-theta)
+
+    @nb.njit
+    def _Ap_gr(theta):
+        return -k / theta
+
+    @nb.njit
+    def _App_gr(theta):
+        return k / (theta * theta)
+
+    return {
+        "v": 1,
+        "h": _h_gr,
+        "A": _A_gr,
+        "A_prime": _Ap_gr,
+        "A_dprime": _App_gr,
+        "theta_init": -1.0,
+        "theta_max": 0.0,
+        "min_seg": 2,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Gaussian variance  (theta < 0, theta = -1/(2*sigma^2))
 # h(x) = x^2,  A(theta) = -0.5 * log(-2*theta)
 # ---------------------------------------------------------------------------
@@ -465,6 +515,7 @@ FAMILIES: dict = {
         "theta_init": 0.0,
         "min_seg": 2,
     },
+    "gamma_rate": _gamma_rate_spec,
     "exponential": {
         "v": 1,
         "h": _h_exponential,
@@ -472,6 +523,7 @@ FAMILIES: dict = {
         "A_prime": _Ap_exponential,
         "A_dprime": _App_exponential,
         "theta_init": -1.0,
+        "theta_max": 0.0,
         "min_seg": 2,
     },
     "gaussian_covariance": _gaussian_covariance_spec,  # factory
@@ -492,6 +544,7 @@ FAMILIES: dict = {
         "A_prime": _Ap_gaussian_variance,
         "A_dprime": _App_gaussian_variance,
         "theta_init": -0.5,
+        "theta_max": 0.0,
         "min_seg": 2,
     },
     "poisson": {
