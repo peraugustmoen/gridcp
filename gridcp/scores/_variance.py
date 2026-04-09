@@ -23,6 +23,11 @@ class Variance:
 
     For ``n_features > 1``, scores are computed per feature and the maximum
     is used.
+
+    For ``n_features > 1``, the score is the maximum of the feature-wise LR
+    statistics. Centering by ``-1`` and the default penalty
+    ``log(t p) + sqrt(log(t p))`` are based on a Wilks-style ``chi^2_1``
+    approximation.
     """
 
     n_features: int = 1
@@ -80,7 +85,8 @@ class Variance:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            return np.log(n_samples) + np.sqrt(np.log(n_samples))
+            logg = np.log(n_samples * self.n_features)
+            return logg + np.sqrt(logg)
         return 1.0
 
     def compute_penalised_scores(

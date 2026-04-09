@@ -187,6 +187,31 @@ def test_vector_detects_clear_mean_shift():
     assert _detect(score, data, threshold=5.0)
 
 
+def test_scalar_score_uses_centered_two_glr_normalization():
+    score = ExponentialFamilyGLR(
+        v=1,
+        n_features=1,
+        h=_h_gauss,
+        A=_A_gauss,
+        A_prime=_Ap_gauss,
+        A_dprime=_App_gauss,
+    )
+
+    state = score.init_state()
+    grid_states = []
+    for i, x in enumerate([0.0, 0.0, 4.0, 4.0]):
+        state = score.update(state, np.array([x]))
+        if i == 1:
+            grid_states.append(state)
+
+    scores = score.compute_penalised_scores(state, grid_states)
+
+    glr = 8.0
+    expected_centered = 2.0 * glr - 1.0
+    expected_penalty = np.sqrt(np.log(4.0)) + np.log(4.0)
+    assert np.isclose(scores[0], expected_centered / expected_penalty)
+
+
 # ---------------------------------------------------------------------------
 # 5. Newton solver MLE correctness
 # ---------------------------------------------------------------------------

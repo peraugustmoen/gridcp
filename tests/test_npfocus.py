@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from gridcp import (
-    calibrate_detector_threshold,
+    calibrate_detector_threshold_false_alarm,
     mc_alarm_times,
     with_calibrated_threshold,
 )
@@ -43,7 +43,7 @@ def _calibrated_detector(grid: np.ndarray, pre_sampler):
         score=NPFOCuS(grid=grid, n_features=1),
         threshold=1.0,
     )
-    threshold = calibrate_detector_threshold(
+    threshold = calibrate_detector_threshold_false_alarm(
         detector,
         false_alarm_probability=FALSE_ALARM_PROBABILITY,
         n_paths=CALIBRATION_PATHS,

@@ -62,8 +62,8 @@ def mean_cusum_score(
 
 
 @nb.njit(cache=True)
-def mean_cusum_penalty(n_samples: int) -> float:
-    logg = np.log(n_samples)
+def mean_cusum_penalty(n_samples: int, n_features: int) -> float:
+    logg = np.log(n_samples * n_features)
     return logg + np.sqrt(logg)
 
 
@@ -93,8 +93,12 @@ class MeanCUSUM:
     """CUSUM score for a change in the mean.
 
     This score compares the mean of the data before and after the split within the
-    interval from ``start:end``. It is based on the cumulative sum of the data and
-    includes a penalty term to control for false alarms.
+    interval from ``start:end``. It is based on the cumulative sum of the data and,
+    for ``n_features > 1``, uses the maximum coordinate-wise squared CUSUM.
+
+    Centering by ``-1`` and the default time-dependent penalty
+    ``log(t p) + sqrt(log(t p))`` come from non-asymptotic Gaussian/chi-square
+    concentration bounds, with ``p = n_features``.
 
     Parameters
     ----------
@@ -171,7 +175,7 @@ class MeanCUSUM:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            return mean_cusum_penalty(n_samples)
+            return mean_cusum_penalty(n_samples, self.n_features)
         return 1.0
 
     def compute_penalised_scores(

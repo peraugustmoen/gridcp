@@ -19,7 +19,12 @@ class MultivariateMeanOrCovarianceState:
 
 @dataclass(frozen=True, slots=True)
 class MultivariateMeanOrCovariance:
-    """Multivariate mean-or-covariance LR score."""
+    """Multivariate mean-or-covariance LR score.
+
+    Centering by ``-(p + p(p+1)/2)`` and the default penalty
+    ``sqrt(df log t) + log t`` with ``df = p + p(p+1)/2`` use a Wilks-style
+    chi-square approximation.
+    """
 
     n_features: int
     penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
@@ -90,7 +95,7 @@ class MultivariateMeanOrCovariance:
         if self.penalty == PenaltyType.TIME_DEPENDENT:
             p = self.n_features
             df = float(p + (p * (p + 1)) // 2)
-            return np.sqrt(df * np.log(n_samples / 0.05)) + np.log(n_samples / 0.05)
+            return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
         return 1.0
 
     def compute_penalised_scores(

@@ -3,8 +3,8 @@ import pytest
 import warnings
 
 from gridcp.calibration import (
-    calibrate_detector_threshold,
-    calibrate_threshold,
+    calibrate_detector_threshold_false_alarm,
+    calibrate_threshold_false_alarm,
     draw_samples,
     mc_alarm_times,
     mc_max_scores,
@@ -40,8 +40,8 @@ def test_draw_samples_fixed_changepoint_with_scalar_sampler():
         n_paths=5,
         stream_len=10,
         n_features=3,
-        pre_sampler=lambda: 0.0,
-        post_sampler=lambda: 10.0,
+        pre_sampler=lambda rng: 0.0,
+        post_sampler=lambda rng: 10.0,
         changepoint=6,
         rng=rng,
     )
@@ -58,8 +58,8 @@ def test_draw_samples_changepoint_is_first_post_change_index():
         n_paths=3,
         stream_len=5,
         n_features=1,
-        pre_sampler=lambda: -2.0,
-        post_sampler=lambda: 7.0,
+        pre_sampler=lambda rng: -2.0,
+        post_sampler=lambda rng: 7.0,
         changepoint=1,
         rng=123,
     )
@@ -83,8 +83,8 @@ def test_draw_samples_random_changepoint_callable():
         n_paths=20,
         stream_len=12,
         n_features=1,
-        pre_sampler=lambda: -1.0,
-        post_sampler=lambda: 2.0,
+        pre_sampler=lambda rng: -1.0,
+        post_sampler=lambda rng: 2.0,
         changepoint=cp_sampler,
         rng=rng,
     )
@@ -94,18 +94,121 @@ def test_draw_samples_random_changepoint_callable():
     assert np.any(X == 2.0)
 
 
+def test_draw_samples_rejects_changepoint_callable_wrong_arity():
+    """Reject changepoint callable without required path_index argument."""
+    with pytest.raises(TypeError, match="must accept arguments"):
+        draw_samples(
+            n_paths=3,
+            stream_len=10,
+            n_features=1,
+            pre_sampler=lambda rng: -1.0,
+            post_sampler=lambda rng: 2.0,
+            changepoint=lambda rng, stream_len: 4,
+            rng=0,
+        )
+
+
+def test_mc_alarm_times_rejects_changepoint_callable_extra_required_arg():
+    """Reject changepoint callable requiring extra mandatory arguments."""
+
+    def bad_cp(rng, stream_len, path_index, extra):
+        return 3
+
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(TypeError, match="must accept arguments"):
+        mc_alarm_times(
+            detector=detector,
+            n_paths=4,
+            stream_len=12,
+            pre_sampler=lambda rng: 0.0,
+            post_sampler=lambda rng: 1.0,
+            changepoint=bad_cp,
+            rng=0,
+            parallel=False,
+        )
+
+
+def test_draw_samples_rejects_changepoint_callable_non_integer_return():
+    """Reject changepoint callable that returns a non-integer-like value."""
+
+    def bad_cp(rng, stream_len, path_index):
+        return "not-an-int"
+
+    with pytest.raises(TypeError, match="callable returning an integer"):
+        draw_samples(
+            n_paths=3,
+            stream_len=10,
+            n_features=1,
+            pre_sampler=lambda rng: -1.0,
+            post_sampler=lambda rng: 2.0,
+            changepoint=bad_cp,
+            rng=0,
+        )
+
+
+def test_mc_max_scores_rejects_changepoint_callable_out_of_range_return():
+    """Reject changepoint callable that returns values outside [0, stream_len]."""
+
+    def bad_cp(rng, stream_len, path_index):
+        return stream_len + 1
+
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(ValueError, match="changepoint must be in"):
+        mc_max_scores(
+            detector=detector,
+            n_paths=4,
+            stream_len=12,
+            pre_sampler=lambda rng: 0.0,
+            post_sampler=lambda rng: 1.0,
+            changepoint=bad_cp,
+            rng=0,
+            parallel=False,
+        )
+
+
 def test_draw_samples_accepts_flattenable_array_output_for_multivariate():
     """Accept flattenable array-like sampler outputs in multivariate mode."""
     X = draw_samples(
         n_paths=4,
         stream_len=6,
         n_features=3,
-        pre_sampler=lambda: np.array([[1.0, 2.0, 3.0]]),
+        pre_sampler=lambda rng: np.array([[1.0, 2.0, 3.0]]),
         rng=7,
     )
 
     assert X.shape == (4, 6, 3)
     assert np.allclose(X, np.array([1.0, 2.0, 3.0]))
+
+
+def test_draw_samples_warns_on_runtime_size_one_broadcast_in_multivariate():
+    """Warn when a size-1 vector-like output is broadcast to multivariate shape."""
+
+    class _Sampler:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, rng: np.random.Generator):
+            self.calls += 1
+            # First call is used by preflight. Ensure first runtime draw is vector,
+            # then return a size-1 array to trigger runtime broadcast warning.
+            if self.calls <= 2:
+                return np.array([1.0, 2.0, 3.0], dtype=np.float64)
+            return np.array([9.0], dtype=np.float64)
+
+    sampler = _Sampler()
+    with pytest.warns(UserWarning, match="broadcast"):
+        X = draw_samples(
+            n_paths=1,
+            stream_len=3,
+            n_features=3,
+            pre_sampler=sampler,
+            rng=7,
+        )
+
+    assert X.shape == (1, 3, 3)
+    assert np.allclose(X[0, 1, :], 9.0)
 
 
 def test_draw_samples_requires_post_sampler_if_changepoint_set():
@@ -115,21 +218,20 @@ def test_draw_samples_requires_post_sampler_if_changepoint_set():
             n_paths=2,
             stream_len=5,
             n_features=1,
-            pre_sampler=lambda: 0.0,
+            pre_sampler=lambda rng: 0.0,
             changepoint=3,
         )
 
 
 def test_mc_max_scores_returns_one_value_per_path():
     """Return one finite max-score value per Monte Carlo path."""
-    rng = np.random.default_rng(2)
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
 
     max_scores = mc_max_scores(
         detector=detector,
         n_paths=25,
         stream_len=30,
-        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        pre_sampler=lambda rng: float(rng.normal(0.0, 1.0)),
         parallel=False,
     )
 
@@ -166,8 +268,8 @@ def test_mc_alarm_times_returns_valid_indices_with_alarm():
         detector=detector,
         n_paths=12,
         stream_len=25,
-        pre_sampler=lambda: 0.0,
-        post_sampler=lambda: 8.0,
+        pre_sampler=lambda rng: 0.0,
+        post_sampler=lambda rng: 8.0,
         changepoint=2,
         rng=rng,
         parallel=False,
@@ -186,7 +288,7 @@ def test_mc_alarm_times_uses_stream_len_for_no_alarm():
         detector=detector,
         n_paths=10,
         stream_len=20,
-        pre_sampler=lambda: 0.0,
+        pre_sampler=lambda rng: 0.0,
         parallel=False,
     )
 
@@ -202,8 +304,8 @@ def test_mc_alarm_times_is_zero_indexed():
         detector=detector,
         n_paths=5,
         stream_len=10,
-        pre_sampler=lambda: 0.0,
-        post_sampler=lambda: 5.0,
+        pre_sampler=lambda rng: 0.0,
+        post_sampler=lambda rng: 5.0,
         changepoint=3,
         rng=42,
         parallel=False,
@@ -216,16 +318,15 @@ def test_mc_alarm_times_is_zero_indexed():
 
 def test_calibrate_threshold_and_with_calibrated_threshold():
     """Calibrate a threshold and verify detector wrapper preserves original detector."""
-    rng = np.random.default_rng(1234)
     score = MeanCUSUM(n_features=1)
     detector = GridDetector(score=score, threshold=1.0)
 
-    threshold = calibrate_threshold(
+    threshold = calibrate_threshold_false_alarm(
         score,
         false_alarm_probability=0.1,
         n_paths=30,
         stream_len=25,
-        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        pre_sampler=lambda rng: float(rng.normal(0.0, 1.0)),
         parallel=False,
     )
 
@@ -239,26 +340,24 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
 
 def test_calibrate_detector_threshold_wrapper_matches_score_first():
     """Check detector-first and score-first calibration APIs agree."""
-    rng = np.random.default_rng(321)
     score = MeanCUSUM(n_features=1)
     detector = GridDetector(score=score, threshold=2.0)
 
-    threshold_from_score = calibrate_threshold(
+    threshold_from_score = calibrate_threshold_false_alarm(
         score,
         false_alarm_probability=0.1,
         n_paths=24,
         stream_len=20,
-        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        pre_sampler=lambda rng: float(rng.normal(0.0, 1.0)),
         parallel=False,
     )
 
-    rng = np.random.default_rng(321)
-    threshold_from_detector = calibrate_detector_threshold(
+    threshold_from_detector = calibrate_detector_threshold_false_alarm(
         detector,
         false_alarm_probability=0.1,
         n_paths=24,
         stream_len=20,
-        pre_sampler=lambda: float(rng.normal(0.0, 1.0)),
+        pre_sampler=lambda rng: float(rng.normal(0.0, 1.0)),
         parallel=False,
     )
 
@@ -313,7 +412,7 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
     """Ensure threshold calibration is reproducible with an integer seed."""
     score = MeanCUSUM(n_features=1)
 
-    th1 = calibrate_threshold(
+    th1 = calibrate_threshold_false_alarm(
         score,
         false_alarm_probability=0.1,
         n_paths=16,
@@ -321,7 +420,7 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
         pre_sampler=normal_sampler,
         rng=456,
     )
-    th2 = calibrate_threshold(
+    th2 = calibrate_threshold_false_alarm(
         score,
         false_alarm_probability=0.1,
         n_paths=16,
@@ -344,6 +443,54 @@ def test_mc_max_scores_invalid_rng_type_raises():
             stream_len=10,
             pre_sampler=normal_sampler,
             rng="bad-rng",
+        )
+
+
+def test_draw_samples_rejects_sampler_without_rng_argument():
+    """Reject samplers that do not accept the simulation rng."""
+    bad_sampler = np.random.default_rng(10).normal
+
+    with pytest.raises(TypeError, match="must accept an ``rng`` argument"):
+        draw_samples(
+            n_paths=4,
+            stream_len=6,
+            n_features=1,
+            pre_sampler=bad_sampler,
+            rng=123,
+        )
+
+
+def test_calibration_rejects_sampler_without_rng_argument():
+    """Reject non-wrapper samplers in false-alarm calibration APIs."""
+    bad_sampler = np.random.default_rng(10).normal
+    score = MeanCUSUM(n_features=1)
+
+    with pytest.raises(TypeError, match="must accept an ``rng`` argument"):
+        calibrate_threshold_false_alarm(
+            score=score,
+            false_alarm_probability=0.1,
+            n_paths=8,
+            stream_len=10,
+            pre_sampler=bad_sampler,
+            rng=123,
+            parallel=False,
+        )
+
+
+def test_rejects_sampler_kwargs_containing_rng_key():
+    """Reject user-provided sampler kwargs overriding internal rng handling."""
+    score = MeanCUSUM(n_features=1)
+
+    with pytest.raises(ValueError, match="must not contain 'rng'"):
+        calibrate_threshold_false_alarm(
+            score=score,
+            false_alarm_probability=0.1,
+            n_paths=8,
+            stream_len=10,
+            pre_sampler=normal_sampler,
+            pre_kwargs={"rng": np.random.default_rng(0)},
+            rng=123,
+            parallel=False,
         )
 
 

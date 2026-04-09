@@ -87,7 +87,7 @@ pre-commit run --all-files
 
 ### Calibration notes
 
-- `gridcp.calibration.calibrate_threshold(score, ...)` uses a score-first API.
+- `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
 - Indexing convention in calibration internals:
     - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).

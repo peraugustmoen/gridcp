@@ -19,7 +19,11 @@ class MultivariateMeanUnknownCovState:
 
 @dataclass(frozen=True, slots=True)
 class MultivariateMeanUnknownCov:
-    """Multivariate mean-change LR score with unknown covariance."""
+    """Multivariate mean-change LR score with unknown covariance.
+
+    Centering by ``-p`` and the default penalty ``sqrt(p log t) + log t`` use a
+    Wilks-style ``chi^2_p`` approximation for the LR.
+    """
 
     n_features: int
     penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
@@ -63,6 +67,10 @@ class MultivariateMeanUnknownCov:
             n1 = st.n_samples
             n2 = t - n1
 
+            if n1 == 0 or n2 == 0:
+                out[i] = 0.0
+                continue
+
             s1 = st.sum
             sxx1 = st.sum_outer
             s2 = s_tot - s1
@@ -88,7 +96,7 @@ class MultivariateMeanUnknownCov:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
             df = float(self.n_features)
-            return np.sqrt(df * np.log(n_samples / 0.05)) + np.log(n_samples / 0.05)
+            return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
         return 1.0
 
     def compute_penalised_scores(
