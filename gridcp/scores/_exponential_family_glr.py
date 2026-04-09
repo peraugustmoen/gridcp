@@ -570,6 +570,10 @@ class ExponentialFamilyGLR:
     The user supplies the sufficient statistic ``h``, log-partition ``A``, and
     first and second derivatives of A. Built-in families are available via :meth:`from_family`.
 
+    The default centering/penalty calibration is asymptotic: it uses the
+    centered statistic ``2*GLR - v`` together with the Wilks-style penalty
+    ``sqrt(v log t) + log t``. This is not exact finite-sample.
+
     Parameters
     ----------
     v : int
@@ -614,13 +618,14 @@ class ExponentialFamilyGLR:
         ``v`` parameters.  Must be at least 2.
     penalty : PenaltyType, optional
         Penalty type.  ``PenaltyType.TIME_DEPENDENT`` (default) uses
-        ``v · (log t + √(log t))``; ``PenaltyType.CONSTANT`` uses 1.
+        ``sqrt(v log t) + log t`` after centering the ``2*GLR`` statistic by
+        ``v``; ``PenaltyType.CONSTANT`` uses 1.
 
     Notes
     -----
     The score computed for each candidate changepoint s at time t is:
 
-        score(s, t) = GLR(s, t) / penalty(t)
+        score(s, t) = (2 GLR(s, t) - v) / penalty(t)
 
     where the generalised log-likelihood ratio is:
 
@@ -628,7 +633,7 @@ class ExponentialFamilyGLR:
 
     and the penalty is:
 
-        penalty(t) = v · (log t + √(log t))
+        penalty(t) = √(v log t) + log t
 
     A candidate triggers an alarm when its score exceeds the calibrated
     threshold.  MLEs are computed by Newton's method, warm-started one step
@@ -822,7 +827,7 @@ class ExponentialFamilyGLR:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
             log_t = np.log(n_samples)
-            return self.v * (log_t + np.sqrt(log_t))
+            return np.sqrt(self.v * log_t) + log_t
         return 1.0
 
     def init_state(self) -> ExponentialFamilyGLRState:
@@ -885,15 +890,16 @@ class ExponentialFamilyGLR:
         Returns
         -------
         np.ndarray, shape (len(grid_states),)
-            Penalised GLR score for each active candidate.  Scores are
-            non-negative; candidates with too few observations on either
-            side receive a score of 0.
+            Penalised centered ``2*GLR`` score for each active candidate.
+            Scores can be negative; candidates with too few observations on
+            either side receive a score of 0.
         """
         before_stats = np.stack([gs.suff_stat for gs in grid_states])
         before_n = np.array([gs.n_samples for gs in grid_states], dtype=np.int64)
 
-        raw_scores = self._glr_score_fn(
+        raw_scores = 2.0 * self._glr_score_fn(
             state.suff_stat, before_stats, state.n_samples, before_n
         )
+        centered_scores = raw_scores - self.v
         penalty = self._get_penalty(state.n_samples)
-        return raw_scores / penalty
+        return centered_scores / penalty

@@ -16,7 +16,12 @@ class RegressionMcScanState:
 
 @dataclass(frozen=True, slots=True)
 class RegressionMcScan:
-    """Regression-change score from McScan (Cho, Kley, Li; 2025)."""
+    """Regression-change score from McScan (Cho, Kley, Li; 2025).
+
+    The default penalty ``sqrt(log(t q))`` is the high-probability bound used
+    for this max-type statistic, with ``q = n_regressors``. There is no
+    chi-square centering term here.
+    """
 
     n_regressors: int
     penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
@@ -70,7 +75,7 @@ class RegressionMcScan:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            return np.sqrt(np.log(self.n_features * n_samples))
+            return np.sqrt(np.log(self.n_regressors * n_samples))
         return 1.0
 
     def compute_penalised_scores(

@@ -456,7 +456,8 @@ def test_multivariate_known_variance_matches_independent_streams():
     We check, at every step, that:
     1. Running sums match feature-wise independent detectors.
     2. Candidate prefix sums match feature-wise independent detectors.
-    3. max_score equals the maximum of independent max_scores.
+     3. max_score equals the maximum of independent max_scores after rescaling
+         by the ratio of the univariate and multivariate penalties.
     """
     rng = np.random.default_rng(seed=2026)
     n_samples = 250
@@ -502,7 +503,13 @@ def test_multivariate_known_variance_matches_independent_streams():
             assert np.allclose(multi_candidate_state.sum, expected_candidate_sum)
 
         # max_score parity with independent feature-wise runs.
-        expected_max_score = max(out["max_score"] for out in single_outs)
+        single_log = np.log(multi_state.n_samples)
+        multi_log = np.log(multi_state.n_samples * n_features)
+        single_penalty = single_log + np.sqrt(single_log)
+        multi_penalty = multi_log + np.sqrt(multi_log)
+        expected_max_score = max(out["max_score"] for out in single_outs) * (
+            single_penalty / multi_penalty
+        )
         assert np.isclose(multi_out["max_score"], expected_max_score)
 
 
@@ -512,7 +519,8 @@ def test_multivariate_unknown_variance_matches_independent_streams():
     We check, at every step, that:
     1. Running [sum, sumsq] stats match feature-wise independent detectors.
     2. Candidate [sum, sumsq] stats match feature-wise independent detectors.
-    3. max_score equals the maximum of independent max_scores.
+     3. max_score equals the maximum of independent max_scores after rescaling
+         by the ratio of the univariate and multivariate penalties.
     """
     rng = np.random.default_rng(seed=2027)
     n_samples = 250
@@ -573,5 +581,11 @@ def test_multivariate_unknown_variance_matches_independent_streams():
             assert np.allclose(multi_candidate_state.stats[1], expected_candidate_sumsq)
 
         # max_score parity with independent feature-wise runs.
-        expected_max_score = max(out["max_score"] for out in single_outs)
+        single_log = np.log(multi_state.n_samples)
+        multi_log = np.log(multi_state.n_samples * n_features)
+        single_penalty = single_log + np.sqrt(single_log)
+        multi_penalty = multi_log + np.sqrt(multi_log)
+        expected_max_score = max(out["max_score"] for out in single_outs) * (
+            single_penalty / multi_penalty
+        )
         assert np.isclose(multi_out["max_score"], expected_max_score)
