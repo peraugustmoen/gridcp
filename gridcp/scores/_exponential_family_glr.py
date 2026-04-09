@@ -901,5 +901,7 @@ class ExponentialFamilyGLR:
             state.suff_stat, before_stats, state.n_samples, before_n
         )
         centered_scores = raw_scores - self.v
+        zero_score_mask = raw_scores == 0.0
+        centered_scores[zero_score_mask] = 0.0
         penalty = self._get_penalty(state.n_samples)
         return centered_scores / penalty
