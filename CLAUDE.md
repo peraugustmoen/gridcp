@@ -57,7 +57,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 
 **`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration:
 - `draw_samples`, `mc_max_scores`, `mc_alarm_times`
-- `calibrate_threshold`, `calibrate_detector_threshold`, `with_calibrated_threshold`
+- `calibrate_threshold_false_alarm`, `calibrate_detector_threshold_false_alarm`, `with_calibrated_threshold`
 - Supports parallel execution via `n_jobs` parameter
 
 **`gridcp/utils.py`** — Internal utilities: `v2(r)` (grid pruning), `fastlog`, `get_changeloc_grid`/`get_G_grid` (debugging)
@@ -65,7 +65,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 ### Public API
 
 ```python
-from gridcp import GridDetector, calibrate_detector_threshold, with_calibrated_threshold, ...
+from gridcp import GridDetector, calibrate_detector_threshold_false_alarm, with_calibrated_threshold, ...
 from gridcp.scores import (
     MeanCUSUM, MeanCUSUMUnknownVariance, Variance, MeanOrVariance,
     MultivariateMeanIdentityCov, MultivariateMeanUnknownCov, MultivariateMeanOrCovariance,
@@ -95,7 +95,7 @@ from gridcp.scores import (
 ## Upcoming work
 
 - **Built-in exponential families — open question:** Whether to add a family for multivariate Gaussian with *both* mean and covariance unknown, to compare against the built-in `MultivariateMeanUnknownCov` score.
-- **Promote ARL calibration to `gridcp/calibration.py`:** `calibrate_threshold_arl` and `calibrate_detector_threshold_arl` are currently prototyped in `old_notebooks/arl_calibration.py`. They should be moved into the main package (`gridcp/calibration.py`) and exported from `gridcp/__init__.py`, following the same pattern as `calibrate_threshold` / `calibrate_detector_threshold`.
+- **Promote ARL calibration to `gridcp/calibration.py`:** `calibrate_threshold_arl` and `calibrate_detector_threshold_arl` are currently prototyped in `old_notebooks/arl_calibration.py`. They should be moved into the main package (`gridcp/calibration.py`) and exported from `gridcp/__init__.py`, following the same pattern as `calibrate_threshold_false_alarm` / `calibrate_detector_threshold_false_alarm`.
 - **Domain enforcement for vector Newton solver (`v>1`):** `theta_min`/`theta_max` are currently only wired up for scalar families (`v=1`). For multivariate families the vector solver relies on Hessian-finiteness checks, which is a weaker guard. A proper fix would require either (a) per-component bounds `theta_min: np.ndarray, theta_max: np.ndarray`, or (b) a callable `in_domain(theta) -> bool` predicate. Option (b) is fully general but harder to JIT-compile in Numba; option (a) covers families like `gaussian_mean_variance` (where θ₂ < 0) but not `gaussian_covariance` (where the full matrix must be negative-definite).
 
 ## Recent work
@@ -105,7 +105,7 @@ from gridcp.scores import (
 - **`gamma_rate` family:** Gamma distribution with known shape `k`, detecting a change in rate. θ = −rate < 0, h(x) = x, A(θ) = −k·log(−θ). Shape is a user parameter: `ExponentialFamilyGLR.from_family("gamma_rate", shape=2.0)`. Defaults to `shape=1.0` (identical to `exponential`). Implemented as a factory in `_families.py` using Numba closures (no `cache=True` on inner functions). `from_family` now accepts `**family_kwargs` and passes them to spec factories, enabling parameterised families.
 - **Newton solver domain bounds (`theta_min`/`theta_max`):** `make_newton_solver` now accepts `theta_min=-inf, theta_max=inf`. The backtracking loop rejects any candidate outside `(theta_min, theta_max)` before evaluating `A'`, preventing ZeroDivisionError in Numba (which raises exceptions for float/0 rather than returning ±inf). `ExponentialFamilyGLR.__init__` exposes these params; `from_family` reads them from the spec dict. Currently only applies to `v=1` (scalar) families — the vector solver (`make_vector_newton_solver`) uses residual-norm/Hessian-finiteness checks instead.
 - **Simulation metrics in `sandbox_Espen.ipynb`:** `run_scenario` now reports FA% (alarms before changepoint), ms/str, and ms/obs.
-- **ARL calibration prototype:** `old_notebooks/arl_calibration.py` implements `calibrate_threshold_arl` and `calibrate_detector_threshold_arl`. API mirrors `calibrate_threshold`/`calibrate_detector_threshold` — same parameters, just replacing `false_alarm_probability + stream_len` with `target_arl`. Uses `mc_max_scores` with `stream_len=target_arl` and returns the (1/e)-quantile. Requires `PenaltyType.CONSTANT` on the score (all built-in scores support this via their `penalty` field). Tested in `old_notebooks/sandbox_Espen.ipynb` (cells 64–67): exponential assumption check (QQ-plot + histogram) and 3-scenario detection delay sweep (Gaussian mean, Gaussian mean+var, Poisson).
+- **ARL calibration prototype:** `old_notebooks/arl_calibration.py` implements `calibrate_threshold_arl` and `calibrate_detector_threshold_arl`. API mirrors `calibrate_threshold_false_alarm`/`calibrate_detector_threshold_false_alarm` — same parameters, just replacing `false_alarm_probability + stream_len` with `target_arl`. Uses `mc_max_scores` with `stream_len=target_arl` and returns the (1/e)-quantile. Requires `PenaltyType.CONSTANT` on the score (all built-in scores support this via their `penalty` field). Tested in `old_notebooks/sandbox_Espen.ipynb` (cells 64–67): exponential assumption check (QQ-plot + histogram) and 3-scenario detection delay sweep (Gaussian mean, Gaussian mean+var, Poisson).
 - **`_solve` simplification:** Removed the explicit 3×3 Cramer's rule case from `_solve` in `_exponential_family_glr.py` — only the 2×2 case is kept; n≥3 falls through to `np.linalg.solve`. No measurable performance impact given O(log n) solver calls per step.
 - **`ExponentialFamilyGLR` documentation pass:** Module docstring expanded with a pipeline overview (GLR formula, construction, per-step computation). Class docstring trimmed to match the style of other score classes (removed ScoreModel protocol mention and internal implementation details).
 
@@ -116,3 +116,7 @@ from gridcp.scores import (
 - Line length: 88
 - Tests directory: `tests/` (old_api_tests excluded)
 - CI tests Python 3.10 and 3.13
+
+## Coding notes
+
+- whenever you edit code, you must allways apply ruff linting afterwards, so that the pre-commit hooks will pass

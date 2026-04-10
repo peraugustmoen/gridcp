@@ -11,7 +11,7 @@ The calibration works by simulating *n_paths* null streams of length γ, collect
 the maximum score from each, and returning the (1/e)-quantile.  This yields a
 detector whose expected alarm time under the null is approximately γ.
 
-For the false-alarm approach, use ``gridcp.calibration.calibrate_threshold``.
+For the false-alarm approach, use ``gridcp.calibration.calibrate_threshold_false_alarm``.
 ``gridcp.calibration.with_calibrated_threshold`` is ARL-agnostic and can be
 used with ARL thresholds directly.
 

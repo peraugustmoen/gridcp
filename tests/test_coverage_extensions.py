@@ -35,6 +35,7 @@ from gridcp.calibration import (
 )
 from gridcp.detector import GridDetector
 from gridcp.scores import (
+    ExponentialFamilyGLR,
     MeanCUSUM,
     MeanCUSUMUnknownVariance,
     MeanOrVariance,
@@ -48,6 +49,39 @@ from gridcp.scores import (
 from gridcp.scores._score_helpers import as_obs, inv_sqrtm_pd
 from gridcp.typing import PenaltyType
 from gridcp.utils import get_G_grid, get_changeloc_grid
+
+
+def _h_scalar_identity(x):
+    return x[0]
+
+
+def _A_scalar_gaussian(theta):
+    return 0.5 * theta * theta
+
+
+def _Ap_scalar_gaussian(theta):
+    return theta
+
+
+def _App_scalar_gaussian(theta):
+    return 1.0
+
+
+def _h_vector_identity(x):
+    return x.astype(np.float64, copy=True)
+
+
+def _A_vector_gaussian(theta):
+    return 0.5 * float(np.dot(theta, theta))
+
+
+def _Agrad_vector_gaussian(theta):
+    return theta.astype(np.float64, copy=True)
+
+
+def _Ahess_vector_gaussian(theta):
+    return np.eye(theta.shape[0], dtype=np.float64)
+
 
 # ---------------------------------------------------------------------------
 # 1. get_G_grid correctness
@@ -232,6 +266,52 @@ class TestPenalties:
         np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
         np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
 
+    def test_exact_penalty_shapes_for_chi_square_scores(self):
+        t = 100
+        p = 3
+
+        log_tp = np.log(t * p)
+        assert np.isclose(
+            MeanCUSUMUnknownVariance(n_features=p)._get_penalty(t),
+            log_tp + np.sqrt(log_tp),
+        )
+        assert np.isclose(
+            Variance(n_features=p)._get_penalty(t),
+            log_tp + np.sqrt(log_tp),
+        )
+        assert np.isclose(
+            MeanOrVariance(n_features=p)._get_penalty(t),
+            log_tp + np.sqrt(2.0 * log_tp),
+        )
+
+        df_mean = 4.0
+        assert np.isclose(
+            MultivariateMeanUnknownCov(n_features=int(df_mean))._get_penalty(t),
+            np.sqrt(df_mean * np.log(t)) + np.log(t),
+        )
+
+        p_mv = 4
+        df_mv = float(p_mv + (p_mv * (p_mv + 1)) // 2)
+        assert np.isclose(
+            MultivariateMeanOrCovariance(n_features=p_mv)._get_penalty(t),
+            np.sqrt(df_mv * np.log(t)) + np.log(t),
+        )
+
+    def test_exponential_family_glr_penalty_shape(self):
+        score = ExponentialFamilyGLR(
+            v=2,
+            n_features=2,
+            h=_h_vector_identity,
+            A=_A_vector_gaussian,
+            A_grad=_Agrad_vector_gaussian,
+            A_hess=_Ahess_vector_gaussian,
+        )
+        t = 100
+        assert np.isclose(
+            score._get_penalty(t),
+            np.sqrt(2.0 * np.log(t)) + np.log(t),
+        )
+
 
 # ---------------------------------------------------------------------------
 # 4. Calibration internal helpers
@@ -362,9 +442,9 @@ class TestValidateSamplerPreflight:
                 kwargs={},
             )
 
-    def test_scalar_for_multivariate_raises(self):
-        """A scalar sampler with n_features > 1 raises ValueError."""
-        with pytest.raises(ValueError, match="scalar"):
+    def test_scalar_for_multivariate_is_allowed(self):
+        """A scalar sampler is allowed but should issue a broadcast warning."""
+        with pytest.warns(UserWarning, match="broadcast"):
             _validate_sampler_preflight(
                 lambda rng: rng.normal(),
                 sampler_name="test",

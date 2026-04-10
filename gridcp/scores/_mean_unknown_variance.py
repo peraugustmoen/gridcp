@@ -89,8 +89,8 @@ def mean_unknown_variance_score(
 
 
 @nb.njit(cache=True)
-def mean_unknown_variance_penalty(n_samples: int) -> float:
-    logg = np.log(2.0 * n_samples)
+def mean_unknown_variance_penalty(n_samples: int, n_features: int) -> float:
+    logg = np.log(n_samples * n_features)
     return logg + np.sqrt(logg)
 
 
@@ -114,6 +114,11 @@ class MeanCUSUMUnknownVariance:
 
     Uses Gaussian likelihood-ratio style scoring with unknown variance and
     sufficient statistics ``[sum(x), sum(x^2)]`` per feature.
+
+    For ``n_features > 1``, the score is the maximum of the feature-wise LR
+    statistics. Centering by ``-1`` and the default penalty
+    ``log(t p) + sqrt(log(t p))`` follow a Wilks-style ``chi^2_1``
+    approximation per feature, not an exact finite-sample null law.
 
     Parameters
     ----------
@@ -189,7 +194,7 @@ class MeanCUSUMUnknownVariance:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            return mean_unknown_variance_penalty(n_samples)
+            return mean_unknown_variance_penalty(n_samples, self.n_features)
         return 1.0
 
     def compute_penalised_scores(

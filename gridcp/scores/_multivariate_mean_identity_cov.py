@@ -16,7 +16,13 @@ class MultivariateMeanIdentityCovState:
 
 @dataclass(frozen=True, slots=True)
 class MultivariateMeanIdentityCov:
-    """Multivariate mean-change LR score under identity covariance."""
+    """Multivariate mean-change LR score under identity covariance.
+
+    The sparse coordinate-wise maximum uses centering ``-1`` and penalty
+    ``log(t) + log(p)``, while the dense LR statistic uses centering ``-p`` and
+    penalty ``sqrt(p log t) + log t``. Both come from non-asymptotic Gaussian
+    concentration bounds in this model.
+    """
 
     n_features: int
     penalty: PenaltyType = PenaltyType.TIME_DEPENDENT

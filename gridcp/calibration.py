@@ -6,8 +6,8 @@ This module provides calibration helpers for the new API.
   optionally with a post-change regime.
 - ``mc_max_scores``: run Monte Carlo simulations through a detector and collect
   the path-wise maximum detection score.
-- ``calibrate_threshold``: compute an empirical threshold for a score model.
-- ``calibrate_detector_threshold``: convenience wrapper for detector objects.
+- ``calibrate_threshold_false_alarm``: compute an empirical threshold for a score model.
+- ``calibrate_detector_threshold_false_alarm``: convenience wrapper for detector objects.
 
 Observation-shape convention
 ----------------------------
@@ -16,6 +16,16 @@ observation is converted to a 1D ``float64`` vector of length ``n_features``.
 Scalar sampler outputs are broadcast to length ``n_features``. Non-scalar
 outputs are flattened with ``reshape(-1)`` and must have total size
 ``n_features``.
+
+Sampler contract
+----------------
+All user-provided samplers (``pre_sampler``/``post_sampler``) must accept an
+``rng`` argument. The expected form is ``sampler(rng, *args, **kwargs)``.
+This ensures all randomness is anchored in the calibrated simulation RNG and
+therefore reproducible in both serial and parallel execution.
+
+Do not pass methods bound to fixed generators (for example
+``np.random.default_rng(10).normal``), since those ignore the simulation RNG.
 
 Randomness and changepoint inputs
 ---------------------------------
@@ -33,7 +43,8 @@ Randomness and changepoint inputs
         observations ``[k, stream_len)`` are post-change
     - changepoint=stream_len: all observations are pre-change
 - a callable ``f(rng, stream_len, path_index) -> int`` returning a value in
-    ``[0, stream_len]``
+    ``[0, stream_len]``. The callable must accept these three arguments in
+    that order.
 """
 
 from __future__ import annotations
@@ -49,6 +60,7 @@ import os
 import warnings
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from gridcp.detector import GridDetector
 from gridcp.typing import ScoreModel
@@ -76,43 +88,85 @@ _WORKER_PRE_CALL: Callable[[np.random.Generator], Any] | None = None
 _WORKER_POST_CALL: Callable[[np.random.Generator], Any] | None = None
 
 
-def _sampler_accepts_rng_kw_uncached(sampler: Callable[..., Any]) -> bool:
-    """Return whether sampler accepts ``rng`` kwarg or ``**kwargs``."""
+def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
+    """Return how ``rng`` must be passed to sampler.
+
+    Returns one of:
+    - ``"positional"``: sampler has positional-only ``rng``
+    - ``"keyword"``: sampler has named ``rng`` accepting keyword passing
+    - ``"kwargs"``: sampler has ``**kwargs`` and can receive ``rng`` by keyword
+    """
     try:
         sig = inspect.signature(sampler)
-    except (TypeError, ValueError):
-        return False
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "sampler must be an inspectable callable that accepts an ``rng`` "
+            "argument. Use a wrapper function like "
+            "`def sampler(rng, ...): ...`."
+        ) from exc
 
     params = sig.parameters
-    accepts_kwargs = any(
-        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    if "rng" in params:
+        if params["rng"].kind == inspect.Parameter.POSITIONAL_ONLY:
+            return "positional"
+        return "keyword"
+
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return "kwargs"
+
+    raise TypeError(
+        "sampler must accept an ``rng`` argument. "
+        "Use a wrapper function like `def sampler(rng, ...): ...` and pass "
+        "that function."
     )
-    return "rng" in params or accepts_kwargs
 
 
 @lru_cache(maxsize=1024)
-def _sampler_accepts_rng_kw_cached(sampler: Callable[..., Any]) -> bool:
-    """Cache sampler introspection for hashable callables."""
-    return _sampler_accepts_rng_kw_uncached(sampler)
+def _sampler_rng_mode_cached(sampler: Callable[..., Any]) -> str:
+    """Cache sampler rng passing mode for hashable callables."""
+    return _sampler_rng_mode_uncached(sampler)
 
 
-def _sampler_accepts_rng_kw(sampler: Callable[..., Any]) -> bool:
-    """Return whether sampler accepts ``rng``, using cache when possible."""
+def _sampler_rng_mode(sampler: Callable[..., Any]) -> str:
+    """Return sampler rng passing mode, using cache when possible."""
     try:
-        return _sampler_accepts_rng_kw_cached(sampler)
+        return _sampler_rng_mode_cached(sampler)
     except TypeError:
-        return _sampler_accepts_rng_kw_uncached(sampler)
+        return _sampler_rng_mode_uncached(sampler)
+
+
+def _validate_sampler_kwargs_no_rng(
+    kwargs: Mapping[str, Any],
+    *,
+    sampler_name: str,
+) -> None:
+    """Validate user kwargs do not override the internally managed rng."""
+    if "rng" in kwargs:
+        raise ValueError(
+            f"{sampler_name} kwargs must not contain 'rng'. "
+            "The simulation engine provides rng internally."
+        )
 
 
 def _make_sampler_caller(
     sampler: Callable[..., Any],
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
+    *,
+    sampler_name: str = "sampler",
 ) -> Callable[[np.random.Generator], Any]:
     """Build a fast callable ``f(rng)`` for a sampler."""
-    if _sampler_accepts_rng_kw(sampler):
+    _validate_sampler_kwargs_no_rng(kwargs, sampler_name=sampler_name)
+    mode = _sampler_rng_mode(sampler)
+
+    if mode == "positional":
+        return lambda local_rng: sampler(local_rng, *args, **kwargs)
+    if mode in {"keyword", "kwargs"}:
         return lambda local_rng: sampler(*args, rng=local_rng, **kwargs)
-    return lambda local_rng: sampler(*args, **kwargs)
+
+    raise RuntimeError(
+        f"Unexpected sampler rng passing mode for {sampler_name}: {mode}."
+    )
 
 
 def _get_cloudpickle() -> Any:
@@ -184,12 +238,14 @@ def _init_mc_worker(
         _WORKER_PRE_SAMPLER,
         _WORKER_PRE_ARGS,
         _WORKER_PRE_KWARGS,
+        sampler_name="pre_sampler",
     )
     if _WORKER_POST_SAMPLER is not None:
         _WORKER_POST_CALL = _make_sampler_caller(
             _WORKER_POST_SAMPLER,
             _WORKER_POST_ARGS or (),
             _WORKER_POST_KWARGS or {},
+            sampler_name="post_sampler",
         )
     else:
         _WORKER_POST_CALL = None
@@ -428,6 +484,16 @@ def _infer_observation_mode(x: Any, n_features: int) -> str:
     return "vector"
 
 
+def _warn_broadcast_size_one(*, n_features: int) -> None:
+    """Warn when a size-1 observation is broadcast to multivariate shape."""
+    warnings.warn(
+        "Sampler output with size 1 is being broadcast to "
+        f"n_features={n_features}. This often indicates a sampler bug.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
 def _normalise_observation_with_mode(
     x: Any,
     mode: str,
@@ -445,10 +511,29 @@ def _normalise_observation_with_mode(
 
     # Fast path: already a 1D float64 NumPy vector.
     if isinstance(x, np.ndarray) and x.dtype == np.float64 and x.ndim == 1:
-        return x
+        if x.size == n_features:
+            return x
+        if x.size == 1 and n_features != 1:
+            _warn_broadcast_size_one(n_features=n_features)
+            scalar_buffer.fill(float(x[0]))
+            return scalar_buffer
+        raise ValueError(
+            "Sampler output has wrong size "
+            f"{x.size}; expected scalar or size {n_features}."
+        )
 
     # Match documented behavior for vector-like observations.
-    return np.asarray(x, dtype=np.float64).reshape(-1)
+    x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
+    if x_arr.size == n_features:
+        return x_arr
+    if x_arr.size == 1 and n_features != 1:
+        _warn_broadcast_size_one(n_features=n_features)
+        scalar_buffer.fill(float(x_arr[0]))
+        return scalar_buffer
+    raise ValueError(
+        "Sampler output has wrong size "
+        f"{x_arr.size}; expected scalar or size {n_features}."
+    )
 
 
 def _validate_sampler_preflight(
@@ -459,8 +544,16 @@ def _validate_sampler_preflight(
     args: tuple[Any, ...],
     kwargs: Mapping[str, Any],
 ) -> None:
-    """Validate that one sampler call returns a value compatible with n_features."""
-    call = _make_sampler_caller(sampler, args, kwargs)
+    """Validate that one sampler call returns a value compatible with n_features.
+
+    Scalars are accepted for any ``n_features`` and are broadcast at runtime.
+    """
+    call = _make_sampler_caller(
+        sampler,
+        args,
+        kwargs,
+        sampler_name=sampler_name,
+    )
     probe_rng = np.random.default_rng(DEFAULT_MC_SEED)
     sample = call(probe_rng)
 
@@ -473,20 +566,64 @@ def _validate_sampler_preflight(
         ) from exc
 
     if sample_arr.ndim == 0:
-        if n_features == 1:
-            return
-        raise ValueError(
-            f"{sampler_name} returned a scalar, but n_features={n_features}; "
-            f"expected array-like output with total size {n_features}."
-        )
+        if n_features != 1:
+            warnings.warn(
+                f"{sampler_name} returned a scalar and will be broadcast to "
+                f"n_features={n_features}. This often indicates a sampler bug.",
+                UserWarning,
+                stacklevel=3,
+            )
+        return
 
     sample_flat = sample_arr.reshape(-1)
     if sample_flat.size != n_features:
         raise ValueError(
-            f"{sampler_name} must return scalar (only when n_features=1) or "
+            f"{sampler_name} must return a scalar (broadcast to n_features) or "
             f"array-like output with total size {n_features}; "
             f"got size {sample_flat.size}."
         )
+
+
+def _validate_changepoint_preflight(
+    changepoint: ChangepointSpec,
+    *,
+    stream_len: int,
+) -> None:
+    """Validate changepoint type, callable signature, and value range."""
+    if changepoint is None:
+        return
+
+    if callable(changepoint):
+        try:
+            sig = inspect.signature(changepoint)
+        except (TypeError, ValueError) as exc:
+            raise TypeError(
+                "changepoint must be an inspectable callable with signature "
+                "`def changepoint(rng, stream_len, path_index): ...`."
+            ) from exc
+
+        probe_rng = np.random.default_rng(DEFAULT_MC_SEED)
+        try:
+            sig.bind(probe_rng, stream_len, 0)
+        except TypeError as exc:
+            raise TypeError(
+                "changepoint callable must accept arguments "
+                "(rng, stream_len, path_index)."
+            ) from exc
+
+        cp_raw = changepoint(probe_rng, stream_len, 0)
+    else:
+        cp_raw = changepoint
+
+    try:
+        cp = int(cp_raw)
+    except (TypeError, ValueError) as exc:
+        raise TypeError(
+            "changepoint must be None, an integer, or a callable returning an integer."
+        ) from exc
+
+    if cp < 0 or cp > stream_len:
+        raise ValueError(f"changepoint must be in [0, {stream_len}], got {cp}.")
 
 
 def _resolve_changepoint(
@@ -548,7 +685,8 @@ def draw_samples(
         Observation dimension (length of the per-time-step 1D observation
         vector used internally).
     pre_sampler : callable
-                Baseline sampler callable.
+                Baseline sampler callable. Must accept ``rng`` as an argument,
+                i.e. use ``def pre_sampler(rng, ...): ...``.
                 The returned sample is normalized as follows:
                 - scalar -> broadcast to shape ``(n_features,)``
                 - non-scalar -> flattened to 1D and required to have size
@@ -563,7 +701,8 @@ def draw_samples(
     pre_args, pre_kwargs : optional
         Additional arguments for ``pre_sampler``.
     post_sampler : callable, optional
-        Post-change sampler. If ``None``, all observations are pre-change.
+        Post-change sampler. Must also accept ``rng`` as an argument.
+        If ``None``, all observations are pre-change.
     post_args, post_kwargs : optional
         Additional arguments for ``post_sampler``.
     changepoint : int | callable | None, optional
@@ -573,7 +712,8 @@ def draw_samples(
         Allowed range: [0, stream_len], where 0 means all post-change and
         stream_len means all pre-change.
         If callable, called as ``changepoint(rng, stream_len, path_idx)`` and
-        must return an integer in ``[0, stream_len]``.
+        must return an integer in ``[0, stream_len]``. Callable signature is
+        validated before simulation starts.
 
     Returns
     -------
@@ -596,11 +736,39 @@ def draw_samples(
     if changepoint is not None and post_sampler is None:
         raise ValueError("post_sampler must be provided when changepoint is set.")
 
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
+
+    _validate_sampler_preflight(
+        pre_sampler,
+        sampler_name="pre_sampler",
+        n_features=n_features,
+        args=pre_args,
+        kwargs=pre_kwargs,
+    )
+    if post_sampler is not None:
+        _validate_sampler_preflight(
+            post_sampler,
+            sampler_name="post_sampler",
+            n_features=n_features,
+            args=post_args,
+            kwargs=post_kwargs,
+        )
+
     local_rng = _normalize_rng(rng)
-    pre_call = _make_sampler_caller(pre_sampler, pre_args, pre_kwargs)
+    pre_call = _make_sampler_caller(
+        pre_sampler,
+        pre_args,
+        pre_kwargs,
+        sampler_name="pre_sampler",
+    )
     post_call: Callable[[np.random.Generator], Any] | None = None
     if post_sampler is not None:
-        post_call = _make_sampler_caller(post_sampler, post_args, post_kwargs)
+        post_call = _make_sampler_caller(
+            post_sampler,
+            post_args,
+            post_kwargs,
+            sampler_name="post_sampler",
+        )
     out = np.empty((n_paths, stream_len, n_features), dtype=np.float64)
 
     pre_mode: str | None = None
@@ -671,6 +839,17 @@ def mc_max_scores(
     detector evaluation is parallelized, which guarantees identical output to
     ``parallel=False``.
 
+    Sampler contract
+    ----------------
+    ``pre_sampler`` and ``post_sampler`` (when provided) must accept ``rng``
+    as an argument, i.e. ``sampler(rng, *args, **kwargs)``.
+
+    Sampler output normalization
+    ----------------------------
+    Per draw, sampler output is normalized exactly as in :func:`draw_samples`:
+    scalar outputs are broadcast to length ``n_features`` and non-scalar
+    outputs are flattened and required to have total size ``n_features``.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -680,7 +859,8 @@ def mc_max_scores(
                 - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
                     ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``
+            ``[0, stream_len]``. The callable must accept these three
+            arguments in that order.
     """
     n_features: int = detector.score.n_features
 
@@ -692,6 +872,8 @@ def mc_max_scores(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
     _validate_sampler_preflight(
         pre_sampler,
@@ -895,6 +1077,17 @@ def mc_alarm_times(
     detector evaluation is parallelized, which guarantees identical output to
     ``parallel=False``.
 
+    Sampler contract
+    ----------------
+    ``pre_sampler`` and ``post_sampler`` (when provided) must accept ``rng``
+    as an argument, i.e. ``sampler(rng, *args, **kwargs)``.
+
+    Sampler output normalization
+    ----------------------------
+    Per draw, sampler output is normalized exactly as in :func:`draw_samples`:
+    scalar outputs are broadcast to length ``n_features`` and non-scalar
+    outputs are flattened and required to have total size ``n_features``.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -904,7 +1097,8 @@ def mc_alarm_times(
                 - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
                     ``0`` = all post-change, ``stream_len`` = all pre-change.
         - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``
+            ``[0, stream_len]``. The callable must accept these three
+            arguments in that order.
     """
     n_features: int = detector.score.n_features
 
@@ -914,6 +1108,8 @@ def mc_alarm_times(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
     _validate_sampler_preflight(
         pre_sampler,
@@ -1073,7 +1269,7 @@ def mc_alarm_times(
     return alarm_times
 
 
-def calibrate_threshold(
+def calibrate_threshold_false_alarm(
     score: ScoreModel,
     *,
     false_alarm_probability: float,
@@ -1109,7 +1305,10 @@ def calibrate_threshold(
     stream_len : int
         Number of samples per path.
     pre_sampler : callable
-        Null sampler.
+        Null sampler with signature ``pre_sampler(rng, *args, **kwargs)``.
+        Returned values follow :func:`draw_samples` normalization:
+        scalar outputs are broadcast to ``(n_features,)`` and non-scalar
+        outputs are flattened and must have total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
         Randomness control passed to Monte Carlo simulation. Must be one of:
         ``numpy.random.Generator``, ``int`` seed, or ``None``.
@@ -1139,24 +1338,12 @@ def calibrate_threshold(
         strict_equivalence=strict_equivalence,
     )
 
-    if max_scores.ndim == 1:
-        # Scalar scores: single threshold.
-        return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
-
-    # Multivariate scores: apply Bonferroni correction if requested.
-    n_tests = max_scores.shape[1]
-    if apply_bonferroni:
-        alpha_corrected = false_alarm_probability / n_tests
-    else:
-        alpha_corrected = false_alarm_probability
-    quantile_level = 1.0 - alpha_corrected
-    return np.array(
-        [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_tests)],
-        dtype=np.float64,
+    return _compute_false_alarm_threshold_from_max_scores(
+        max_scores, false_alarm_probability, apply_bonferroni
     )
 
 
-def calibrate_detector_threshold(
+def calibrate_detector_threshold_false_alarm(
     detector: GridDetector,
     *,
     false_alarm_probability: float,
@@ -1173,9 +1360,12 @@ def calibrate_detector_threshold(
 ) -> float | np.ndarray:
     """Estimate threshold for an existing detector.
 
-    This is a convenience wrapper around :func:`calibrate_threshold`.
+    This is a convenience wrapper around :func:`calibrate_threshold_false_alarm`.
+    In particular, ``pre_sampler`` must satisfy the same sampler contract:
+    ``pre_sampler(rng, *args, **kwargs)`` with output normalization identical
+    to :func:`draw_samples`.
     """
-    return calibrate_threshold(
+    return calibrate_threshold_false_alarm(
         score=detector.score,
         false_alarm_probability=false_alarm_probability,
         n_paths=n_paths,
@@ -1206,3 +1396,391 @@ def with_calibrated_threshold(
     else:
         raise ValueError("threshold must be a scalar or 1-D array.")
     return replace(detector, threshold=threshold)
+
+
+# ---------------------------------------------------------------------------
+# Data-driven (bootstrap) calibration
+# ---------------------------------------------------------------------------
+
+
+def _block_bootstrap_samples(
+    data: np.ndarray,
+    n_paths: int,
+    stream_len: int,
+    block_length: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Generate circular block-bootstrap resampled streams.
+
+    Uses the circular block bootstrap (Politis & Romano, 1992): blocks of
+    length ``block_length`` are drawn with uniformly random start indices and
+    wrapped around the end of the training data, ensuring every observation
+    appears in the same number of blocks.
+
+    Parameters
+    ----------
+    data : np.ndarray, shape ``(N, n_features)``
+        Training data (assumed change-free and stationary).
+    n_paths : int
+        Number of bootstrap paths to generate.
+    stream_len : int
+        Length of each resampled stream.
+    block_length : int
+        Block length for the circular block bootstrap.
+    rng : np.random.Generator
+        Random number generator.
+
+    Returns
+    -------
+    np.ndarray, shape ``(n_paths, stream_len, n_features)``
+        Resampled observation streams.
+    """
+    n_obs = data.shape[0]
+    n_features = data.shape[1]
+    out = np.empty((n_paths, stream_len, n_features), dtype=np.float64)
+
+    for path in range(n_paths):
+        t = 0
+        while t < stream_len:
+            start = int(rng.integers(0, n_obs))
+            length = min(block_length, stream_len - t)
+            indices = np.arange(start, start + length) % n_obs
+            out[path, t : t + length, :] = data[indices]
+            t += length
+
+    return out
+
+
+def _compute_false_alarm_threshold_from_max_scores(
+    max_scores: np.ndarray,
+    false_alarm_probability: float,
+    apply_bonferroni: bool,
+) -> float | np.ndarray:
+    """Compute threshold(s) from an array of per-path max scores.
+
+    Parameters
+    ----------
+    max_scores : np.ndarray
+        Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for
+        multivariate scores.
+    false_alarm_probability : float
+        Target false alarm probability in ``(0, 1)``.
+    apply_bonferroni : bool
+        For multivariate scores, whether to apply Bonferroni correction.
+
+    Returns
+    -------
+    float | np.ndarray
+        Scalar threshold or 1-D array of shape ``(K,)``.
+    """
+    if max_scores.ndim == 1:
+        return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
+
+    n_tests = max_scores.shape[1]
+    if apply_bonferroni:
+        alpha_corrected = false_alarm_probability / n_tests
+    else:
+        alpha_corrected = false_alarm_probability
+    quantile_level = 1.0 - alpha_corrected
+    return np.array(
+        [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_tests)],
+        dtype=np.float64,
+    )
+
+
+def calibrate_threshold_false_alarm_from_samples(
+    score: ScoreModel,
+    samples: ArrayLike,
+    *,
+    false_alarm_probability: float,
+    apply_bonferroni: bool = True,
+    parallel: bool = True,
+    n_jobs: int | None = None,
+) -> float | np.ndarray:
+    """Estimate a threshold from pre-generated sample paths.
+
+    This is the most flexible data-driven calibration entry point.  The caller
+    supplies an array of observation streams (e.g. generated by any bootstrap
+    method, including external packages such as ``tsbootstrap``) and the
+    function runs each stream through the detector to build the null
+    distribution of maximum scores.
+
+    Parameters
+    ----------
+    score : ScoreModel
+        Score model compatible with ``GridDetector``.
+    samples : ArrayLike
+        Pre-generated observation streams with shape
+        ``(n_paths, stream_len, n_features)``.  Lists, tuples, and other
+        array-like inputs are accepted and converted to ``float64``.
+    false_alarm_probability : float
+        Target false alarm probability in ``(0, 1)``.
+    apply_bonferroni : bool, optional
+        For multivariate scores (K tests), apply Bonferroni correction so
+        each per-test threshold uses the ``(1 - alpha/K)`` quantile
+        (default ``True``).
+    parallel : bool, optional
+        If ``True`` (default), evaluate sample paths across multiple
+        processes.
+    n_jobs : int or None, optional
+        Number of worker processes.  ``None`` (default) uses all available
+        CPU cores.
+
+    Returns
+    -------
+    float | np.ndarray
+        Estimated threshold.  Scalar for single-test scores, shape ``(K,)``
+        for multivariate scores.
+
+    Examples
+    --------
+    Using an external bootstrap package (e.g. ``tsbootstrap``)::
+
+        from tsbootstrap import CircularBlockBootstrap
+        import numpy as np
+
+        boot = CircularBlockBootstrap(n_bootstraps=1000, block_length=10)
+        samples = np.stack([
+            s[:stream_len] for s in boot.bootstrap(training_data)
+        ])
+        threshold = calibrate_threshold_false_alarm_from_samples(
+            score=my_score,
+            samples=samples,
+            false_alarm_probability=0.05,
+        )
+    """
+    if not (0.0 < false_alarm_probability < 1.0):
+        raise ValueError("false_alarm_probability must be in (0, 1).")
+
+    samples = np.asarray(samples, dtype=np.float64)
+    if samples.ndim != 3:
+        raise ValueError(
+            "samples must be a 3-D array of shape "
+            f"(n_paths, stream_len, n_features); got ndim={samples.ndim}."
+        )
+
+    n_features_expected = score.n_features
+    if samples.shape[2] != n_features_expected:
+        raise ValueError(
+            f"samples last dimension ({samples.shape[2]}) does not match "
+            f"score.n_features ({n_features_expected})."
+        )
+
+    n_paths = samples.shape[0]
+    detector = GridDetector(score=score, threshold=1.0)
+
+    n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
+    if n_workers <= 1:
+        max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
+    else:
+        chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                futures = [
+                    executor.submit(
+                        _mc_max_scores_chunk_from_samples,
+                        detector,
+                        samples[start:end],
+                    )
+                    for start, end in chunks
+                ]
+                results = [fut.result() for fut in futures]
+            max_scores = np.concatenate(results, axis=0)
+        except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+            warnings.warn(
+                "Parallel evaluation failed; falling back to serial execution. "
+                f"Original error: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
+
+    return _compute_false_alarm_threshold_from_max_scores(
+        max_scores, false_alarm_probability, apply_bonferroni
+    )
+
+
+def calibrate_threshold_false_alarm_from_data(
+    score: ScoreModel,
+    training_data: ArrayLike,
+    *,
+    false_alarm_probability: float,
+    stream_len: int,
+    n_paths: int = 1000,
+    block_length: int | None = None,
+    rng: RNGInput = None,
+    apply_bonferroni: bool = True,
+    parallel: bool = True,
+    n_jobs: int | None = None,
+) -> float | np.ndarray:
+    """Estimate a threshold by circular block-bootstrapping training data.
+
+    When the null distribution is unknown but a representative change-free
+    training set is available, this function calibrates the threshold by:
+
+    1.  Resampling ``n_paths`` streams of length ``stream_len`` from
+        ``training_data`` using the circular block bootstrap (Politis &
+        Romano, 1992).
+    2.  Running each stream through the detector and recording the path-wise
+        maximum score.
+    3.  Setting the threshold at the empirical
+        ``(1 - false_alarm_probability)`` quantile.
+
+    Block length
+    ------------
+    ``block_length`` controls the trade-off between preserving temporal
+    dependence and bootstrap variability:
+
+    - ``block_length=1``: i.i.d. bootstrap (appropriate when observations
+      are independent).
+    - ``block_length > 1``: preserves short-range autocorrelation.
+    - ``block_length=None`` (default): automatic selection via
+      ``max(1, int(N ** (1/3)))``, following the asymptotic-optimal rate
+      for block bootstraps under weak dependence (Hall, Horowitz & Jing,
+      1995; Lahiri, 2003).
+
+    Parameters
+    ----------
+    score : ScoreModel
+        Score model compatible with ``GridDetector``.
+    training_data : ArrayLike
+        Change-free training observations, shape ``(N,)`` for univariate or
+        ``(N, n_features)`` for multivariate data.  Lists, tuples, and other
+        array-like inputs are accepted and converted to ``float64``.
+    false_alarm_probability : float
+        Target false alarm probability in ``(0, 1)``.
+    stream_len : int
+        Length of each bootstrapped stream fed to the detector.
+    n_paths : int, optional
+        Number of bootstrap replications (default 1000).
+    block_length : int or None, optional
+        Block length for the circular block bootstrap.  ``None`` selects
+        ``max(1, int(N ** (1/3)))`` automatically.
+    rng : numpy.random.Generator | int | None, optional
+        Randomness control.
+    apply_bonferroni : bool, optional
+        For multivariate scores (K tests), apply Bonferroni correction
+        (default ``True``).
+    parallel : bool, optional
+        If ``True`` (default), evaluate sample paths across multiple
+        processes.
+    n_jobs : int or None, optional
+        Number of worker processes.  ``None`` (default) uses all available
+        CPU cores.
+
+    Returns
+    -------
+    float | np.ndarray
+        Estimated threshold.  Scalar for single-test scores, shape ``(K,)``
+        for multivariate scores.
+    """
+    if not (0.0 < false_alarm_probability < 1.0):
+        raise ValueError("false_alarm_probability must be in (0, 1).")
+    if stream_len < 1:
+        raise ValueError("stream_len must be >= 1.")
+    if n_paths < 1:
+        raise ValueError("n_paths must be >= 1.")
+
+    training_data = np.asarray(training_data, dtype=np.float64)
+    if training_data.ndim == 1:
+        training_data = training_data.reshape(-1, 1)
+    if training_data.ndim != 2:
+        raise ValueError(
+            f"training_data must be 1-D or 2-D; got ndim={training_data.ndim}."
+        )
+
+    n_obs, n_feat = training_data.shape
+    n_features_expected = score.n_features
+    if n_feat != n_features_expected:
+        raise ValueError(
+            f"training_data has {n_feat} features but "
+            f"score.n_features={n_features_expected}."
+        )
+    if n_obs < 2:
+        raise ValueError("training_data must have at least 2 observations.")
+
+    if block_length is None:
+        block_length = max(1, int(n_obs ** (1.0 / 3.0)))
+    if block_length < 1:
+        raise ValueError("block_length must be >= 1.")
+
+    if n_obs < stream_len:
+        warnings.warn(
+            f"training_data has {n_obs} observations but stream_len={stream_len}. "
+            "The circular block bootstrap will wrap around, but calibration may "
+            "be unreliable with so few training observations.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    local_rng = _normalize_rng(rng)
+    samples = _block_bootstrap_samples(
+        data=training_data,
+        n_paths=n_paths,
+        stream_len=stream_len,
+        block_length=block_length,
+        rng=local_rng,
+    )
+
+    detector = GridDetector(score=score, threshold=1.0)
+
+    n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
+    if n_workers <= 1:
+        max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
+    else:
+        chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
+        try:
+            with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                futures = [
+                    executor.submit(
+                        _mc_max_scores_chunk_from_samples,
+                        detector,
+                        samples[start:end],
+                    )
+                    for start, end in chunks
+                ]
+                results = [fut.result() for fut in futures]
+            max_scores = np.concatenate(results, axis=0)
+        except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+            warnings.warn(
+                "Parallel evaluation failed; falling back to serial execution. "
+                f"Original error: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
+
+    return _compute_false_alarm_threshold_from_max_scores(
+        max_scores, false_alarm_probability, apply_bonferroni
+    )
+
+
+def calibrate_detector_threshold_false_alarm_from_data(
+    detector: GridDetector,
+    training_data: ArrayLike,
+    *,
+    false_alarm_probability: float,
+    stream_len: int,
+    n_paths: int = 1000,
+    block_length: int | None = None,
+    rng: RNGInput = None,
+    apply_bonferroni: bool = True,
+    parallel: bool = True,
+    n_jobs: int | None = None,
+) -> float | np.ndarray:
+    """Estimate threshold for an existing detector using training data.
+
+    Convenience wrapper around :func:`calibrate_threshold_false_alarm_from_data`.
+    """
+    return calibrate_threshold_false_alarm_from_data(
+        score=detector.score,
+        training_data=training_data,
+        false_alarm_probability=false_alarm_probability,
+        stream_len=stream_len,
+        n_paths=n_paths,
+        block_length=block_length,
+        rng=rng,
+        apply_bonferroni=apply_bonferroni,
+        parallel=parallel,
+        n_jobs=n_jobs,
+    )

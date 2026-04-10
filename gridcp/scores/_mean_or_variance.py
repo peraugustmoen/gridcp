@@ -20,6 +20,10 @@ class MeanOrVariance:
     """Univariate mean-or-variance LR score.
 
     For `n_features > 1`, scores are computed per feature and the maximum is used.
+
+    Centering by ``-2`` and the default penalty
+    ``log(t p) + sqrt(2 log(t p))`` use a Wilks-style ``chi^2_2``
+    approximation for the per-feature LR.
     """
 
     n_features: int = 1
@@ -86,7 +90,8 @@ class MeanOrVariance:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            return np.log(2.0 * n_samples) + np.sqrt(np.log(2.0 * n_samples))
+            logg = np.log(n_samples * self.n_features)
+            return logg + np.sqrt(2.0 * logg)
         return 1.0
 
     def compute_penalised_scores(

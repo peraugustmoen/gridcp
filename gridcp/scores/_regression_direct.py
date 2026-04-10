@@ -19,7 +19,12 @@ class RegressionDirectState:
 
 @dataclass(frozen=True, slots=True)
 class RegressionDirect:
-    """Direct regression-change score using covariance-normalized differences."""
+    """Direct regression-change score using covariance-normalized differences.
+
+    Centering by ``-q`` and the default penalty ``sqrt(q log t) + log t``
+    follow the non-asymptotic concentration calibration used for this score
+    family.
+    """
 
     n_regressors: int
     penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
