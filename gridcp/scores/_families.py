@@ -456,7 +456,7 @@ def _gaussian_mean_spec(n_features: int) -> dict:
             "A_prime": _Ap_gaussian_mean,
             "A_dprime": _App_gaussian_mean,
             "theta_init": 0.0,
-            "min_seg": 2,
+            "min_seg": 1,
         }
     return {
         "v": n_features,
@@ -465,8 +465,7 @@ def _gaussian_mean_spec(n_features: int) -> dict:
         "A_grad": _Ag_gaussian_mean_mv,
         "A_hess": _Ah_gaussian_mean_mv,
         "theta_init": np.zeros(n_features, dtype=np.float64),
-        # MLE is the sample mean, exists for n >= 1; min_seg=2 is sufficient.
-        "min_seg": 2,
+        "min_seg": 1,
     }
 
 

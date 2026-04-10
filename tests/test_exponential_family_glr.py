@@ -86,8 +86,8 @@ def _detect(score, data, threshold):
 # ---------------------------------------------------------------------------
 
 
-def test_min_seg_below_2_raises():
-    with pytest.raises(ValueError, match="min_seg must be >= 2"):
+def test_min_seg_below_1_raises():
+    with pytest.raises(ValueError, match="min_seg must be >= 1"):
         ExponentialFamilyGLR(
             v=1,
             n_features=1,
@@ -95,7 +95,7 @@ def test_min_seg_below_2_raises():
             A=_A_gauss,
             A_prime=_Ap_gauss,
             A_dprime=_App_gauss,
-            min_seg=1,
+            min_seg=0,
         )
 
 
