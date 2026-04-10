@@ -1,5 +1,16 @@
+# ruff: noqa: E402
+
+from pathlib import Path
+import sys
+
 import numpy as np
 import pytest
+
+# Running this file directly puts tests/ on sys.path, so prefer the repo root
+# over any installed gridcp package.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from gridcp import (
     calibrate_detector_threshold_false_alarm,
@@ -7,6 +18,7 @@ from gridcp import (
     with_calibrated_threshold,
 )
 from gridcp.detector import GridDetector
+from gridcp.typing import PenaltyType
 from gridcp.scores import NPFOCuS
 
 
@@ -38,9 +50,9 @@ def _exponential_sampler(rate: float):
     return sample
 
 
-def _calibrated_detector(grid: np.ndarray, pre_sampler):
+def _calibrated_detector(value_grid: np.ndarray, pre_sampler):
     detector = GridDetector(
-        score=NPFOCuS(grid=grid, n_features=1),
+        score=NPFOCuS(value_grid=value_grid, n_features=1),
         threshold=1.0,
     )
     threshold = calibrate_detector_threshold_false_alarm(
@@ -53,7 +65,7 @@ def _calibrated_detector(grid: np.ndarray, pre_sampler):
         parallel=False,
     )
     calibrated = with_calibrated_threshold(detector, threshold)
-    return calibrated, float(threshold)
+    return calibrated, np.asarray(threshold, dtype=np.float64)
 
 
 def _alarm_times(detector: GridDetector, pre_sampler, post_sampler=None) -> np.ndarray:
@@ -69,8 +81,28 @@ def _alarm_times(detector: GridDetector, pre_sampler, post_sampler=None) -> np.n
     )
 
 
+def test_npfocus_time_dependent_penalty_matches_exponential_family_glr_shape():
+    score = NPFOCuS(
+        value_grid=np.linspace(-3.0, 3.0, 25),
+        n_features=1,
+        penalty=PenaltyType.TIME_DEPENDENT,
+    )
+    t = 100
+    assert np.isclose(score._get_penalty(t), np.sqrt(2.0 * np.log(t)) + np.log(t))
+
+
+def test_npfocus_constant_penalty_is_one():
+    score = NPFOCuS(
+        value_grid=np.linspace(-3.0, 3.0, 25),
+        n_features=1,
+        penalty=PenaltyType.CONSTANT,
+    )
+    assert score._get_penalty(10) == 1.0
+    assert score._get_penalty(1000) == 1.0
+
+
 @pytest.mark.parametrize(
-    ("grid", "pre_sampler", "post_sampler"),
+    ("value_grid", "pre_sampler", "post_sampler"),
     [
         (
             np.linspace(-3.0, 3.0, 25),
@@ -91,15 +123,24 @@ def _alarm_times(detector: GridDetector, pre_sampler, post_sampler=None) -> np.n
     ids=["gaussian_mean_change", "poisson_rate_change", "exponential_rate_change"],
 )
 def test_npfocus_calibrated_detector_detects_distribution_changes(
-    grid: np.ndarray,
+    value_grid: np.ndarray,
     pre_sampler,
     post_sampler,
 ):
     """Calibrate NPFOCuS at alpha=0.05 and check it responds to each change."""
-    detector, threshold = _calibrated_detector(grid, pre_sampler)
+    detector, threshold = _calibrated_detector(value_grid, pre_sampler)
 
-    assert np.isfinite(threshold)
-    assert threshold > 0.0
+    assert threshold.shape == (2,)
+    assert np.all(np.isfinite(threshold))
+    assert np.all(threshold > 0.0)
+
+    state = detector.init_state()
+    state, _ = detector.update(state, pre_sampler(np.random.default_rng(1)))
+    state, output = detector.update(state, pre_sampler(np.random.default_rng(2)))
+    assert isinstance(output["max_score"], np.ndarray)
+    assert output["max_score"].shape == (2,)
+    assert isinstance(output["max_score_index"], np.ndarray)
+    assert output["max_score_index"].shape == (2,)
 
     null_alarm_times = _alarm_times(detector, pre_sampler)
     change_alarm_times = _alarm_times(detector, pre_sampler, post_sampler)
@@ -114,3 +155,7 @@ def test_npfocus_calibrated_detector_detects_distribution_changes(
     change_detected = change_alarm_times[change_alarm_times < STREAM_LEN]
     assert change_detected.size > 0
     assert float(np.median(change_detected)) < CHANGEPOINT + 20
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__]))
