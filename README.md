@@ -97,12 +97,17 @@ pre-commit run --all-files
     - `rng=<Generator>`: uses that generator's current state.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
+- Sampler signature contract in calibration helpers:
+    - Supported: `sampler(rng, /, *args, **kwargs)` (positional-only `rng`).
+    - Supported: `sampler(*args, rng, **kwargs)` (keyword-capable `rng`).
+
 - Sampler output convention in `gridcp.calibration`:
     - Monte Carlo helpers are vector-oriented with per-step shape `(n_features,)`.
     - Scalar outputs are broadcast to length `n_features`.
     - Non-scalar outputs are flattened to 1D and must have size `n_features`.
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
+- If `changepoint` is provided, `post_sampler` must also be provided.
 
 ### Threshold shape behavior in `GridDetector`
 
@@ -111,12 +116,100 @@ pre-commit run --all-files
 - If penalised scores are multivariate (`shape (G, K)`):
     - A scalar threshold is silently expanded to a length-`K` vector on each call.
     - A vector threshold must have length `K`.
+- For `n_samples < 2`, no candidate score exists yet. `max_score` is 0 (or a zero-vector)
+    and `max_score_index` is a placeholder (0 or zero-vector).
+
+### Reset semantics in `GridDetector`
+
+`GridDetector` now distinguishes between two time scales:
+
+- `n_samples`: local time since the most recent reset.
+- `global_n_samples`: cumulative time used for penalty scaling.
+
+The detector state stores the cumulative part internally as `n_samples_offset`,
+and each call to `update(...)` returns both counters in the output dictionary.
+
+This matters because many built-in scores use a time-dependent penalty such as
+`log(t)` or `sqrt(log(t)) + log(t)`, where `t` is the sample size. If you fully
+restart the detector after an alarm and also restart that penalty time from 1,
+you are no longer operating on the same long-run false-alarm time scale.
+
+#### Manual reset
+
+```python
+state = detector.reset_state(state, preserve_offset=True)
+```
+
+- Clears the running score state
+- Clears the grid and all candidate score snapshots
+- Sets local `n_samples` back to 0
+- Keeps the penalty time continuous by carrying the old sample count into the
+  new epoch
+
+Use `preserve_offset=True` when the threshold is meant to control the
+probability of ever seeing a false alarm over a long or indefinite stream.
+
+```python
+state = detector.reset_state(state, preserve_offset=False)
+```
+
+- Performs a full restart
+- Resets both local and global sample counts to 0
+- Intentionally discards the previous false-alarm time accounting
+
+#### Auto reset after alarms
+
+```python
+detector = GridDetector(
+    score=MeanCUSUM(n_features=1),
+    threshold=5.0,
+    auto_reset_on_alarm=True,
+    preserve_offset_on_auto_reset=True,
+)
+```
+
+When `auto_reset_on_alarm=True`, the detector resets immediately after an alarm.
+This means the returned state is already reset, and therefore the alarming
+output can have:
+
+- `output["alarm"] == True`
+- `output["n_samples"] == 0`
+
+That is expected: the alarm was produced by the just-processed observation, but
+the returned state is the post-reset state.
+
+#### Custom score contract
+
+Custom score models must implement the reset-aware penalty signature:
+
+```python
+def compute_penalised_scores(
+    self,
+    state,
+    grid_states,
+    n_samples_for_penalty: int | None = None,
+) -> np.ndarray:
+    ...
+```
+
+The intended pattern is:
+
+- compute centered or raw statistics from `state` and `grid_states`
+- treat `n_samples_for_penalty` as optional and use it only for the penalty divisor when it is provided
+- fall back to `state.n_samples` only when `n_samples_for_penalty is None`
+
+`GridDetector` no longer silently accepts the legacy two-argument signature.
+That failure is now explicit so reset-related bugs in custom scores are easier
+to detect.
 
 ### Adding a new score/test statistic
 
 - Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
-- This files needs two classes:
+- This file needs two classes:
     * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
-    * `MyScoreState`: Holds running statistics used to compute penalised scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
+    * `MyScoreState`: Holds running statistics used to compute penalized scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
+- `MyScoreState` must be treated as immutable snapshots. `update(...)` must return a
+    new state and must not mutate the input state in place, because `GridDetector`
+    stores historical state snapshots for active candidates.
 - Add the new score and state to `gridcp/scores/__init__.py`. Now the score can be imported from `gridcp.scores` and used with `GridDetector`.
 

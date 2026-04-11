@@ -258,6 +258,11 @@ def test_from_family_unknown_name_raises():
         ExponentialFamilyGLR.from_family("not_a_family")
 
 
+def test_from_family_scalar_family_rejects_n_features_above_one():
+    with pytest.raises(ValueError, match="requires n_features=1"):
+        ExponentialFamilyGLR.from_family("poisson", n_features=2)
+
+
 def test_from_family_kwargs_forwarded():
     """gamma_rate accepts a shape kwarg via from_family."""
     score = ExponentialFamilyGLR.from_family("gamma_rate", shape=2.0)

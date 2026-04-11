@@ -14,7 +14,15 @@ class DetectorOutput(TypedDict):
     Attributes
     ----------
     n_samples : int
-        Total number of observations seen so far.
+        Number of observations seen since the most recent reset.
+        This is the detector's local time and is the value that returns to 0
+        after a reset.
+    global_n_samples : int
+        Total number of observations seen across the full detector lifetime,
+        including observations before resets when offset preservation is used.
+        When a reset is performed with ``preserve_offset=False``, this counter
+        also restarts from 0 because the detector intentionally discards the
+        previous false-alarm time accounting.
     alarm : bool
         Whether any score exceeded the threshold at this time step.
     max_score : float | np.ndarray
@@ -24,9 +32,14 @@ class DetectorOutput(TypedDict):
         0-based index into the active candidate list (``state.grid``)
         that achieved the max score. Scalar for single-test scores,
         shape ``(K,)`` for multivariate scores.
+
+        For ``n_samples < 2``, no candidate scores are available yet and this
+        field is a placeholder (0 for scalar thresholds, zeros for vector
+        thresholds).
     """
 
     n_samples: int
+    global_n_samples: int
     alarm: bool
     max_score: float | np.ndarray
     max_score_index: int | np.ndarray
@@ -53,10 +66,17 @@ class ScoreModel(Protocol[TScoreState]):
     """Protocol for score computers used within the grid detector.
 
     A compliant class maintains per-candidate sufficient statistics and computes
-    scores for all active candidates after each new observation. It owns:
-            - a state type TScoreState that holds each per-candidate running statistics
-      - the logic for initialising, updating, and computing penalised scores from
-        these states.
+    scores for all active candidates after each new observation.
+
+    IMPORTANT: state objects returned by ``init_state``/``update`` are treated as
+    immutable snapshots by ``GridDetector``. ``update`` must return a new state
+    and must not mutate the input ``state`` in place.
+
+    IMPORTANT: ``GridDetector`` now always calls
+    ``compute_penalised_scores(..., n_samples_for_penalty=...)``. Custom score
+    implementations must therefore accept this keyword argument. The detector
+    does not silently fall back to an older two-argument signature, because
+    doing so would make reset-related penalty bugs much harder to detect.
 
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
@@ -92,6 +112,7 @@ class ScoreModel(Protocol[TScoreState]):
         self,
         state: TScoreState,
         grid_states: list[TScoreState],
+        n_samples_for_penalty: int | None = None,
     ) -> np.ndarray:
         """Compute a penalised score for every active grid candidate.
 
@@ -101,6 +122,12 @@ class ScoreModel(Protocol[TScoreState]):
             Global running state after the latest observation.
         grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
+        n_samples_for_penalty : int | None, default=None
+            Optional sample count to use for time-dependent penalties. If
+            ``None``, implementations should use ``state.n_samples``.
+            ``GridDetector`` uses this argument to preserve long-run false-alarm
+            semantics across resets: the score state itself is reset, but the
+            penalty can continue using a cumulative sample count.
 
         Returns
         -------
@@ -110,5 +137,14 @@ class ScoreModel(Protocol[TScoreState]):
             model produces multiple test statistics (e.g. separate tests for
             mean vs variance), the shape is ``(G, K)`` where ``K`` is the
             number of tests.
+
+        Notes
+        -----
+        A reset-aware score implementation should usually compute its raw or
+        centered statistic from the local ``state`` and ``grid_states``, but
+        compute the penalty divisor from ``n_samples_for_penalty`` when it is
+        provided. This keeps the sufficient statistics local to the post-reset
+        segment while keeping the penalty on the original false-alarm time
+        scale.
         """
         ...

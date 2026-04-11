@@ -1,4 +1,4 @@
-"""Generalised Likelihood Ratio (GLR) score for canonical exponential families.
+"""Generalized Likelihood Ratio (GLR) score for canonical exponential families.
 
 Pipeline
 --------
@@ -19,6 +19,7 @@ Pipeline
 
 import math
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 import numba as nb
 import numpy as np
@@ -627,7 +628,7 @@ class ExponentialFamilyGLR:
 
         score(s, t) = (2 GLR(s, t) - v) / penalty(t)
 
-    where the generalised log-likelihood ratio is:
+    where the generalized log-likelihood ratio is:
 
         GLR(s, t) = ℓ(θ̂_pre; x_{1:s}) + ℓ(θ̂_post; x_{s+1:t}) − ℓ(θ̂_null; x_{1:t})
 
@@ -759,8 +760,8 @@ class ExponentialFamilyGLR:
         n_features : int, optional
             Dimension of each observation vector.  For ``'gaussian_mean'``
             and ``'gaussian_covariance'`` this controls the vector
-            dimension.  All other families are scalar (``n_features=1``)
-            regardless of this parameter.
+            dimension.  All other families are scalar and require
+            ``n_features=1``.
         theta_init : float or np.ndarray, optional
             Override the family's default Newton starting point.  If
             ``None`` (default), the canonical starting point is used.
@@ -777,7 +778,7 @@ class ExponentialFamilyGLR:
         Raises
         ------
         ValueError
-            If ``family`` is not a recognised name.
+            If ``family`` is not a recognized name.
 
         Examples
         --------
@@ -796,12 +797,19 @@ class ExponentialFamilyGLR:
                 f"Unknown family {family!r}. "
                 f"Valid choices are: {', '.join(VALID_FAMILIES)}."
             )
-        spec = FAMILIES[family]
-        if callable(spec) and not hasattr(spec, "py_func"):
-            spec = spec(n_features, **family_kwargs)
+        spec_entry = FAMILIES[family]
+        if callable(spec_entry) and not hasattr(spec_entry, "py_func"):
+            spec = cast(dict[str, Any], spec_entry(n_features, **family_kwargs))
+        else:
+            spec = cast(dict[str, Any], spec_entry)
         effective_theta_init = (
             theta_init if theta_init is not None else spec["theta_init"]
         )
+        if spec["v"] == 1 and n_features != 1:
+            raise ValueError(
+                f"family {family!r} is scalar and requires n_features=1; "
+                f"got n_features={n_features}."
+            )
         effective_n_features = n_features if spec["v"] > 1 else 1
         effective_min_seg = min_seg if min_seg is not None else spec.get("min_seg")
         kwargs: dict = dict(
@@ -849,8 +857,8 @@ class ExponentialFamilyGLR:
         state : ExponentialFamilyGLRState
             Current state.
         x : ArrayLike
-            New observation, shape ``(n_features,)``. Scalars are also
-            accepted and will be broadcast to the expected shape.
+            New observation, shape ``(n_features,)``. Input is flattened to
+            1D and must have total size ``n_features``.
 
         Returns
         -------
@@ -877,6 +885,7 @@ class ExponentialFamilyGLR:
         self,
         state: ExponentialFamilyGLRState,
         grid_states: list[ExponentialFamilyGLRState],
+        n_samples_for_penalty: int | None = None,
     ) -> np.ndarray:
         """Compute a penalised GLR score for every active grid candidate.
 
@@ -886,6 +895,10 @@ class ExponentialFamilyGLR:
             Global running state after the latest observation.
         grid_states : list[ExponentialFamilyGLRState]
             Per-candidate state snapshots, one per active grid point.
+        n_samples_for_penalty : int | None, default=None
+            Optional sample count used only for the penalty divisor. If
+            provided, this overrides ``state.n_samples`` for penalty scaling
+            only; if ``None``, ``state.n_samples`` is used.
 
         Returns
         -------
@@ -903,5 +916,8 @@ class ExponentialFamilyGLR:
         centered_scores = raw_scores - self.v
         zero_score_mask = raw_scores == 0.0
         centered_scores[zero_score_mask] = 0.0
-        penalty = self._get_penalty(state.n_samples)
+        penalty_n_samples = state.n_samples
+        if n_samples_for_penalty is not None:
+            penalty_n_samples = n_samples_for_penalty
+        penalty = self._get_penalty(penalty_n_samples)
         return centered_scores / penalty
