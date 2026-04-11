@@ -24,6 +24,10 @@ class DetectorOutput(TypedDict):
         0-based index into the active candidate list (``state.grid``)
         that achieved the max score. Scalar for single-test scores,
         shape ``(K,)`` for multivariate scores.
+
+        For ``n_samples < 2``, no candidate scores are available yet and this
+        field is a placeholder (0 for scalar thresholds, zeros for vector
+        thresholds).
     """
 
     n_samples: int
@@ -53,10 +57,11 @@ class ScoreModel(Protocol[TScoreState]):
     """Protocol for score computers used within the grid detector.
 
     A compliant class maintains per-candidate sufficient statistics and computes
-    scores for all active candidates after each new observation. It owns:
-            - a state type TScoreState that holds each per-candidate running statistics
-      - the logic for initialising, updating, and computing penalised scores from
-        these states.
+    scores for all active candidates after each new observation.
+
+    IMPORTANT: state objects returned by ``init_state``/``update`` are treated as
+    immutable snapshots by ``GridDetector``. ``update`` must return a new state
+    and must not mutate the input ``state`` in place.
 
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).

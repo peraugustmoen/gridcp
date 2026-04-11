@@ -182,6 +182,78 @@ def test_draw_samples_accepts_flattenable_array_output_for_multivariate():
     assert np.allclose(X, np.array([1.0, 2.0, 3.0]))
 
 
+def test_draw_samples_passes_rng_positionally_for_positional_only_sampler():
+    """Pass rng positionally for positional-only sampler signatures."""
+
+    def sampler(rng: np.random.Generator, /, mean: float) -> float:
+        return float(mean + rng.normal(0.0, 1.0))
+
+    seed = 321
+    expected_rng = np.random.default_rng(seed)
+    expected = np.array(
+        [[sampler(expected_rng, 1.5)] for _ in range(4)],
+        dtype=np.float64,
+    ).reshape(4, 1, 1)
+
+    X = draw_samples(
+        n_paths=4,
+        stream_len=1,
+        n_features=1,
+        pre_sampler=sampler,
+        pre_args=(1.5,),
+        rng=seed,
+    )
+
+    assert np.allclose(X, expected)
+
+
+def test_draw_samples_passes_rng_by_keyword_when_not_first_parameter():
+    """Pass rng by keyword for signatures like sampler(mean, rng)."""
+
+    def sampler(mean: float, rng: np.random.Generator) -> float:
+        return float(mean + rng.normal(0.0, 1.0))
+
+    seed = 1234
+    expected_rng = np.random.default_rng(seed)
+    expected = np.array(
+        [[sampler(1.5, expected_rng)] for _ in range(4)],
+        dtype=np.float64,
+    ).reshape(4, 1, 1)
+
+    X = draw_samples(
+        n_paths=4,
+        stream_len=1,
+        n_features=1,
+        pre_sampler=sampler,
+        pre_args=(1.5,),
+        rng=seed,
+    )
+
+    assert np.allclose(X, expected)
+
+
+def test_draw_samples_equivalent_rng_signatures_produce_identical_samples():
+    """Equivalent sampler signatures should produce identical draws."""
+
+    def sampler_positional(rng: np.random.Generator, /, mean: float) -> float:
+        return float(mean + rng.normal(0.0, 1.0))
+
+    def sampler_keyword(mean: float, rng: np.random.Generator) -> float:
+        return float(mean + rng.normal(0.0, 1.0))
+
+    kwargs = dict(
+        n_paths=6,
+        stream_len=4,
+        n_features=1,
+        pre_args=(1.25,),
+        rng=2026,
+    )
+    X_positional = draw_samples(pre_sampler=sampler_positional, **kwargs)
+    X_keyword = draw_samples(pre_sampler=sampler_keyword, **kwargs)
+
+    assert np.allclose(X_positional, X_keyword)
+
+
 def test_draw_samples_warns_on_runtime_size_one_broadcast_in_multivariate():
     """Warn when a size-1 vector-like output is broadcast to multivariate shape."""
 
@@ -220,6 +292,36 @@ def test_draw_samples_requires_post_sampler_if_changepoint_set():
             n_features=1,
             pre_sampler=lambda rng: 0.0,
             changepoint=3,
+        )
+
+
+def test_mc_max_scores_requires_post_sampler_if_changepoint_set():
+    """Require post_sampler whenever changepoint is provided in mc_max_scores."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(ValueError, match="post_sampler must be provided"):
+        mc_max_scores(
+            detector=detector,
+            n_paths=5,
+            stream_len=10,
+            pre_sampler=lambda rng: 0.0,
+            changepoint=3,
+            parallel=False,
+        )
+
+
+def test_mc_alarm_times_requires_post_sampler_if_changepoint_set():
+    """Require post_sampler whenever changepoint is provided in mc_alarm_times."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+
+    with pytest.raises(ValueError, match="post_sampler must be provided"):
+        mc_alarm_times(
+            detector=detector,
+            n_paths=5,
+            stream_len=10,
+            pre_sampler=lambda rng: 0.0,
+            changepoint=3,
+            parallel=False,
         )
 
 

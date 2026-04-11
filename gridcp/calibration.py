@@ -20,7 +20,14 @@ outputs are flattened with ``reshape(-1)`` and must have total size
 Sampler contract
 ----------------
 All user-provided samplers (``pre_sampler``/``post_sampler``) must accept an
-``rng`` argument. The expected form is ``sampler(rng, *args, **kwargs)``.
+``rng`` argument. Supported forms are:
+- ``sampler(rng, /, *args, **kwargs)`` (positional-only ``rng``)
+- ``sampler(*args, rng, **kwargs)`` (keyword-capable ``rng``)
+
+Backward-compatibility note: ``rng`` is no longer always injected as the first
+positional argument for keyword-capable callables. For these callables,
+``rng`` is now passed by keyword to avoid argument-position ambiguity.
+
 This ensures all randomness is anchored in the calibrated simulation RNG and
 therefore reproducible in both serial and parallel execution.
 
@@ -92,8 +99,8 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
     """Return how ``rng`` must be passed to sampler.
 
     Returns one of:
-    - ``"positional"``: sampler has positional-only ``rng``
-    - ``"keyword"``: sampler has named ``rng`` accepting keyword passing
+    - ``"positional"``: sampler requires positional ``rng`` (positional-only)
+    - ``"keyword"``: sampler accepts ``rng`` by keyword
     - ``"kwargs"``: sampler has ``**kwargs`` and can receive ``rng`` by keyword
     """
     try:
@@ -351,7 +358,7 @@ def _mc_worker_chunk(
                 raw = _WORKER_POST_CALL(local_rng)
                 if post_mode is None:
                     post_mode = _infer_observation_mode(raw, n_features)
-                x = _normalise_observation_with_mode(
+                x = _normalize_observation_with_mode(
                     raw,
                     post_mode,
                     n_features,
@@ -361,7 +368,7 @@ def _mc_worker_chunk(
                 raw = _WORKER_PRE_CALL(local_rng)
                 if pre_mode is None:
                     pre_mode = _infer_observation_mode(raw, n_features)
-                x = _normalise_observation_with_mode(
+                x = _normalize_observation_with_mode(
                     raw,
                     pre_mode,
                     n_features,
@@ -494,7 +501,7 @@ def _warn_broadcast_size_one(*, n_features: int) -> None:
     )
 
 
-def _normalise_observation_with_mode(
+def _normalize_observation_with_mode(
     x: Any,
     mode: str,
     n_features: int,
@@ -534,6 +541,16 @@ def _normalise_observation_with_mode(
         "Sampler output has wrong size "
         f"{x_arr.size}; expected scalar or size {n_features}."
     )
+
+
+def _validate_post_sampler_for_changepoint(
+    *,
+    changepoint: ChangepointSpec,
+    post_sampler: Callable[..., Any] | None,
+) -> None:
+    """Require post_sampler whenever changepoint is specified."""
+    if changepoint is not None and post_sampler is None:
+        raise ValueError("post_sampler must be provided when changepoint is set.")
 
 
 def _validate_sampler_preflight(
@@ -733,8 +750,10 @@ def draw_samples(
     if post_kwargs is None:
         post_kwargs = {}
 
-    if changepoint is not None and post_sampler is None:
-        raise ValueError("post_sampler must be provided when changepoint is set.")
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
@@ -795,7 +814,7 @@ def draw_samples(
             if mode == "scalar":
                 out[path_idx, t - 1, :] = float(raw)
             else:
-                out[path_idx, t - 1, :] = _normalise_observation_with_mode(
+                out[path_idx, t - 1, :] = _normalize_observation_with_mode(
                     raw,
                     mode,
                     n_features,
@@ -850,6 +869,8 @@ def mc_max_scores(
     scalar outputs are broadcast to length ``n_features`` and non-scalar
     outputs are flattened and required to have total size ``n_features``.
 
+    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -872,6 +893,11 @@ def mc_max_scores(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
@@ -1088,6 +1114,8 @@ def mc_alarm_times(
     scalar outputs are broadcast to length ``n_features`` and non-scalar
     outputs are flattened and required to have total size ``n_features``.
 
+    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -1108,6 +1136,11 @@ def mc_alarm_times(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 

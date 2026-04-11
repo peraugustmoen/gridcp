@@ -97,12 +97,17 @@ pre-commit run --all-files
     - `rng=<Generator>`: uses that generator's current state.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
+- Sampler signature contract in calibration helpers:
+    - Supported: `sampler(rng, /, *args, **kwargs)` (positional-only `rng`).
+    - Supported: `sampler(*args, rng, **kwargs)` (keyword-capable `rng`).
+
 - Sampler output convention in `gridcp.calibration`:
     - Monte Carlo helpers are vector-oriented with per-step shape `(n_features,)`.
     - Scalar outputs are broadcast to length `n_features`.
     - Non-scalar outputs are flattened to 1D and must have size `n_features`.
 - `n_features` is inferred from `score.n_features` when present.
 - For custom scores that do not define `n_features`, pass `n_features` explicitly.
+- If `changepoint` is provided, `post_sampler` must also be provided.
 
 ### Threshold shape behavior in `GridDetector`
 
@@ -111,12 +116,17 @@ pre-commit run --all-files
 - If penalised scores are multivariate (`shape (G, K)`):
     - A scalar threshold is silently expanded to a length-`K` vector on each call.
     - A vector threshold must have length `K`.
+- For `n_samples < 2`, no candidate score exists yet. `max_score` is 0 (or a zero-vector)
+    and `max_score_index` is a placeholder (0 or zero-vector).
 
 ### Adding a new score/test statistic
 
 - Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
-- This files needs two classes:
+- This file needs two classes:
     * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
-    * `MyScoreState`: Holds running statistics used to compute penalised scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
+    * `MyScoreState`: Holds running statistics used to compute penalized scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
+- `MyScoreState` must be treated as immutable snapshots. `update(...)` must return a
+    new state and must not mutate the input state in place, because `GridDetector`
+    stores historical state snapshots for active candidates.
 - Add the new score and state to `gridcp/scores/__init__.py`. Now the score can be imported from `gridcp.scores` and used with `GridDetector`.
 

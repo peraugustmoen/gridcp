@@ -759,8 +759,8 @@ class ExponentialFamilyGLR:
         n_features : int, optional
             Dimension of each observation vector.  For ``'gaussian_mean'``
             and ``'gaussian_covariance'`` this controls the vector
-            dimension.  All other families are scalar (``n_features=1``)
-            regardless of this parameter.
+            dimension.  All other families are scalar and require
+            ``n_features=1``.
         theta_init : float or np.ndarray, optional
             Override the family's default Newton starting point.  If
             ``None`` (default), the canonical starting point is used.
@@ -802,6 +802,11 @@ class ExponentialFamilyGLR:
         effective_theta_init = (
             theta_init if theta_init is not None else spec["theta_init"]
         )
+        if spec["v"] == 1 and n_features != 1:
+            raise ValueError(
+                f"family {family!r} is scalar and requires n_features=1; "
+                f"got n_features={n_features}."
+            )
         effective_n_features = n_features if spec["v"] > 1 else 1
         effective_min_seg = min_seg if min_seg is not None else spec.get("min_seg")
         kwargs: dict = dict(
@@ -849,8 +854,8 @@ class ExponentialFamilyGLR:
         state : ExponentialFamilyGLRState
             Current state.
         x : ArrayLike
-            New observation, shape ``(n_features,)``. Scalars are also
-            accepted and will be broadcast to the expected shape.
+            New observation, shape ``(n_features,)``. Input is flattened to
+            1D and must have total size ``n_features``.
 
         Returns
         -------
