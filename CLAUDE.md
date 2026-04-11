@@ -119,7 +119,7 @@ from gridcp.scores import (
 
 ## Coding notes
 
-- whenever you edit code, you must allways apply ruff linting afterwards, so that the pre-commit hooks will pass
+- whenever you edit code, you must always apply ruff linting afterwards, so that the pre-commit hooks will pass
 
 ## Spelling
 - Spelling should always be according to American English
