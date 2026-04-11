@@ -263,16 +263,16 @@ class GridDetector:
         Returns
         -------
         tuple[DetectorState, DetectorOutput]
-                        Updated state and output dictionary.
+            Updated state and output dictionary.
 
-                        The output always includes both local and global time:
+            The output always includes both local and global time:
 
-                        - ``output["n_samples"]``: local post-reset sample count
-                        - ``output["global_n_samples"]``: cumulative count used for
-                            penalty-time accounting when offset preservation is active
+            - ``output["n_samples"]``: local post-reset sample count
+            - ``output["global_n_samples"]``: cumulative count used for
+              penalty-time accounting when offset preservation is active
 
-                        If auto-reset is enabled and the update alarms, the returned state
-                        is already reset before being returned.
+            If auto-reset is enabled and the update alarms, the returned state
+            is already reset before being returned.
         """
         new_n_samples = state.n_samples + 1
         new_running_score_state = self.score.update(state.running_score_state, x)
