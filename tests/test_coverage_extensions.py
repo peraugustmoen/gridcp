@@ -145,7 +145,7 @@ class TestGetGGrid:
 
 
 class TestAsObs:
-    """as_obs normalises observations to 1-D float64 vectors.
+    """as_obs normalizes observations to 1-D float64 vectors.
     It is used inside every score's update() but was never tested directly.
     We check: scalar input, list input, wrong-size error.
     """
@@ -388,7 +388,7 @@ class TestResolveChangepoint:
 
 class TestInferObservationMode:
     """_infer_observation_mode classifies sampler output as scalar or vector.
-    This affects how observations are normalised in the MC hot loop.
+    This affects how observations are normalized in the MC hot loop.
     """
 
     def test_scalar_float(self):

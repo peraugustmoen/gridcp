@@ -466,6 +466,45 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     assert np.isclose(threshold_from_score, threshold_from_detector)
 
 
+def test_calibrate_detector_threshold_ignores_detector_auto_reset_policy():
+    """Calibration should be identical regardless of detector reset configuration."""
+    score = MeanCUSUM(n_features=1)
+
+    detector_no_reset = GridDetector(
+        score=score,
+        threshold=2.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
+    detector_auto_reset = GridDetector(
+        score=score,
+        threshold=2.0,
+        auto_reset_on_alarm=True,
+        preserve_offset_on_auto_reset=False,
+    )
+
+    th_no_reset = calibrate_detector_threshold_false_alarm(
+        detector_no_reset,
+        false_alarm_probability=0.1,
+        n_paths=24,
+        stream_len=20,
+        pre_sampler=normal_sampler,
+        rng=12345,
+        parallel=False,
+    )
+    th_auto_reset = calibrate_detector_threshold_false_alarm(
+        detector_auto_reset,
+        false_alarm_probability=0.1,
+        n_paths=24,
+        stream_len=20,
+        pre_sampler=normal_sampler,
+        rng=12345,
+        parallel=False,
+    )
+
+    assert np.isclose(th_no_reset, th_auto_reset)
+
+
 def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
     """Ensure mc_max_scores is reproducible with an integer seed."""
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)

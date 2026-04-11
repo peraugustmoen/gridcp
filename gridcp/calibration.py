@@ -6,6 +6,7 @@ This module provides calibration helpers for the new API.
   optionally with a post-change regime.
 - ``mc_max_scores``: run Monte Carlo simulations through a detector and collect
   the path-wise maximum detection score.
+- ``mc_alarm_times``: return the first alarm index per Monte Carlo path.
 - ``calibrate_threshold_false_alarm``: compute an empirical threshold for a score model.
 - ``calibrate_detector_threshold_false_alarm``: convenience wrapper for detector objects.
 
@@ -193,13 +194,13 @@ def _get_cloudpickle() -> Any:
     return cloudpickle
 
 
-def _serialise_for_worker(obj: Any) -> bytes:
+def _serialize_for_worker(obj: Any) -> bytes:
     """Serialize an object for process workers using cloudpickle."""
     cloudpickle = _get_cloudpickle()
     return cloudpickle.dumps(obj)
 
 
-def _deserialise_from_worker(blob: bytes) -> Any:
+def _deserialize_from_worker(blob: bytes) -> Any:
     """Deserialize an object in workers using cloudpickle."""
     cloudpickle = _get_cloudpickle()
     return cloudpickle.loads(blob)
@@ -228,14 +229,14 @@ def _init_mc_worker(
     global _WORKER_PRE_CALL
     global _WORKER_POST_CALL
 
-    _WORKER_DETECTOR = _deserialise_from_worker(detector_blob)
-    _WORKER_PRE_SAMPLER = _deserialise_from_worker(pre_sampler_blob)
-    _WORKER_PRE_ARGS = _deserialise_from_worker(pre_args_blob)
-    _WORKER_PRE_KWARGS = _deserialise_from_worker(pre_kwargs_blob)
-    _WORKER_POST_SAMPLER = _deserialise_from_worker(post_sampler_blob)
-    _WORKER_POST_ARGS = _deserialise_from_worker(post_args_blob)
-    _WORKER_POST_KWARGS = _deserialise_from_worker(post_kwargs_blob)
-    _WORKER_CHANGEPOINT = _deserialise_from_worker(changepoint_blob)
+    _WORKER_DETECTOR = _deserialize_from_worker(detector_blob)
+    _WORKER_PRE_SAMPLER = _deserialize_from_worker(pre_sampler_blob)
+    _WORKER_PRE_ARGS = _deserialize_from_worker(pre_args_blob)
+    _WORKER_PRE_KWARGS = _deserialize_from_worker(pre_kwargs_blob)
+    _WORKER_POST_SAMPLER = _deserialize_from_worker(post_sampler_blob)
+    _WORKER_POST_ARGS = _deserialize_from_worker(post_args_blob)
+    _WORKER_POST_KWARGS = _deserialize_from_worker(post_kwargs_blob)
+    _WORKER_CHANGEPOINT = _deserialize_from_worker(changepoint_blob)
 
     # Type narrowing: these are guaranteed non-None after deserialization above.
     assert _WORKER_PRE_SAMPLER is not None
@@ -998,14 +999,14 @@ def mc_max_scores(
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
 
     initargs = (
-        _serialise_for_worker(detector),
-        _serialise_for_worker(pre_sampler),
-        _serialise_for_worker(pre_args),
-        _serialise_for_worker(pre_kwargs),
-        _serialise_for_worker(post_sampler),
-        _serialise_for_worker(post_args),
-        _serialise_for_worker(post_kwargs),
-        _serialise_for_worker(changepoint),
+        _serialize_for_worker(detector),
+        _serialize_for_worker(pre_sampler),
+        _serialize_for_worker(pre_args),
+        _serialize_for_worker(pre_kwargs),
+        _serialize_for_worker(post_sampler),
+        _serialize_for_worker(post_args),
+        _serialize_for_worker(post_kwargs),
+        _serialize_for_worker(changepoint),
         int(n_features),
     )
 
@@ -1088,6 +1089,13 @@ def mc_alarm_times(
 
     Alarm indices are 0-based. For paths with no alarm by the end of the stream,
     the returned value is ``stream_len`` (first index past the last sample).
+
+    This function is intentionally first-alarm only: each path contributes one
+    value, the first time the detector alarms. It does not summarize performance
+    for multiple changepoints within the same path after the first detection.
+    For multi-changepoint evaluation, run a custom simulation loop that defines
+    post-alarm behavior explicitly (for example reset/refractory policies and
+    per-segment detection-delay metrics).
 
     Reproducibility follows the ``rng`` argument:
     - ``Generator``: continues from its current state.
@@ -1242,14 +1250,14 @@ def mc_alarm_times(
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
 
     initargs = (
-        _serialise_for_worker(detector),
-        _serialise_for_worker(pre_sampler),
-        _serialise_for_worker(pre_args),
-        _serialise_for_worker(pre_kwargs),
-        _serialise_for_worker(post_sampler),
-        _serialise_for_worker(post_args),
-        _serialise_for_worker(post_kwargs),
-        _serialise_for_worker(changepoint),
+        _serialize_for_worker(detector),
+        _serialize_for_worker(pre_sampler),
+        _serialize_for_worker(pre_args),
+        _serialize_for_worker(pre_kwargs),
+        _serialize_for_worker(post_sampler),
+        _serialize_for_worker(post_args),
+        _serialize_for_worker(post_kwargs),
+        _serialize_for_worker(changepoint),
         int(n_features),
     )
 
@@ -1356,7 +1364,14 @@ def calibrate_threshold_false_alarm(
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
 
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     max_scores = mc_max_scores(
         detector=detector,
@@ -1397,6 +1412,13 @@ def calibrate_detector_threshold_false_alarm(
     In particular, ``pre_sampler`` must satisfy the same sampler contract:
     ``pre_sampler(rng, *args, **kwargs)`` with output normalization identical
     to :func:`draw_samples`.
+
+    Notes
+    -----
+    Calibration always uses an internal non-resetting detector constructed from
+    ``detector.score``. The input detector's reset configuration
+    (``auto_reset_on_alarm`` and ``preserve_offset_on_auto_reset``) is ignored
+    by design so threshold calibration never depends on reset policy.
     """
     return calibrate_threshold_false_alarm(
         score=detector.score,
@@ -1600,7 +1622,14 @@ def calibrate_threshold_false_alarm_from_samples(
         )
 
     n_paths = samples.shape[0]
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
     if n_workers <= 1:
@@ -1755,7 +1784,14 @@ def calibrate_threshold_false_alarm_from_data(
         rng=local_rng,
     )
 
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
     if n_workers <= 1:
