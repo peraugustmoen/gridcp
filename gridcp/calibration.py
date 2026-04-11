@@ -22,12 +22,19 @@ Sampler contract
 ----------------
 All user-provided samplers (``pre_sampler``/``post_sampler``) must accept an
 ``rng`` argument. Supported forms are:
-- ``sampler(rng, /, *args, **kwargs)`` (positional-only ``rng``)
-- ``sampler(*args, rng, **kwargs)`` (keyword-capable ``rng``)
 
-Backward-compatibility note: ``rng`` is no longer always injected as the first
-positional argument for keyword-capable callables. For these callables,
-``rng`` is now passed by keyword to avoid argument-position ambiguity.
+- ``sampler(rng, /, *args, **kwargs)`` — positional-only ``rng``; called as
+  ``sampler(rng, *args, **kwargs)``.
+- ``sampler(rng, *args, **kwargs)`` — ``rng`` as the first
+  POSITIONAL_OR_KEYWORD parameter; also called positionally as
+  ``sampler(rng, *args, **kwargs)``.  This is the most common pattern.
+- ``sampler(*args, rng, **kwargs)`` — ``rng`` is keyword-only or not the first
+  positional parameter; called as ``sampler(*args, rng=rng, **kwargs)``.
+
+The rule is simple: if ``rng`` is the first positional parameter (whether
+declared positional-only or not), it is passed positionally and
+``pre_args``/``post_args`` fill the remaining positions in order.  Otherwise
+it is passed by keyword.
 
 This ensures all randomness is anchored in the calibrated simulation RNG and
 therefore reproducible in both serial and parallel execution.
@@ -100,9 +107,15 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
     """Return how ``rng`` must be passed to sampler.
 
     Returns one of:
-    - ``"positional"``: sampler requires positional ``rng`` (positional-only)
-    - ``"keyword"``: sampler accepts ``rng`` by keyword
-    - ``"kwargs"``: sampler has ``**kwargs`` and can receive ``rng`` by keyword
+
+    - ``"positional"``: ``rng`` is POSITIONAL_ONLY, **or** it is
+      POSITIONAL_OR_KEYWORD and is the first positional parameter.  In both
+      cases the caller uses ``sampler(local_rng, *args, **kwargs)``.
+    - ``"keyword"``: ``rng`` is POSITIONAL_OR_KEYWORD but not the first
+      positional parameter, or it is KEYWORD_ONLY.  The caller uses
+      ``sampler(*args, rng=local_rng, **kwargs)``.
+    - ``"kwargs"``: sampler has no explicit ``rng`` parameter but accepts
+      ``**kwargs``; ``rng`` is injected by keyword.
     """
     try:
         sig = inspect.signature(sampler)
@@ -115,8 +128,23 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
 
     params = sig.parameters
     if "rng" in params:
-        if params["rng"].kind == inspect.Parameter.POSITIONAL_ONLY:
+        kind = params["rng"].kind
+        if kind == inspect.Parameter.POSITIONAL_ONLY:
             return "positional"
+        if kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+            # If rng is the first positional parameter, passing it positionally
+            # is unambiguous: no *args can collide with it.
+            positional_params = [
+                p
+                for p in params.values()
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+            if positional_params and positional_params[0].name == "rng":
+                return "positional"
         return "keyword"
 
     if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
