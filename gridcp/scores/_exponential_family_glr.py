@@ -695,8 +695,8 @@ class ExponentialFamilyGLR:
         # --- Minimum segment length ---
         if min_seg is None:
             min_seg = v + 1
-        if min_seg < 2:
-            raise ValueError(f"min_seg must be >= 2, got {min_seg}.")
+        if min_seg < 1:
+            raise ValueError(f"min_seg must be >= 1, got {min_seg}.")
 
         # --- Build solver and GLR kernel ---
         if v == 1:
