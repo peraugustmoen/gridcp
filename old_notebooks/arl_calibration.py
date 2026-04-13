@@ -168,8 +168,8 @@ def calibrate_threshold_arl(
         a 1-D array of shape ``(K,)`` with *combined* thresholds that
         control the *joint* ARL: each individual threshold is first derived
         from a separate (1/e)-quantile per test, then scaled by a common
-        factor ``c`` found from a second MC pass that standardises scores
-        across tests and ensures the overall ARL equals *target_arl*.
+        factor ``c`` computed from the same standardized null max-score
+        sample across tests to ensure the overall ARL equals *target_arl*.
 
     Notes
     -----
