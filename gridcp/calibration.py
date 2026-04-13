@@ -1597,8 +1597,18 @@ def _compute_arl_threshold_from_max_scores(
         [float(np.quantile(max_scores[:, k], 1.0 / np.e)) for k in range(n_tests)],
         dtype=np.float64,
     )
+    if not np.all(np.isfinite(individual_thresholds)) or np.any(
+        individual_thresholds <= 0
+    ):
+        raise ValueError(
+            "Multivariate ARL calibration requires strictly positive finite "
+            "per-test thresholds; got non-finite or non-positive values in "
+            "`individual_thresholds`. This can happen when score maxima are "
+            "often zero or the calibration sample is too small."
+        )
 
-    # Step 2: scale so the joint ARL equals target_arl.
+    # Step 2: scale to satisfy the joint 1/e-quantile criterion implied by
+    # the calibration maxima in ``max_scores``.
     standardized = max_scores / individual_thresholds  # (n_paths, K)
     combined_max = np.max(standardized, axis=1)  # (n_paths,)
     c = float(np.quantile(combined_max, 1.0 / np.e))
