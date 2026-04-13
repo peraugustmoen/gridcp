@@ -37,9 +37,14 @@ def npfocus_score(
     total_samples: int,
     before_samples: np.ndarray,
 ) -> np.ndarray:
-    """Compute NPFOCuS scores for all active candidate changepoints."""
+    """Compute NPFOCuS scores for all active candidate changepoints.
+
+    Returns one row per active candidate and two columns:
+    - column 0: sum of Bernoulli LR statistics across the user grid
+    - column 1: maximum Bernoulli LR statistic over the user grid
+    """
     n_candidates = before_sums.shape[0]
-    scores = np.zeros(n_candidates, dtype=np.float64)
+    scores = np.zeros((n_candidates, 2), dtype=np.float64)
     if total_samples <= 0:
         return scores
 
@@ -55,7 +60,9 @@ def npfocus_score(
         sum_post = total_sum - sum_pre
         ll_pre = bernoulli_max_ll(sum_pre, n_pre)
         ll_post = bernoulli_max_ll(sum_post, n_post)
-        scores[j] = np.sum(2.0 * (ll_post + ll_pre - ll_tot))
+        lr_scores = 2.0 * (ll_post + ll_pre - ll_tot)
+        scores[j, 0] = np.sum(lr_scores)
+        scores[j, 1] = np.max(lr_scores)
 
     return scores
 
@@ -74,23 +81,26 @@ class NPFOCuS:
 
     The score discretizes the sample space using a one-dimensional evaluation
     grid. For each grid point it tracks the running count of observations below
-    that point, then combines the resulting Bernoulli likelihood-ratio scores
-    across the grid.
+    that point, then forms a two-statistic multivariate score from the
+    resulting Bernoulli likelihood-ratio values across the grid:
+    the grid-sum and the grid-maximum.
 
     Parameters
     ----------
-    grid : ArrayLike
+    value_grid : ArrayLike
         Strictly increasing one-dimensional grid used to construct the
         indicator process underlying the score.
     n_features : int, default=1
         Observation dimension expected by the score. NPFOCuS only supports the
         univariate case, so this must be ``1``.
     penalty : PenaltyType, default=PenaltyType.CONSTANT
-        Penalty mode used to scale the score. The current implementation uses a
-        constant penalty of ``1`` in both modes.
+        Penalty mode used to scale the score. ``PenaltyType.CONSTANT`` uses a
+        unit penalty. ``PenaltyType.TIME_DEPENDENT`` uses the same divisor as
+        the two-dimensional exponential-family GLR case,
+        ``sqrt(2 log(t)) + log(t)``.
     """
 
-    grid: ArrayLike
+    value_grid: ArrayLike
     n_features: int = 1
     penalty: PenaltyType = PenaltyType.CONSTANT
 
@@ -99,22 +109,22 @@ class NPFOCuS:
         if self.n_features != 1:
             raise ValueError("NPFOCuS only supports n_features=1.")
 
-        grid_arr = np.asarray(self.grid, dtype=np.float64)
-        if grid_arr.ndim != 1:
-            raise ValueError("grid must be a one-dimensional array.")
-        if grid_arr.size == 0:
-            raise ValueError("grid must be non-empty.")
-        if not np.all(np.isfinite(grid_arr)):
-            raise ValueError("grid must contain only finite values.")
-        if np.any(np.diff(grid_arr) <= 0.0):
-            raise ValueError("grid must be strictly increasing.")
+        value_grid_arr = np.asarray(self.value_grid, dtype=np.float64)
+        if value_grid_arr.ndim != 1:
+            raise ValueError("value_grid must be a one-dimensional array.")
+        if value_grid_arr.size == 0:
+            raise ValueError("value_grid must be non-empty.")
+        if not np.all(np.isfinite(value_grid_arr)):
+            raise ValueError("value_grid must contain only finite values.")
+        if np.any(np.diff(value_grid_arr) <= 0.0):
+            raise ValueError("value_grid must be strictly increasing.")
 
-        object.__setattr__(self, "grid", grid_arr)
+        object.__setattr__(self, "value_grid", value_grid_arr)
 
     def init_state(self) -> NPFOCuSState:
         """Return a fresh initial state with no observations seen."""
         return NPFOCuSState(
-            n_smaller=np.zeros(self.grid.size, dtype=np.int64),
+            n_smaller=np.zeros(self.value_grid.size, dtype=np.int64),
         )
 
     def update(
@@ -126,7 +136,9 @@ class NPFOCuS:
         x_arr = as_obs(x, self.n_features)
 
         next_n_samples = state.n_samples + 1
-        next_n_smaller = state.n_smaller + (x_arr[0] <= self.grid).astype(np.int64)
+        next_n_smaller = state.n_smaller + (x_arr[0] <= self.value_grid).astype(
+            np.int64
+        )
         return NPFOCuSState(
             n_samples=next_n_samples,
             n_smaller=next_n_smaller,
@@ -155,7 +167,10 @@ class NPFOCuS:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty in (PenaltyType.CONSTANT, PenaltyType.TIME_DEPENDENT):
+        if self.penalty == PenaltyType.TIME_DEPENDENT:
+            log_t = np.log(n_samples)
+            return np.sqrt(2.0 * log_t) + log_t
+        if self.penalty == PenaltyType.CONSTANT:
             return 1.0
         raise ValueError(f"Unsupported penalty mode: {self.penalty!r}")
 
@@ -163,8 +178,20 @@ class NPFOCuS:
         self,
         state: NPFOCuSState,
         grid_states: list[NPFOCuSState],
+        n_samples_for_penalty: int | None = None,
     ) -> np.ndarray:
-        """Compute penalised score for every active grid candidate."""
+        """Compute penalised score for every active grid candidate.
+
+        Parameters
+        ----------
+        n_samples_for_penalty : int | None, default=None
+            Optional sample count used only for the penalty divisor. If
+            provided, this overrides ``state.n_samples`` for penalty scaling
+            only; if ``None``, ``state.n_samples`` is used.
+        """
+        penalty_n_samples = state.n_samples
+        if n_samples_for_penalty is not None:
+            penalty_n_samples = n_samples_for_penalty
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            state.n_samples
+            penalty_n_samples
         )

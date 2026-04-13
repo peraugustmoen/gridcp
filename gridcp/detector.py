@@ -1,4 +1,17 @@
-"""The online grid detector."""
+"""The online grid detector.
+
+The detector maintains two notions of time:
+
+- ``n_samples``: local sample count since the most recent reset.
+- ``n_samples_offset``: cumulative count carried over from previous detector
+    epochs when reset is performed with offset preservation enabled.
+
+The sum ``n_samples_offset + n_samples`` is the detector's global sample count.
+Built-in score models use this global count only for time-dependent penalties,
+while the sufficient statistics themselves remain local to the current epoch.
+This lets the detector forget pre-reset data while keeping false-alarm control
+on the original time scale.
+"""
 
 from dataclasses import dataclass, field
 from typing import Generic
@@ -63,10 +76,27 @@ def _update_grid(
 
 @dataclass
 class DetectorState(Generic[TScoreState]):
-    """State of the grid detector at a given time step."""
+    """State of the grid detector at a given time step.
+
+    Parameters
+    ----------
+    running_score_state : TScoreState
+        Current running score state for the active post-reset epoch.
+    n_samples : int, default=0
+        Number of observations processed since the most recent reset.
+    n_samples_offset : int, default=0
+        Number of observations processed before the current epoch and preserved
+        for global penalty-time accounting.
+    candidate_score_states : list[TScoreState]
+        Score-state snapshots for the active logarithmic grid.
+    grid : list[int]
+        Candidate changepoint locations for the active epoch, expressed in the
+        local time scale ``[0, n_samples)``.
+    """
 
     running_score_state: TScoreState
     n_samples: int = 0
+    n_samples_offset: int = 0
     candidate_score_states: list[TScoreState] = field(default_factory=list)
     grid: list[int] = field(default_factory=list)
 
@@ -75,23 +105,42 @@ class DetectorState(Generic[TScoreState]):
 class GridDetector:
     """The online grid detector.
 
-    Owns:
-    - A state.
-        - A threshold (scalar or per-test array).
-    - The grid of candidate changepoints.
+    The detector owns the active score model, the alarm threshold, and the
+    logarithmic grid of candidate changepoints.
 
-        Threshold semantics
-        -------------------
-        For scalar score outputs, threshold must be scalar.
+    Reset semantics
+    ---------------
+    ``reset_state()`` clears the running sufficient statistics, candidate grid,
+    and stored score snapshots. With ``preserve_offset=True`` the detector also
+    remembers how many observations were seen before the reset and continues to
+    pass that cumulative time into score penalties. This is the intended mode
+    when thresholds are designed to control the probability of *ever* raising a
+    false alarm over an indefinitely long stream.
 
-        For multivariate score outputs with shape (G, K):
-        - If threshold is scalar, it is broadcast to shape (K,) on each call.
-        - If threshold is a vector, it must have shape (K,).
+    If ``preserve_offset=False``, both the detector history and the penalty time
+    are restarted from zero. This is a deliberate full restart, not a
+    false-alarm-preserving segmentation step.
 
+    Auto-reset semantics
+    --------------------
+    If ``auto_reset_on_alarm=True``, a reset is performed immediately after an
+    alarm is declared. The returned state is already reset. Consequently,
+    ``output["n_samples"]`` can be 0 on an alarming update when auto-reset is
+    enabled.
+
+    Threshold semantics
+    -------------------
+    For scalar score outputs, threshold must be scalar.
+
+    For multivariate score outputs with shape ``(G, K)``:
+    - If threshold is scalar, it is broadcast to shape ``(K,)`` on each call.
+    - If threshold is a vector, it must have shape ``(K,)``.
     """
 
     score: ScoreModel
     threshold: float | np.ndarray = 1.0
+    auto_reset_on_alarm: bool = False
+    preserve_offset_on_auto_reset: bool = True
 
     def _resolve_threshold_for_scores(
         self,
@@ -145,8 +194,57 @@ class GridDetector:
             raise TypeError("score must implement the ScoreModel protocol.")
 
     def init_state(self) -> DetectorState:
-        """Return a fresh initial state with no observations seen."""
+        """Return a fresh initial state with no observations seen.
+
+        The returned state has empty grid history, ``n_samples = 0``, and
+        ``n_samples_offset = 0``.
+        """
         return DetectorState(running_score_state=self.score.init_state())
+
+    def reset_state(
+        self,
+        state: DetectorState,
+        preserve_offset: bool = True,
+    ) -> DetectorState:
+        """Reset detector history while optionally preserving global sample time.
+
+        Resetting discards all previously stored sufficient statistics and grid
+        candidates, so the detector behaves as though it has just started on a
+        new segment. The only quantity that may survive the reset is the sample
+        count offset used for time-dependent penalty scaling.
+
+        Parameters
+        ----------
+        state : DetectorState
+            Current detector state.
+        preserve_offset : bool, default=True
+            If True, preserve cumulative sample count for penalty scaling by
+            advancing ``n_samples_offset`` by the current local ``n_samples``.
+            If False, fully reset cumulative sample tracking.
+
+        Returns
+        -------
+        DetectorState
+            Fresh detector state with cleared grid/candidate history and a new
+            score state from ``score.init_state()``.
+
+        Notes
+        -----
+        ``preserve_offset=True`` is the statistically conservative choice when
+        the threshold is interpreted through a long-run false-alarm guarantee.
+        ``preserve_offset=False`` intentionally restarts that time scale.
+        """
+        next_offset = 0
+        if preserve_offset:
+            next_offset = state.n_samples_offset + state.n_samples
+
+        return DetectorState(
+            running_score_state=self.score.init_state(),
+            n_samples=0,
+            n_samples_offset=next_offset,
+            candidate_score_states=[],
+            grid=[],
+        )
 
     def update(
         self,
@@ -166,6 +264,15 @@ class GridDetector:
         -------
         tuple[DetectorState, DetectorOutput]
             Updated state and output dictionary.
+
+            The output always includes both local and global time:
+
+            - ``output["n_samples"]``: local post-reset sample count
+            - ``output["global_n_samples"]``: cumulative count used for
+              penalty-time accounting when offset preservation is active
+
+            If auto-reset is enabled and the update alarms, the returned state
+            is already reset before being returned.
         """
         new_n_samples = state.n_samples + 1
         new_running_score_state = self.score.update(state.running_score_state, x)
@@ -177,11 +284,16 @@ class GridDetector:
             candidate_score_states=new_candidate_score_states,
             grid=new_grid,
             n_samples=new_n_samples,
+            n_samples_offset=state.n_samples_offset,
         )
+
+        global_n_samples = new_state.n_samples_offset + new_state.n_samples
 
         if new_n_samples >= 2:
             penalised_scores = self.score.compute_penalised_scores(
-                new_state.running_score_state, new_state.candidate_score_states
+                new_state.running_score_state,
+                new_state.candidate_score_states,
+                n_samples_for_penalty=global_n_samples,
             )
             th = np.asarray(self.threshold, dtype=np.float64)
             comparison_threshold = self._resolve_threshold_for_scores(
@@ -212,8 +324,17 @@ class GridDetector:
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
+        if alarm and self.auto_reset_on_alarm:
+            new_state = self.reset_state(
+                new_state,
+                preserve_offset=self.preserve_offset_on_auto_reset,
+            )
+
+        output_global_n_samples = new_state.n_samples_offset + new_state.n_samples
+
         output: DetectorOutput = {
             "n_samples": new_state.n_samples,
+            "global_n_samples": output_global_n_samples,
             "alarm": alarm,
             "max_score": max_score,
             "max_score_index": max_score_index,

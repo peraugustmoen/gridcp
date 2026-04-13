@@ -31,7 +31,9 @@ from gridcp.calibration import (
     _normalize_rng,
     _resolve_changepoint,
     _resolve_n_jobs,
+    _sampler_rng_mode,
     _validate_sampler_preflight,
+    draw_samples,
 )
 from gridcp.detector import GridDetector
 from gridcp.scores import (
@@ -145,7 +147,7 @@ class TestGetGGrid:
 
 
 class TestAsObs:
-    """as_obs normalises observations to 1-D float64 vectors.
+    """as_obs normalizes observations to 1-D float64 vectors.
     It is used inside every score's update() but was never tested directly.
     We check: scalar input, list input, wrong-size error.
     """
@@ -388,7 +390,7 @@ class TestResolveChangepoint:
 
 class TestInferObservationMode:
     """_infer_observation_mode classifies sampler output as scalar or vector.
-    This affects how observations are normalised in the MC hot loop.
+    This affects how observations are normalized in the MC hot loop.
     """
 
     def test_scalar_float(self):
@@ -452,6 +454,70 @@ class TestValidateSamplerPreflight:
                 args=(),
                 kwargs={},
             )
+
+
+class TestSamplerRngMode:
+    """_sampler_rng_mode classifies how rng must be passed to a sampler.
+
+    Regression test for the common ``def sampler(rng, mean): ...`` pattern
+    which used to fail when extra positional args were supplied.
+    """
+
+    def test_positional_only_rng(self):
+        """POSITIONAL_ONLY rng → 'positional'."""
+        # Python syntax requires exec to define positional-only args dynamically.
+        exec("def _s(rng, /, mean): pass", d := {})
+        assert _sampler_rng_mode(d["_s"]) == "positional"
+
+    def test_positional_or_keyword_rng_first(self):
+        """rng as first POSITIONAL_OR_KEYWORD param → 'positional'."""
+
+        def sampler(rng, mean):
+            return rng.normal(mean, 1.0)
+
+        assert _sampler_rng_mode(sampler) == "positional"
+
+    def test_positional_or_keyword_rng_not_first(self):
+        """rng as non-first param → 'keyword'."""
+
+        def sampler(mean, rng):
+            return rng.normal(mean, 1.0)
+
+        assert _sampler_rng_mode(sampler) == "keyword"
+
+    def test_keyword_only_rng(self):
+        """Keyword-only rng → 'keyword'."""
+
+        def sampler(mean, *, rng):
+            return rng.normal(mean, 1.0)
+
+        assert _sampler_rng_mode(sampler) == "keyword"
+
+    def test_kwargs_only(self):
+        """Sampler with **kwargs but no explicit rng → 'kwargs'."""
+
+        def sampler(**kwargs):
+            return kwargs["rng"].normal()
+
+        assert _sampler_rng_mode(sampler) == "kwargs"
+
+    def test_rng_first_with_args_end_to_end(self):
+        """Regression: def sampler(rng, mean) with pre_args=(mean,) must work."""
+
+        def sampler(rng, mean):
+            return float(rng.normal(mean, 0.0))
+
+        X = draw_samples(
+            n_paths=3,
+            stream_len=4,
+            n_features=1,
+            pre_sampler=sampler,
+            pre_args=(5.0,),
+            rng=0,
+        )
+        assert X.shape == (3, 4, 1)
+        # All values must equal the mean since std=0
+        assert np.allclose(X, 5.0)
 
 
 class TestResolveNJobs:

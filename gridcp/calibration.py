@@ -6,6 +6,7 @@ This module provides calibration helpers for the new API.
   optionally with a post-change regime.
 - ``mc_max_scores``: run Monte Carlo simulations through a detector and collect
   the path-wise maximum detection score.
+- ``mc_alarm_times``: return the first alarm index per Monte Carlo path.
 - ``calibrate_threshold_false_alarm``: compute an empirical threshold for a score model.
 - ``calibrate_detector_threshold_false_alarm``: convenience wrapper for detector objects.
 
@@ -20,7 +21,21 @@ outputs are flattened with ``reshape(-1)`` and must have total size
 Sampler contract
 ----------------
 All user-provided samplers (``pre_sampler``/``post_sampler``) must accept an
-``rng`` argument. The expected form is ``sampler(rng, *args, **kwargs)``.
+``rng`` argument. Supported forms are:
+
+- ``sampler(rng, /, *args, **kwargs)`` — positional-only ``rng``; called as
+  ``sampler(rng, *args, **kwargs)``.
+- ``sampler(rng, *args, **kwargs)`` — ``rng`` as the first
+  POSITIONAL_OR_KEYWORD parameter; also called positionally as
+  ``sampler(rng, *args, **kwargs)``.  This is the most common pattern.
+- ``sampler(*args, rng, **kwargs)`` — ``rng`` is keyword-only or not the first
+  positional parameter; called as ``sampler(*args, rng=rng, **kwargs)``.
+
+The rule is simple: if ``rng`` is the first positional parameter (whether
+declared positional-only or not), it is passed positionally and
+``pre_args``/``post_args`` fill the remaining positions in order.  Otherwise
+it is passed by keyword.
+
 This ensures all randomness is anchored in the calibrated simulation RNG and
 therefore reproducible in both serial and parallel execution.
 
@@ -92,9 +107,15 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
     """Return how ``rng`` must be passed to sampler.
 
     Returns one of:
-    - ``"positional"``: sampler has positional-only ``rng``
-    - ``"keyword"``: sampler has named ``rng`` accepting keyword passing
-    - ``"kwargs"``: sampler has ``**kwargs`` and can receive ``rng`` by keyword
+
+    - ``"positional"``: ``rng`` is POSITIONAL_ONLY, **or** it is
+      POSITIONAL_OR_KEYWORD and is the first positional parameter.  In both
+      cases the caller uses ``sampler(local_rng, *args, **kwargs)``.
+    - ``"keyword"``: ``rng`` is POSITIONAL_OR_KEYWORD but not the first
+      positional parameter, or it is KEYWORD_ONLY.  The caller uses
+      ``sampler(*args, rng=local_rng, **kwargs)``.
+    - ``"kwargs"``: sampler has no explicit ``rng`` parameter but accepts
+      ``**kwargs``; ``rng`` is injected by keyword.
     """
     try:
         sig = inspect.signature(sampler)
@@ -107,8 +128,23 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
 
     params = sig.parameters
     if "rng" in params:
-        if params["rng"].kind == inspect.Parameter.POSITIONAL_ONLY:
+        kind = params["rng"].kind
+        if kind == inspect.Parameter.POSITIONAL_ONLY:
             return "positional"
+        if kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+            # If rng is the first positional parameter, passing it positionally
+            # is unambiguous: no *args can collide with it.
+            positional_params = [
+                p
+                for p in params.values()
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+            if positional_params and positional_params[0].name == "rng":
+                return "positional"
         return "keyword"
 
     if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
@@ -186,13 +222,13 @@ def _get_cloudpickle() -> Any:
     return cloudpickle
 
 
-def _serialise_for_worker(obj: Any) -> bytes:
+def _serialize_for_worker(obj: Any) -> bytes:
     """Serialize an object for process workers using cloudpickle."""
     cloudpickle = _get_cloudpickle()
     return cloudpickle.dumps(obj)
 
 
-def _deserialise_from_worker(blob: bytes) -> Any:
+def _deserialize_from_worker(blob: bytes) -> Any:
     """Deserialize an object in workers using cloudpickle."""
     cloudpickle = _get_cloudpickle()
     return cloudpickle.loads(blob)
@@ -221,14 +257,14 @@ def _init_mc_worker(
     global _WORKER_PRE_CALL
     global _WORKER_POST_CALL
 
-    _WORKER_DETECTOR = _deserialise_from_worker(detector_blob)
-    _WORKER_PRE_SAMPLER = _deserialise_from_worker(pre_sampler_blob)
-    _WORKER_PRE_ARGS = _deserialise_from_worker(pre_args_blob)
-    _WORKER_PRE_KWARGS = _deserialise_from_worker(pre_kwargs_blob)
-    _WORKER_POST_SAMPLER = _deserialise_from_worker(post_sampler_blob)
-    _WORKER_POST_ARGS = _deserialise_from_worker(post_args_blob)
-    _WORKER_POST_KWARGS = _deserialise_from_worker(post_kwargs_blob)
-    _WORKER_CHANGEPOINT = _deserialise_from_worker(changepoint_blob)
+    _WORKER_DETECTOR = _deserialize_from_worker(detector_blob)
+    _WORKER_PRE_SAMPLER = _deserialize_from_worker(pre_sampler_blob)
+    _WORKER_PRE_ARGS = _deserialize_from_worker(pre_args_blob)
+    _WORKER_PRE_KWARGS = _deserialize_from_worker(pre_kwargs_blob)
+    _WORKER_POST_SAMPLER = _deserialize_from_worker(post_sampler_blob)
+    _WORKER_POST_ARGS = _deserialize_from_worker(post_args_blob)
+    _WORKER_POST_KWARGS = _deserialize_from_worker(post_kwargs_blob)
+    _WORKER_CHANGEPOINT = _deserialize_from_worker(changepoint_blob)
 
     # Type narrowing: these are guaranteed non-None after deserialization above.
     assert _WORKER_PRE_SAMPLER is not None
@@ -351,7 +387,7 @@ def _mc_worker_chunk(
                 raw = _WORKER_POST_CALL(local_rng)
                 if post_mode is None:
                     post_mode = _infer_observation_mode(raw, n_features)
-                x = _normalise_observation_with_mode(
+                x = _normalize_observation_with_mode(
                     raw,
                     post_mode,
                     n_features,
@@ -361,7 +397,7 @@ def _mc_worker_chunk(
                 raw = _WORKER_PRE_CALL(local_rng)
                 if pre_mode is None:
                     pre_mode = _infer_observation_mode(raw, n_features)
-                x = _normalise_observation_with_mode(
+                x = _normalize_observation_with_mode(
                     raw,
                     pre_mode,
                     n_features,
@@ -494,7 +530,7 @@ def _warn_broadcast_size_one(*, n_features: int) -> None:
     )
 
 
-def _normalise_observation_with_mode(
+def _normalize_observation_with_mode(
     x: Any,
     mode: str,
     n_features: int,
@@ -534,6 +570,16 @@ def _normalise_observation_with_mode(
         "Sampler output has wrong size "
         f"{x_arr.size}; expected scalar or size {n_features}."
     )
+
+
+def _validate_post_sampler_for_changepoint(
+    *,
+    changepoint: ChangepointSpec,
+    post_sampler: Callable[..., Any] | None,
+) -> None:
+    """Require post_sampler whenever changepoint is specified."""
+    if changepoint is not None and post_sampler is None:
+        raise ValueError("post_sampler must be provided when changepoint is set.")
 
 
 def _validate_sampler_preflight(
@@ -733,8 +779,10 @@ def draw_samples(
     if post_kwargs is None:
         post_kwargs = {}
 
-    if changepoint is not None and post_sampler is None:
-        raise ValueError("post_sampler must be provided when changepoint is set.")
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
@@ -795,7 +843,7 @@ def draw_samples(
             if mode == "scalar":
                 out[path_idx, t - 1, :] = float(raw)
             else:
-                out[path_idx, t - 1, :] = _normalise_observation_with_mode(
+                out[path_idx, t - 1, :] = _normalize_observation_with_mode(
                     raw,
                     mode,
                     n_features,
@@ -850,6 +898,8 @@ def mc_max_scores(
     scalar outputs are broadcast to length ``n_features`` and non-scalar
     outputs are flattened and required to have total size ``n_features``.
 
+    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -872,6 +922,11 @@ def mc_max_scores(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
@@ -972,14 +1027,14 @@ def mc_max_scores(
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
 
     initargs = (
-        _serialise_for_worker(detector),
-        _serialise_for_worker(pre_sampler),
-        _serialise_for_worker(pre_args),
-        _serialise_for_worker(pre_kwargs),
-        _serialise_for_worker(post_sampler),
-        _serialise_for_worker(post_args),
-        _serialise_for_worker(post_kwargs),
-        _serialise_for_worker(changepoint),
+        _serialize_for_worker(detector),
+        _serialize_for_worker(pre_sampler),
+        _serialize_for_worker(pre_args),
+        _serialize_for_worker(pre_kwargs),
+        _serialize_for_worker(post_sampler),
+        _serialize_for_worker(post_args),
+        _serialize_for_worker(post_kwargs),
+        _serialize_for_worker(changepoint),
         int(n_features),
     )
 
@@ -1063,6 +1118,13 @@ def mc_alarm_times(
     Alarm indices are 0-based. For paths with no alarm by the end of the stream,
     the returned value is ``stream_len`` (first index past the last sample).
 
+    This function is intentionally first-alarm only: each path contributes one
+    value, the first time the detector alarms. It does not summarize performance
+    for multiple changepoints within the same path after the first detection.
+    For multi-changepoint evaluation, run a custom simulation loop that defines
+    post-alarm behavior explicitly (for example reset/refractory policies and
+    per-segment detection-delay metrics).
+
     Reproducibility follows the ``rng`` argument:
     - ``Generator``: continues from its current state.
     - ``int``: deterministic run from that seed.
@@ -1088,6 +1150,8 @@ def mc_alarm_times(
     scalar outputs are broadcast to length ``n_features`` and non-scalar
     outputs are flattened and required to have total size ``n_features``.
 
+    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
+
         Input requirements
         ------------------
         ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
@@ -1108,6 +1172,11 @@ def mc_alarm_times(
         pre_kwargs = {}
     if post_kwargs is None:
         post_kwargs = {}
+
+    _validate_post_sampler_for_changepoint(
+        changepoint=changepoint,
+        post_sampler=post_sampler,
+    )
 
     _validate_changepoint_preflight(changepoint, stream_len=stream_len)
 
@@ -1209,14 +1278,14 @@ def mc_alarm_times(
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
 
     initargs = (
-        _serialise_for_worker(detector),
-        _serialise_for_worker(pre_sampler),
-        _serialise_for_worker(pre_args),
-        _serialise_for_worker(pre_kwargs),
-        _serialise_for_worker(post_sampler),
-        _serialise_for_worker(post_args),
-        _serialise_for_worker(post_kwargs),
-        _serialise_for_worker(changepoint),
+        _serialize_for_worker(detector),
+        _serialize_for_worker(pre_sampler),
+        _serialize_for_worker(pre_args),
+        _serialize_for_worker(pre_kwargs),
+        _serialize_for_worker(post_sampler),
+        _serialize_for_worker(post_args),
+        _serialize_for_worker(post_kwargs),
+        _serialize_for_worker(changepoint),
         int(n_features),
     )
 
@@ -1323,7 +1392,14 @@ def calibrate_threshold_false_alarm(
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
 
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     max_scores = mc_max_scores(
         detector=detector,
@@ -1364,6 +1440,13 @@ def calibrate_detector_threshold_false_alarm(
     In particular, ``pre_sampler`` must satisfy the same sampler contract:
     ``pre_sampler(rng, *args, **kwargs)`` with output normalization identical
     to :func:`draw_samples`.
+
+    Notes
+    -----
+    Calibration always uses an internal non-resetting detector constructed from
+    ``detector.score``. The input detector's reset configuration
+    (``auto_reset_on_alarm`` and ``preserve_offset_on_auto_reset``) is ignored
+    by design so threshold calibration never depends on reset policy.
     """
     return calibrate_threshold_false_alarm(
         score=detector.score,
@@ -1613,7 +1696,14 @@ def calibrate_threshold_false_alarm_from_samples(
         )
 
     n_paths = samples.shape[0]
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
     if n_workers <= 1:
@@ -1768,7 +1858,14 @@ def calibrate_threshold_false_alarm_from_data(
         rng=local_rng,
     )
 
-    detector = GridDetector(score=score, threshold=1.0)
+    # Threshold calibration must use a non-resetting detector so Monte Carlo
+    # paths estimate the intended long-run false-alarm behavior.
+    detector = GridDetector(
+        score=score,
+        threshold=1.0,
+        auto_reset_on_alarm=False,
+        preserve_offset_on_auto_reset=True,
+    )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
     if n_workers <= 1:
