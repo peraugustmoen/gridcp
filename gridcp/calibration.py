@@ -2209,8 +2209,10 @@ def calibrate_threshold_arl_from_data(
     """
     _warn_if_non_constant_penalty(score)
 
-    if target_arl < 1:
-        raise ValueError("target_arl must be a positive integer.")
+    if target_arl < 2:
+        raise ValueError(
+            "target_arl must be an integer >= 2 for ARL calibration from data."
+        )
     if n_paths < 1:
         raise ValueError("n_paths must be >= 1.")
 
