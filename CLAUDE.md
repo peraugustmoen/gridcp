@@ -120,6 +120,7 @@ from gridcp.scores import (
 ## Coding notes
 
 - whenever you edit code, you must always apply ruff linting afterwards, so that the pre-commit hooks will pass
+- whenever you are writing new code that does some change or functionality, always adjust the test functions before you make the new code (or change existing code). This is to ensure that the code is written to match with the desired functionality and properties, and not adjust the tests to what the code actually does. This is an important best practice.
 
 ## Spelling
 - Spelling should always be according to American English

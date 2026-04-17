@@ -466,25 +466,15 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
     assert np.isclose(threshold_from_score, threshold_from_detector)
 
 
-def test_calibrate_detector_threshold_ignores_detector_auto_reset_policy():
-    """Calibration should be identical regardless of detector reset configuration."""
+def test_calibrate_detector_threshold_depends_on_score_not_threshold_field():
+    """Calibration wrapper should depend on detector.score, not detector.threshold."""
     score = MeanCUSUM(n_features=1)
 
-    detector_no_reset = GridDetector(
-        score=score,
-        threshold=2.0,
-        auto_reset_on_alarm=False,
-        preserve_offset_on_auto_reset=True,
-    )
-    detector_auto_reset = GridDetector(
-        score=score,
-        threshold=2.0,
-        auto_reset_on_alarm=True,
-        preserve_offset_on_auto_reset=False,
-    )
+    detector_low_threshold = GridDetector(score=score, threshold=0.5)
+    detector_high_threshold = GridDetector(score=score, threshold=5.0)
 
-    th_no_reset = calibrate_detector_threshold_false_alarm(
-        detector_no_reset,
+    th_low = calibrate_detector_threshold_false_alarm(
+        detector_low_threshold,
         false_alarm_probability=0.1,
         n_paths=24,
         stream_len=20,
@@ -492,8 +482,8 @@ def test_calibrate_detector_threshold_ignores_detector_auto_reset_policy():
         rng=12345,
         parallel=False,
     )
-    th_auto_reset = calibrate_detector_threshold_false_alarm(
-        detector_auto_reset,
+    th_high = calibrate_detector_threshold_false_alarm(
+        detector_high_threshold,
         false_alarm_probability=0.1,
         n_paths=24,
         stream_len=20,
@@ -502,7 +492,7 @@ def test_calibrate_detector_threshold_ignores_detector_auto_reset_policy():
         parallel=False,
     )
 
-    assert np.isclose(th_no_reset, th_auto_reset)
+    assert np.isclose(th_low, th_high)
 
 
 def test_mc_max_scores_accepts_int_seed_and_is_reproducible():

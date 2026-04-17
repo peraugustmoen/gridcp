@@ -121,7 +121,7 @@ pre-commit run --all-files
 
 ### Reset semantics in `GridDetector`
 
-`GridDetector` now distinguishes between two time scales:
+`GridDetector` distinguishes between two time scales:
 
 - `n_samples`: local time since the most recent reset.
 - `global_n_samples`: cumulative time used for penalty scaling.
@@ -134,10 +134,12 @@ This matters because many built-in scores use a time-dependent penalty such as
 restart the detector after an alarm and also restart that penalty time from 1,
 you are no longer operating on the same long-run false-alarm time scale.
 
-#### Manual reset
+Resetting is external to `GridDetector` and handled with `reset_detector_state`:
 
 ```python
-state = detector.reset_state(state, preserve_offset=True)
+from gridcp import reset_detector_state
+
+state = reset_detector_state(state, detector, preserve_offset=True)
 ```
 
 - Clears the running score state
@@ -150,44 +152,23 @@ Use `preserve_offset=True` when the threshold is meant to control the
 probability of ever seeing a false alarm over a long or indefinite stream.
 
 ```python
-state = detector.reset_state(state, preserve_offset=False)
+state = reset_detector_state(state, detector, preserve_offset=False)
 ```
 
 - Performs a full restart
 - Resets both local and global sample counts to 0
 - Intentionally discards the previous false-alarm time accounting
 
-#### Auto reset after alarms
-
-```python
-detector = GridDetector(
-    score=MeanCUSUM(n_features=1),
-    threshold=5.0,
-    auto_reset_on_alarm=True,
-    preserve_offset_on_auto_reset=True,
-)
-```
-
-When `auto_reset_on_alarm=True`, the detector resets immediately after an alarm.
-This means the returned state is already reset, and therefore the alarming
-output can have:
-
-- `output["alarm"] == True`
-- `output["n_samples"] == 0`
-
-That is expected: the alarm was produced by the just-processed observation, but
-the returned state is the post-reset state.
-
 #### Custom score contract
 
-Custom score models must implement the reset-aware penalty signature:
+Custom score models must implement:
 
 ```python
 def compute_penalised_scores(
     self,
     state,
     grid_states,
-    n_samples_for_penalty: int | None = None,
+    n_samples_for_penalty: int,
 ) -> np.ndarray:
     ...
 ```
@@ -195,12 +176,12 @@ def compute_penalised_scores(
 The intended pattern is:
 
 - compute centered or raw statistics from `state` and `grid_states`
-- treat `n_samples_for_penalty` as optional and use it only for the penalty divisor when it is provided
-- fall back to `state.n_samples` only when `n_samples_for_penalty is None`
+- use `n_samples_for_penalty` for the penalty divisor (it is always the global
+  cumulative sample count, not the local post-reset count)
 
-`GridDetector` no longer silently accepts the legacy two-argument signature.
-That failure is now explicit so reset-related bugs in custom scores are easier
-to detect.
+`GridDetector` always passes `n_samples_for_penalty` as a required argument.
+Writing custom scores that only use `state.n_samples` will produce incorrect
+false-alarm behavior after a reset with `preserve_offset=True`.
 
 ### Adding a new score/test statistic
 

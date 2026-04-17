@@ -885,7 +885,7 @@ class ExponentialFamilyGLR:
         self,
         state: ExponentialFamilyGLRState,
         grid_states: list[ExponentialFamilyGLRState],
-        n_samples_for_penalty: int | None = None,
+        n_samples_for_penalty: int,
     ) -> np.ndarray:
         """Compute a penalised GLR score for every active grid candidate.
 
@@ -895,10 +895,8 @@ class ExponentialFamilyGLR:
             Global running state after the latest observation.
         grid_states : list[ExponentialFamilyGLRState]
             Per-candidate state snapshots, one per active grid point.
-        n_samples_for_penalty : int | None, default=None
-            Optional sample count used only for the penalty divisor. If
-            provided, this overrides ``state.n_samples`` for penalty scaling
-            only; if ``None``, ``state.n_samples`` is used.
+        n_samples_for_penalty : int
+            Sample count used for the penalty divisor.
 
         Returns
         -------
@@ -916,8 +914,4 @@ class ExponentialFamilyGLR:
         centered_scores = raw_scores - self.v
         zero_score_mask = raw_scores == 0.0
         centered_scores[zero_score_mask] = 0.0
-        penalty_n_samples = state.n_samples
-        if n_samples_for_penalty is not None:
-            penalty_n_samples = n_samples_for_penalty
-        penalty = self._get_penalty(penalty_n_samples)
-        return centered_scores / penalty
+        return centered_scores / self._get_penalty(n_samples_for_penalty)

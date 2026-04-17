@@ -72,11 +72,11 @@ class ScoreModel(Protocol[TScoreState]):
     immutable snapshots by ``GridDetector``. ``update`` must return a new state
     and must not mutate the input ``state`` in place.
 
-    IMPORTANT: ``GridDetector`` now always calls
-    ``compute_penalised_scores(..., n_samples_for_penalty=...)``. Custom score
-    implementations must therefore accept this keyword argument. The detector
-    does not silently fall back to an older two-argument signature, because
-    doing so would make reset-related penalty bugs much harder to detect.
+    IMPORTANT: ``GridDetector`` always calls
+    ``compute_penalised_scores(..., n_samples_for_penalty=global_n_samples)``
+    where ``global_n_samples`` is the cumulative observation count across
+    resets.  Custom score implementations must accept this as a required
+    positional-or-keyword ``int`` argument.
 
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
@@ -112,7 +112,7 @@ class ScoreModel(Protocol[TScoreState]):
         self,
         state: TScoreState,
         grid_states: list[TScoreState],
-        n_samples_for_penalty: int | None = None,
+        n_samples_for_penalty: int,
     ) -> np.ndarray:
         """Compute a penalised score for every active grid candidate.
 
@@ -122,12 +122,10 @@ class ScoreModel(Protocol[TScoreState]):
             Global running state after the latest observation.
         grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
-        n_samples_for_penalty : int | None, default=None
-            Optional sample count to use for time-dependent penalties. If
-            ``None``, implementations should use ``state.n_samples``.
-            ``GridDetector`` uses this argument to preserve long-run false-alarm
-            semantics across resets: the score state itself is reset, but the
-            penalty can continue using a cumulative sample count.
+        n_samples_for_penalty : int
+            Sample count to use for time-dependent penalties.
+            ``GridDetector`` always passes the global cumulative count here so
+            that penalty scaling remains continuous across resets.
 
         Returns
         -------

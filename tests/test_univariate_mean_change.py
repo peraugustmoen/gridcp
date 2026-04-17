@@ -3,7 +3,9 @@ import pytest
 
 from gridcp.detector import GridDetector
 from gridcp.scores._mean_cusum import MeanCUSUM
+from gridcp.scores._mean_or_variance import MeanOrVariance
 from gridcp.scores._mean_unknown_variance import MeanCUSUMUnknownVariance
+from gridcp.scores._variance import Variance
 from gridcp.utils import get_changeloc_grid
 
 
@@ -513,6 +515,143 @@ def test_multivariate_known_variance_matches_independent_streams():
             single_penalty / multi_penalty
         )
         assert np.isclose(multi_out["max_score"], expected_max_score)
+
+
+def test_multivariate_variance_matches_independent_streams():
+    """Variance multivariate detector should match independent univariate runs.
+
+    We check, at every step, that:
+    1. Running sumsq stats match feature-wise independent detectors.
+    2. Candidate sumsq stats match feature-wise independent detectors.
+    3. max_score equals the maximum of independent max_scores after rescaling
+       by the ratio of the univariate and multivariate penalties.
+    """
+    rng = np.random.default_rng(seed=2028)
+    n_samples = 250
+    n_features = 3
+    data = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
+
+    threshold = 1e6
+    multi_detector = GridDetector(
+        score=Variance(n_features=n_features), threshold=threshold
+    )
+    multi_state = multi_detector.init_state()
+
+    single_detectors = [
+        GridDetector(score=Variance(n_features=1), threshold=threshold)
+        for _ in range(n_features)
+    ]
+    single_states = [det.init_state() for det in single_detectors]
+
+    for row in data:
+        multi_state, multi_out = multi_detector.update(multi_state, row)
+
+        single_outs = []
+        for k in range(n_features):
+            single_states[k], single_out = single_detectors[k].update(
+                single_states[k], np.asarray([row[k]])
+            )
+            single_outs.append(single_out)
+
+        expected_running_sumsq = np.array(
+            [st.running_score_state.sum_sq[0] for st in single_states]
+        )
+        assert np.allclose(
+            multi_state.running_score_state.sum_sq, expected_running_sumsq
+        )
+
+        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+            expected_candidate_sumsq = np.array(
+                [
+                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    for k in range(n_features)
+                ]
+            )
+            assert np.allclose(multi_candidate_state.sum_sq, expected_candidate_sumsq)
+
+        if multi_state.n_samples >= 2:
+            single_log = np.log(multi_state.n_samples)
+            multi_log = np.log(multi_state.n_samples * n_features)
+            single_penalty = single_log + np.sqrt(single_log)
+            multi_penalty = multi_log + np.sqrt(multi_log)
+            expected_max_score = max(out["max_score"] for out in single_outs) * (
+                single_penalty / multi_penalty
+            )
+            assert np.isclose(multi_out["max_score"], expected_max_score)
+
+
+def test_multivariate_mean_or_variance_matches_independent_streams():
+    """MeanOrVariance multivariate detector should match independent univariate runs.
+
+    We check, at every step, that:
+    1. Running [sum, sumsq] stats match feature-wise independent detectors.
+    2. Candidate [sum, sumsq] stats match feature-wise independent detectors.
+    3. max_score equals the maximum of independent max_scores after rescaling
+       by the ratio of the univariate and multivariate penalties.
+    """
+    rng = np.random.default_rng(seed=2029)
+    n_samples = 250
+    n_features = 3
+    data = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
+
+    threshold = 1e6
+    multi_detector = GridDetector(
+        score=MeanOrVariance(n_features=n_features), threshold=threshold
+    )
+    multi_state = multi_detector.init_state()
+
+    single_detectors = [
+        GridDetector(score=MeanOrVariance(n_features=1), threshold=threshold)
+        for _ in range(n_features)
+    ]
+    single_states = [det.init_state() for det in single_detectors]
+
+    for row in data:
+        multi_state, multi_out = multi_detector.update(multi_state, row)
+
+        single_outs = []
+        for k in range(n_features):
+            single_states[k], single_out = single_detectors[k].update(
+                single_states[k], np.asarray([row[k]])
+            )
+            single_outs.append(single_out)
+
+        expected_running_sum = np.array(
+            [st.running_score_state.sum[0] for st in single_states]
+        )
+        expected_running_sumsq = np.array(
+            [st.running_score_state.sum_sq[0] for st in single_states]
+        )
+        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+        assert np.allclose(
+            multi_state.running_score_state.sum_sq, expected_running_sumsq
+        )
+
+        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+            expected_candidate_sum = np.array(
+                [
+                    single_states[k].candidate_score_states[i].sum[0]
+                    for k in range(n_features)
+                ]
+            )
+            expected_candidate_sumsq = np.array(
+                [
+                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    for k in range(n_features)
+                ]
+            )
+            assert np.allclose(multi_candidate_state.sum, expected_candidate_sum)
+            assert np.allclose(multi_candidate_state.sum_sq, expected_candidate_sumsq)
+
+        if multi_state.n_samples >= 2:
+            single_log = np.log(multi_state.n_samples)
+            multi_log = np.log(multi_state.n_samples * n_features)
+            single_penalty = single_log + np.sqrt(2.0 * single_log)
+            multi_penalty = multi_log + np.sqrt(2.0 * multi_log)
+            expected_max_score = max(out["max_score"] for out in single_outs) * (
+                single_penalty / multi_penalty
+            )
+            assert np.isclose(multi_out["max_score"], expected_max_score)
 
 
 def test_multivariate_unknown_variance_matches_independent_streams():

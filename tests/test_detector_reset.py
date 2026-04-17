@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 
 import numpy as np
-import pytest
 
+from gridcp import reset_detector_state
 from gridcp.detector import GridDetector
 from gridcp.scores import MeanCUSUM
 
@@ -29,13 +29,10 @@ class _SpyScore:
         self,
         state: _SpyState,
         grid_states: list[_SpyState],
-        n_samples_for_penalty: int | None = None,
+        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        penalty_n = (
-            state.n_samples if n_samples_for_penalty is None else n_samples_for_penalty
-        )
-        self.last_penalty_n_samples = penalty_n
-        return np.full(len(grid_states), float(penalty_n), dtype=np.float64)
+        self.last_penalty_n_samples = n_samples_for_penalty
+        return np.full(len(grid_states), float(n_samples_for_penalty), dtype=np.float64)
 
 
 def _piecewise_constant_stream(
@@ -100,7 +97,7 @@ def test_manual_reset_preserve_offset_true_keeps_global_count():
     assert state.n_samples == 5
     assert state.n_samples_offset == 0
 
-    state = detector.reset_state(state, preserve_offset=True)
+    state = reset_detector_state(state, detector, preserve_offset=True)
     assert state.n_samples == 0
     assert state.n_samples_offset == 5
     assert state.grid == []
@@ -119,7 +116,7 @@ def test_manual_reset_preserve_offset_false_restarts_global_count():
     for _ in range(4):
         state, _ = detector.update(state, np.array([0.0]))
 
-    state = detector.reset_state(state, preserve_offset=False)
+    state = reset_detector_state(state, detector, preserve_offset=False)
     assert state.n_samples == 0
     assert state.n_samples_offset == 0
 
@@ -128,14 +125,9 @@ def test_manual_reset_preserve_offset_false_restarts_global_count():
     assert out["global_n_samples"] == 1
 
 
-def test_auto_reset_on_alarm_resets_local_keeps_global():
-    """Check that auto-reset returns a reset local state while preserving global time."""
-    detector = GridDetector(
-        score=MeanCUSUM(n_features=1),
-        threshold=1.0e-12,
-        auto_reset_on_alarm=True,
-        preserve_offset_on_auto_reset=True,
-    )
+def test_external_reset_after_alarm_preserve_offset_keeps_global_time():
+    """Check explicit reset-after-alarm with preserved global penalty time."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0e-12)
     state = detector.init_state()
 
     state, out1 = detector.update(state, np.array([0.0]))
@@ -145,10 +137,15 @@ def test_auto_reset_on_alarm_resets_local_keeps_global():
 
     state, out2 = detector.update(state, np.array([1000.0]))
     assert out2["alarm"]
-    assert out2["n_samples"] == 0
     assert out2["global_n_samples"] == 2
+
+    state = reset_detector_state(state, detector, preserve_offset=True)
     assert state.n_samples == 0
     assert state.n_samples_offset == 2
+
+    state, out3 = detector.update(state, np.array([0.0]))
+    assert out3["n_samples"] == 1
+    assert out3["global_n_samples"] == 3
 
 
 def test_detector_passes_global_count_to_penalty_time():
@@ -160,7 +157,7 @@ def test_detector_passes_global_count_to_penalty_time():
     for _ in range(6):
         state, _ = detector.update(state, np.array([1.0]))
 
-    state = detector.reset_state(state, preserve_offset=True)
+    state = reset_detector_state(state, detector, preserve_offset=True)
     assert state.n_samples_offset == 6
 
     state, _ = detector.update(state, np.array([1.0]))
@@ -168,38 +165,6 @@ def test_detector_passes_global_count_to_penalty_time():
 
     assert score.last_penalty_n_samples == 8
     assert float(out["max_score"]) == 8.0
-
-
-def test_legacy_custom_score_raises_when_penalty_time_argument_is_missing():
-    """Check that legacy custom scores fail explicitly when the new keyword is missing."""
-
-    @dataclass(slots=True)
-    class _OldStyleState:
-        n_samples: int = 0
-
-    @dataclass(slots=True)
-    class _OldStyleScore:
-        n_features: int = 1
-
-        def init_state(self) -> _OldStyleState:
-            return _OldStyleState()
-
-        def update(self, state: _OldStyleState, x) -> _OldStyleState:
-            return _OldStyleState(n_samples=state.n_samples + 1)
-
-        def compute_penalised_scores(
-            self,
-            state: _OldStyleState,
-            grid_states: list[_OldStyleState],
-        ) -> np.ndarray:
-            return np.zeros(len(grid_states), dtype=np.float64)
-
-    detector = GridDetector(score=_OldStyleScore(), threshold=1.0)
-    state = detector.init_state()
-
-    state, _ = detector.update(state, np.array([0.0]))
-    with pytest.raises(TypeError, match="n_samples_for_penalty"):
-        detector.update(state, np.array([0.0]))
 
 
 def test_mean_cusum_without_auto_reset_detects_shift_and_keeps_counts_running():
@@ -219,60 +184,8 @@ def test_mean_cusum_without_auto_reset_detects_shift_and_keeps_counts_running():
     assert outputs[-1]["global_n_samples"] == 100
 
 
-def test_mean_cusum_auto_reset_with_offset_keeps_global_time_running():
-    """Check that auto-reset with offset preservation resets local time but not global time."""
-    stream = _piecewise_constant_stream()
-    detector = GridDetector(
-        score=MeanCUSUM(n_features=1),
-        threshold=1.0,
-        auto_reset_on_alarm=True,
-        preserve_offset_on_auto_reset=True,
-    )
-
-    state, outputs, alarm_index = _run_until_first_alarm(detector, stream)
-
-    assert alarm_index is not None
-    assert alarm_index >= 50
-    alarm_out = outputs[alarm_index]
-    assert alarm_out["alarm"]
-    assert alarm_out["n_samples"] == 0
-    assert alarm_out["global_n_samples"] == alarm_index + 1
-    assert state.n_samples == 0
-    assert state.n_samples_offset == alarm_index + 1
-
-    state, next_out = detector.update(state, stream[alarm_index + 1])
-    assert next_out["n_samples"] == 1
-    assert next_out["global_n_samples"] == alarm_index + 2
-
-
-def test_mean_cusum_auto_reset_without_offset_restarts_global_time():
-    """Check that auto-reset without offset preservation restarts global time too."""
-    stream = _piecewise_constant_stream()
-    detector = GridDetector(
-        score=MeanCUSUM(n_features=1),
-        threshold=1.0,
-        auto_reset_on_alarm=True,
-        preserve_offset_on_auto_reset=False,
-    )
-
-    state, outputs, alarm_index = _run_until_first_alarm(detector, stream)
-
-    assert alarm_index is not None
-    assert alarm_index >= 50
-    alarm_out = outputs[alarm_index]
-    assert alarm_out["alarm"]
-    assert alarm_out["n_samples"] == 0
-    assert alarm_out["global_n_samples"] == 0
-    assert state.n_samples == 0
-    assert state.n_samples_offset == 0
-
-    state, next_out = detector.update(state, stream[alarm_index + 1])
-    assert next_out["n_samples"] == 1
-    assert next_out["global_n_samples"] == 1
-
-
 def test_mean_cusum_manual_reset_with_offset_keeps_global_time_running():
-    """Check that manual reset with offset preservation continues the global clock."""
+    """Check that external reset with offset preservation keeps global time running."""
     stream = _piecewise_constant_stream()
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
 
@@ -280,9 +193,11 @@ def test_mean_cusum_manual_reset_with_offset_keeps_global_time_running():
 
     assert alarm_index is not None
     assert alarm_index >= 50
-    assert outputs[alarm_index]["global_n_samples"] == alarm_index + 1
+    alarm_out = outputs[alarm_index]
+    assert alarm_out["alarm"]
+    assert alarm_out["global_n_samples"] == alarm_index + 1
 
-    state = detector.reset_state(state, preserve_offset=True)
+    state = reset_detector_state(state, detector, preserve_offset=True)
     assert state.n_samples == 0
     assert state.n_samples_offset == alarm_index + 1
 
@@ -292,7 +207,7 @@ def test_mean_cusum_manual_reset_with_offset_keeps_global_time_running():
 
 
 def test_mean_cusum_manual_reset_without_offset_restarts_global_time():
-    """Check that manual reset without offset preservation restarts the global clock."""
+    """Check that external reset without offset restarts global time too."""
     stream = _piecewise_constant_stream()
     detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
 
@@ -300,12 +215,29 @@ def test_mean_cusum_manual_reset_without_offset_restarts_global_time():
 
     assert alarm_index is not None
     assert alarm_index >= 50
-    assert outputs[alarm_index]["global_n_samples"] == alarm_index + 1
+    alarm_out = outputs[alarm_index]
+    assert alarm_out["alarm"]
 
-    state = detector.reset_state(state, preserve_offset=False)
+    state = reset_detector_state(state, detector, preserve_offset=False)
     assert state.n_samples == 0
     assert state.n_samples_offset == 0
 
     state, next_out = detector.update(state, stream[alarm_index + 1])
     assert next_out["n_samples"] == 1
     assert next_out["global_n_samples"] == 1
+
+
+def test_griddetector_has_no_internal_reset_api():
+    """Check that reset behavior is exposed as external functions only."""
+    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
+
+    assert not hasattr(detector, "reset_state")
+    assert not hasattr(detector, "auto_reset_on_alarm")
+    assert not hasattr(detector, "preserve_offset_on_auto_reset")
+
+
+def test_reset_detector_state_is_importable_from_package_root():
+    """Check that reset_detector_state is available from gridcp root import."""
+    from gridcp import reset_detector_state as reset_fn
+
+    assert callable(reset_fn)
