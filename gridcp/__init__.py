@@ -16,7 +16,7 @@ from gridcp.calibration import (
     mc_max_scores,
     with_calibrated_threshold,
 )
-from gridcp.detector import DetectorState, GridDetector
+from gridcp.detector import DetectorState, GridDetector, reset_detector_state
 from gridcp.typing import DetectorOutput
 
 __all__ = [
@@ -36,5 +36,6 @@ __all__ = [
     "with_calibrated_threshold",
     "GridDetector",
     "DetectorState",
+    "reset_detector_state",
     "DetectorOutput",
 ]

@@ -110,23 +110,10 @@ class GridDetector:
 
     Reset semantics
     ---------------
-    ``reset_state()`` clears the running sufficient statistics, candidate grid,
-    and stored score snapshots. With ``preserve_offset=True`` the detector also
-    remembers how many observations were seen before the reset and continues to
-    pass that cumulative time into score penalties. This is the intended mode
-    when thresholds are designed to control the probability of *ever* raising a
-    false alarm over an indefinitely long stream.
-
-    If ``preserve_offset=False``, both the detector history and the penalty time
-    are restarted from zero. This is a deliberate full restart, not a
-    false-alarm-preserving segmentation step.
-
-    Auto-reset semantics
-    --------------------
-    If ``auto_reset_on_alarm=True``, a reset is performed immediately after an
-    alarm is declared. The returned state is already reset. Consequently,
-    ``output["n_samples"]`` can be 0 on an alarming update when auto-reset is
-    enabled.
+    Resetting is handled by the module-level function
+    ``reset_detector_state(state, detector, preserve_offset=...)``. Keeping
+    reset external preserves the detector's functional update style and avoids
+    hidden state transitions in ``update()``.
 
     Threshold semantics
     -------------------
@@ -139,8 +126,6 @@ class GridDetector:
 
     score: ScoreModel
     threshold: float | np.ndarray = 1.0
-    auto_reset_on_alarm: bool = False
-    preserve_offset_on_auto_reset: bool = True
 
     def _resolve_threshold_for_scores(
         self,
@@ -201,51 +186,6 @@ class GridDetector:
         """
         return DetectorState(running_score_state=self.score.init_state())
 
-    def reset_state(
-        self,
-        state: DetectorState,
-        preserve_offset: bool = True,
-    ) -> DetectorState:
-        """Reset detector history while optionally preserving global sample time.
-
-        Resetting discards all previously stored sufficient statistics and grid
-        candidates, so the detector behaves as though it has just started on a
-        new segment. The only quantity that may survive the reset is the sample
-        count offset used for time-dependent penalty scaling.
-
-        Parameters
-        ----------
-        state : DetectorState
-            Current detector state.
-        preserve_offset : bool, default=True
-            If True, preserve cumulative sample count for penalty scaling by
-            advancing ``n_samples_offset`` by the current local ``n_samples``.
-            If False, fully reset cumulative sample tracking.
-
-        Returns
-        -------
-        DetectorState
-            Fresh detector state with cleared grid/candidate history and a new
-            score state from ``score.init_state()``.
-
-        Notes
-        -----
-        ``preserve_offset=True`` is the statistically conservative choice when
-        the threshold is interpreted through a long-run false-alarm guarantee.
-        ``preserve_offset=False`` intentionally restarts that time scale.
-        """
-        next_offset = 0
-        if preserve_offset:
-            next_offset = state.n_samples_offset + state.n_samples
-
-        return DetectorState(
-            running_score_state=self.score.init_state(),
-            n_samples=0,
-            n_samples_offset=next_offset,
-            candidate_score_states=[],
-            grid=[],
-        )
-
     def update(
         self,
         state: DetectorState,
@@ -270,9 +210,6 @@ class GridDetector:
             - ``output["n_samples"]``: local post-reset sample count
             - ``output["global_n_samples"]``: cumulative count used for
               penalty-time accounting when offset preservation is active
-
-            If auto-reset is enabled and the update alarms, the returned state
-            is already reset before being returned.
         """
         new_n_samples = state.n_samples + 1
         new_running_score_state = self.score.update(state.running_score_state, x)
@@ -324,12 +261,6 @@ class GridDetector:
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
-        if alarm and self.auto_reset_on_alarm:
-            new_state = self.reset_state(
-                new_state,
-                preserve_offset=self.preserve_offset_on_auto_reset,
-            )
-
         output_global_n_samples = new_state.n_samples_offset + new_state.n_samples
 
         output: DetectorOutput = {
@@ -340,3 +271,52 @@ class GridDetector:
             "max_score_index": max_score_index,
         }
         return new_state, output
+
+
+def reset_detector_state(
+    state: DetectorState,
+    detector: GridDetector,
+    *,
+    preserve_offset: bool = True,
+) -> DetectorState:
+    """Reset detector history while optionally preserving global sample time.
+
+    Resetting discards all previously stored sufficient statistics and grid
+    candidates, so the detector behaves as though it has just started on a
+    new segment. The only quantity that may survive the reset is the sample
+    count offset used for time-dependent penalty scaling.
+
+    Parameters
+    ----------
+    state : DetectorState
+        Current detector state.
+    detector : GridDetector
+        Detector instance used to initialize a fresh score state.
+    preserve_offset : bool, default=True
+        If True, preserve cumulative sample count for penalty scaling by
+        advancing ``n_samples_offset`` by the current local ``n_samples``.
+        If False, fully reset cumulative sample tracking.
+
+    Returns
+    -------
+    DetectorState
+        Fresh detector state with cleared grid/candidate history and a new
+        score state from ``detector.score.init_state()``.
+
+    Notes
+    -----
+    ``preserve_offset=True`` is the statistically conservative choice when
+    the threshold is interpreted through a long-run false-alarm guarantee.
+    ``preserve_offset=False`` intentionally restarts that time scale.
+    """
+    next_offset = 0
+    if preserve_offset:
+        next_offset = state.n_samples_offset + state.n_samples
+
+    return DetectorState(
+        running_score_state=detector.score.init_state(),
+        n_samples=0,
+        n_samples_offset=next_offset,
+        candidate_score_states=[],
+        grid=[],
+    )

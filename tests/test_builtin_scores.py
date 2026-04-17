@@ -74,6 +74,7 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
         scores = detector.score.compute_penalised_scores(
             state.running_score_state,
             state.candidate_score_states,
+            n_samples_for_penalty=n,
         )[i]
 
         # Column 0: sparse statistic (max of squared diffs).

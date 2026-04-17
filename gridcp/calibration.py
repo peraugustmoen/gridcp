@@ -1397,8 +1397,6 @@ def calibrate_threshold_false_alarm(
     detector = GridDetector(
         score=score,
         threshold=1.0,
-        auto_reset_on_alarm=False,
-        preserve_offset_on_auto_reset=True,
     )
 
     max_scores = mc_max_scores(
@@ -1444,9 +1442,7 @@ def calibrate_detector_threshold_false_alarm(
     Notes
     -----
     Calibration always uses an internal non-resetting detector constructed from
-    ``detector.score``. The input detector's reset configuration
-    (``auto_reset_on_alarm`` and ``preserve_offset_on_auto_reset``) is ignored
-    by design so threshold calibration never depends on reset policy.
+    ``detector.score`` and therefore never depends on external reset policy.
     """
     return calibrate_threshold_false_alarm(
         score=detector.score,
@@ -1711,8 +1707,6 @@ def calibrate_threshold_false_alarm_from_samples(
     detector = GridDetector(
         score=score,
         threshold=1.0,
-        auto_reset_on_alarm=False,
-        preserve_offset_on_auto_reset=True,
     )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
@@ -1873,8 +1867,6 @@ def calibrate_threshold_false_alarm_from_data(
     detector = GridDetector(
         score=score,
         threshold=1.0,
-        auto_reset_on_alarm=False,
-        preserve_offset_on_auto_reset=True,
     )
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
