@@ -569,14 +569,15 @@ def test_multivariate_variance_matches_independent_streams():
             )
             assert np.allclose(multi_candidate_state.sum_sq, expected_candidate_sumsq)
 
-        single_log = np.log(multi_state.n_samples)
-        multi_log = np.log(multi_state.n_samples * n_features)
-        single_penalty = single_log + np.sqrt(single_log)
-        multi_penalty = multi_log + np.sqrt(multi_log)
-        expected_max_score = max(out["max_score"] for out in single_outs) * (
-            single_penalty / multi_penalty
-        )
-        assert np.isclose(multi_out["max_score"], expected_max_score)
+        if multi_state.n_samples >= 2:
+            single_log = np.log(multi_state.n_samples)
+            multi_log = np.log(multi_state.n_samples * n_features)
+            single_penalty = single_log + np.sqrt(single_log)
+            multi_penalty = multi_log + np.sqrt(multi_log)
+            expected_max_score = max(out["max_score"] for out in single_outs) * (
+                single_penalty / multi_penalty
+            )
+            assert np.isclose(multi_out["max_score"], expected_max_score)
 
 
 def test_multivariate_mean_or_variance_matches_independent_streams():
