@@ -1569,6 +1569,7 @@ def _compute_false_alarm_threshold_from_max_scores(
 
 def _compute_arl_threshold_from_max_scores(
     max_scores: np.ndarray,
+    max_scores_step2: np.ndarray | None = None,
 ) -> float | np.ndarray:
     """Compute ARL threshold(s) from an array of per-path max scores.
 
@@ -1576,7 +1577,10 @@ def _compute_arl_threshold_from_max_scores(
     ----------
     max_scores : np.ndarray
         Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for
-        multivariate scores.
+        multivariate scores.  Always used for step 1 (per-test quantiles).
+    max_scores_step2 : np.ndarray or None, optional
+        If provided (multivariate only), used for step 2 (joint scaling) in
+        place of ``max_scores``.  Ignored for scalar scores.
 
     Returns
     -------
@@ -1603,9 +1607,12 @@ def _compute_arl_threshold_from_max_scores(
             "often zero or the calibration sample is too small."
         )
 
-    # Step 2: scale to satisfy the joint 1/e-quantile criterion implied by
-    # the calibration maxima in ``max_scores``.
-    standardized = max_scores / individual_thresholds  # (n_paths, K)
+    # Step 2: scale to satisfy the joint 1/e-quantile criterion.
+    # Use max_scores_step2 if provided (independent simulation), else reuse max_scores.
+    scores_for_scaling = (
+        max_scores_step2 if max_scores_step2 is not None else max_scores
+    )
+    standardized = scores_for_scaling / individual_thresholds  # (n_paths, K)
     combined_max = np.max(standardized, axis=1)  # (n_paths,)
     c = float(np.quantile(combined_max, 1.0 / np.e))
     return c * individual_thresholds
@@ -1621,6 +1628,61 @@ def _warn_if_non_constant_penalty(score: ScoreModel) -> None:
             UserWarning,
             stacklevel=3,
         )
+
+
+def _eval_max_scores(
+    score: ScoreModel,
+    samples: np.ndarray,
+    *,
+    parallel: bool,
+    n_jobs: int | None,
+) -> np.ndarray:
+    """Run pre-generated samples through the detector and return per-path max scores.
+
+    Parameters
+    ----------
+    score : ScoreModel
+        Score model compatible with ``GridDetector``.
+    samples : np.ndarray
+        Shape ``(n_paths, stream_len, n_features)``.  Assumed already validated.
+    parallel : bool
+        Whether to evaluate paths in parallel.
+    n_jobs : int or None
+        Number of worker processes.
+
+    Returns
+    -------
+    np.ndarray
+        Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for multivariate.
+    """
+    n_paths = samples.shape[0]
+    detector = GridDetector(score=score, threshold=1.0)
+
+    n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
+    if n_workers <= 1:
+        return _mc_max_scores_chunk_from_samples(detector, samples)
+
+    chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
+    try:
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            futures = [
+                executor.submit(
+                    _mc_max_scores_chunk_from_samples,
+                    detector,
+                    samples[start:end],
+                )
+                for start, end in chunks
+            ]
+            results = [fut.result() for fut in futures]
+        return np.concatenate(results, axis=0)
+    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+        warnings.warn(
+            "Parallel evaluation failed; falling back to serial execution. "
+            f"Original error: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return _mc_max_scores_chunk_from_samples(detector, samples)
 
 
 def calibrate_threshold_false_alarm_from_samples(
@@ -1948,6 +2010,7 @@ def calibrate_threshold_arl(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
+    resimulate_combined_threshold: bool = False,
 ) -> float | np.ndarray:
     """Estimate a score threshold via Average Run Length (ARL) calibration.
 
@@ -1980,6 +2043,15 @@ def calibrate_threshold_arl(
     strict_equivalence : bool, default False
         If ``True``, sample generation is serial (only evaluation is
         parallel), guaranteeing identical output to ``parallel=False``.
+    resimulate_combined_threshold : bool, default False
+        For multivariate scores (K>1) only.  If ``True``, runs a second
+        independent Monte Carlo simulation for step 2 of the calibration
+        procedure (the joint scaling of per-test thresholds).  The second
+        simulation continues from the same ``rng`` (whose state has been
+        advanced by the first simulation), so step-2 samples are independent
+        of step-1 samples.  This removes the sample-reuse bias between the
+        two estimation steps at the cost of twice the computation.  Has no
+        effect for scalar scores (K=1).
 
     Returns
     -------
@@ -2009,13 +2081,14 @@ def calibrate_threshold_arl(
     _warn_if_non_constant_penalty(score)
 
     detector = GridDetector(score=score, threshold=1.0)
+    resolved_rng = _normalize_rng(rng)
 
     max_scores = mc_max_scores(
         detector=detector,
         n_paths=n_paths,
         stream_len=target_arl,
         pre_sampler=pre_sampler,
-        rng=rng,
+        rng=resolved_rng,
         pre_args=pre_args,
         pre_kwargs=pre_kwargs,
         parallel=parallel,
@@ -2023,7 +2096,22 @@ def calibrate_threshold_arl(
         strict_equivalence=strict_equivalence,
     )
 
-    return _compute_arl_threshold_from_max_scores(max_scores)
+    max_scores_step2 = None
+    if resimulate_combined_threshold and max_scores.ndim > 1:
+        max_scores_step2 = mc_max_scores(
+            detector=detector,
+            n_paths=n_paths,
+            stream_len=target_arl,
+            pre_sampler=pre_sampler,
+            rng=resolved_rng,
+            pre_args=pre_args,
+            pre_kwargs=pre_kwargs,
+            parallel=parallel,
+            n_jobs=n_jobs,
+            strict_equivalence=strict_equivalence,
+        )
+
+    return _compute_arl_threshold_from_max_scores(max_scores, max_scores_step2)
 
 
 def calibrate_detector_threshold_arl(
@@ -2038,6 +2126,7 @@ def calibrate_detector_threshold_arl(
     parallel: bool = True,
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
+    resimulate_combined_threshold: bool = False,
 ) -> float | np.ndarray:
     """Estimate ARL threshold for an existing detector.
 
@@ -2054,6 +2143,7 @@ def calibrate_detector_threshold_arl(
         parallel=parallel,
         n_jobs=n_jobs,
         strict_equivalence=strict_equivalence,
+        resimulate_combined_threshold=resimulate_combined_threshold,
     )
 
 
@@ -2069,6 +2159,12 @@ def calibrate_threshold_arl_from_samples(
     The caller supplies an array of observation streams and the function runs
     each stream through the detector to build the null distribution of maximum
     scores, then returns the ``(1/e)``-quantile as the threshold.
+
+    Both steps of the multivariate two-step procedure reuse the same
+    ``max_scores`` derived from ``samples``.  If independent step-2 samples
+    are needed, use :func:`calibrate_threshold_arl_from_data` with
+    ``resimulate_combined_threshold=True``, or call this function twice and
+    pass results to :func:`_compute_arl_threshold_from_max_scores` directly.
 
     Parameters
     ----------
@@ -2111,36 +2207,27 @@ def calibrate_threshold_arl_from_samples(
             f"score.n_features ({n_features_expected})."
         )
 
-    n_paths = samples.shape[0]
-    detector = GridDetector(score=score, threshold=1.0)
-
-    n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths) if parallel else 1
-    if n_workers <= 1:
-        max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
-    else:
-        chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
-        try:
-            with ProcessPoolExecutor(max_workers=n_workers) as executor:
-                futures = [
-                    executor.submit(
-                        _mc_max_scores_chunk_from_samples,
-                        detector,
-                        samples[start:end],
-                    )
-                    for start, end in chunks
-                ]
-                results = [fut.result() for fut in futures]
-            max_scores = np.concatenate(results, axis=0)
-        except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
-            warnings.warn(
-                "Parallel evaluation failed; falling back to serial execution. "
-                f"Original error: {exc}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-            max_scores = _mc_max_scores_chunk_from_samples(detector, samples)
-
+    max_scores = _eval_max_scores(score, samples, parallel=parallel, n_jobs=n_jobs)
     return _compute_arl_threshold_from_max_scores(max_scores)
+
+
+def calibrate_detector_threshold_arl_from_samples(
+    detector: GridDetector,
+    samples: ArrayLike,
+    *,
+    parallel: bool = True,
+    n_jobs: int | None = None,
+) -> float | np.ndarray:
+    """Estimate ARL threshold for an existing detector from pre-generated samples.
+
+    Convenience wrapper around :func:`calibrate_threshold_arl_from_samples`.
+    """
+    return calibrate_threshold_arl_from_samples(
+        score=detector.score,
+        samples=samples,
+        parallel=parallel,
+        n_jobs=n_jobs,
+    )
 
 
 def calibrate_threshold_arl_from_data(
@@ -2153,6 +2240,7 @@ def calibrate_threshold_arl_from_data(
     rng: RNGInput = None,
     parallel: bool = True,
     n_jobs: int | None = None,
+    resimulate_combined_threshold: bool = False,
 ) -> float | np.ndarray:
     """Estimate an ARL threshold by circular block-bootstrapping training data.
 
@@ -2187,6 +2275,15 @@ def calibrate_threshold_arl_from_data(
         If ``True`` (default), evaluate sample paths across multiple processes.
     n_jobs : int or None, optional
         Number of worker processes.  ``None`` uses all available CPU cores.
+    resimulate_combined_threshold : bool, default False
+        For multivariate scores (K>1) only.  If ``True``, generates a second
+        independent bootstrap sample for step 2 of the calibration procedure
+        (the joint scaling of per-test thresholds).  The second bootstrap
+        continues from the same ``rng`` (advanced by the first draw), so
+        step-2 samples are independent of step-1 samples.  This removes the
+        sample-reuse bias between the two estimation steps at the cost of
+        twice the bootstrap computation.  Has no effect for scalar scores
+        (K=1).
 
     Returns
     -------
@@ -2249,12 +2346,22 @@ def calibrate_threshold_arl_from_data(
         rng=local_rng,
     )
 
-    return calibrate_threshold_arl_from_samples(
-        score=score,
-        samples=samples,
-        parallel=parallel,
-        n_jobs=n_jobs,
-    )
+    max_scores = _eval_max_scores(score, samples, parallel=parallel, n_jobs=n_jobs)
+
+    max_scores_step2 = None
+    if resimulate_combined_threshold and max_scores.ndim > 1:
+        samples_step2 = _block_bootstrap_samples(
+            data=training_data,
+            n_paths=n_paths,
+            stream_len=target_arl,
+            block_length=block_length,
+            rng=local_rng,  # advanced by the first bootstrap draw
+        )
+        max_scores_step2 = _eval_max_scores(
+            score, samples_step2, parallel=parallel, n_jobs=n_jobs
+        )
+
+    return _compute_arl_threshold_from_max_scores(max_scores, max_scores_step2)
 
 
 def calibrate_detector_threshold_arl_from_data(
@@ -2267,6 +2374,7 @@ def calibrate_detector_threshold_arl_from_data(
     rng: RNGInput = None,
     parallel: bool = True,
     n_jobs: int | None = None,
+    resimulate_combined_threshold: bool = False,
 ) -> float | np.ndarray:
     """Estimate ARL threshold for an existing detector using training data.
 
@@ -2281,4 +2389,5 @@ def calibrate_detector_threshold_arl_from_data(
         rng=rng,
         parallel=parallel,
         n_jobs=n_jobs,
+        resimulate_combined_threshold=resimulate_combined_threshold,
     )

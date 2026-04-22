@@ -3,6 +3,7 @@
 from gridcp.calibration import (
     calibrate_detector_threshold_arl,
     calibrate_detector_threshold_arl_from_data,
+    calibrate_detector_threshold_arl_from_samples,
     calibrate_detector_threshold_false_alarm,
     calibrate_detector_threshold_false_alarm_from_data,
     calibrate_threshold_arl,
@@ -31,6 +32,7 @@ __all__ = [
     "calibrate_threshold_arl",
     "calibrate_detector_threshold_arl",
     "calibrate_threshold_arl_from_samples",
+    "calibrate_detector_threshold_arl_from_samples",
     "calibrate_threshold_arl_from_data",
     "calibrate_detector_threshold_arl_from_data",
     "with_calibrated_threshold",
