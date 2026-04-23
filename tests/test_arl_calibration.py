@@ -539,3 +539,103 @@ class TestNJobs:
             n_jobs=2,
         )
         assert th_serial == pytest.approx(th_j2)
+
+
+# ---------------------------------------------------------------------------
+# resimulate_combined_threshold
+# ---------------------------------------------------------------------------
+
+
+class TestResimulateCombinedThreshold:
+    def test_scalar_flag_is_noop(self):
+        """K=1: flag must not trigger a second simulation; result == flag-off."""
+        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        common = dict(
+            target_arl=50,
+            n_paths=100,
+            pre_sampler=_normal_sampler,
+            rng=0,
+            parallel=False,
+        )
+        th_off = calibrate_threshold_arl(
+            score=score, resimulate_combined_threshold=False, **common
+        )
+        th_on = calibrate_threshold_arl(
+            score=score, resimulate_combined_threshold=True, **common
+        )
+        assert isinstance(th_off, float)
+        assert isinstance(th_on, float)
+        assert th_off == pytest.approx(th_on)
+
+    def test_multivariate_flag_changes_result(self):
+        """K>=2 with fixed seed: True vs False must yield different thresholds."""
+        # MultivariateMeanIdentityCov emits a 2-component max_score (two tests).
+        score = MultivariateMeanIdentityCov(n_features=4, penalty=PenaltyType.CONSTANT)
+
+        def sampler(rng):
+            return rng.standard_normal(4)
+
+        common = dict(
+            score=score,
+            target_arl=100,
+            n_paths=200,
+            pre_sampler=sampler,
+            rng=0,
+            parallel=False,
+        )
+        th_off = calibrate_threshold_arl(resimulate_combined_threshold=False, **common)
+        th_on = calibrate_threshold_arl(resimulate_combined_threshold=True, **common)
+        assert isinstance(th_off, np.ndarray) and th_off.shape == (2,)
+        assert isinstance(th_on, np.ndarray) and th_on.shape == (2,)
+        assert np.all(th_off > 0)
+        assert np.all(th_on > 0)
+        assert not np.allclose(th_off, th_on)
+
+    def test_multivariate_flag_propagates_through_from_data(self):
+        """calibrate_threshold_arl_from_data honors the flag the same way."""
+        score = MultivariateMeanIdentityCov(n_features=3, penalty=PenaltyType.CONSTANT)
+        data = np.random.default_rng(0).normal(size=(400, 3))
+        common = dict(
+            score=score,
+            training_data=data,
+            target_arl=80,
+            n_paths=200,
+            rng=0,
+            parallel=False,
+        )
+        th_off = calibrate_threshold_arl_from_data(
+            resimulate_combined_threshold=False, **common
+        )
+        th_on = calibrate_threshold_arl_from_data(
+            resimulate_combined_threshold=True, **common
+        )
+        assert isinstance(th_off, np.ndarray) and th_off.shape == (2,)
+        assert isinstance(th_on, np.ndarray) and th_on.shape == (2,)
+        assert np.all(th_off > 0)
+        assert np.all(th_on > 0)
+        assert not np.allclose(th_off, th_on)
+
+
+# ---------------------------------------------------------------------------
+# calibrate_detector_threshold_arl_from_samples
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrateDetectorArlFromSamples:
+    def test_matches_base_wrapper(self):
+        """Detector wrapper must delegate exactly to the score-level function."""
+        from gridcp.calibration import (
+            calibrate_detector_threshold_arl_from_samples,
+        )
+
+        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        detector = GridDetector(score=score, threshold=1.0)
+        samples = np.random.default_rng(0).normal(size=(50, 30, 1))
+
+        th_score = calibrate_threshold_arl_from_samples(
+            score=score, samples=samples, parallel=False
+        )
+        th_det = calibrate_detector_threshold_arl_from_samples(
+            detector=detector, samples=samples, parallel=False
+        )
+        assert th_score == pytest.approx(th_det)
