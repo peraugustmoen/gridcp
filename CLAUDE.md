@@ -12,16 +12,16 @@ G-CHAD is a Python package (`gridcp`) for online grid-based changepoint detectio
 # Install for development
 pip install -e .[dev]
 
-# Run all tests
+# Run all tests (remember to run via .venv)
 pytest tests/
 
-# Run a single test file
+# Run a single test file (remember to run via .venv)
 pytest tests/test_univariate_mean_change.py
 
-# Run with coverage
+# Run with coverage (remember to run via .venv)
 pytest --cov=gridcp --cov-report=term-missing
 
-# Lint and format checks
+# Lint and format checks (remember to run via .venv)
 ruff check gridcp tests
 ruff format --check gridcp tests
 
