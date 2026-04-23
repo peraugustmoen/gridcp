@@ -33,45 +33,20 @@ pre-commit run --all-files
 
 The package has two APIs — the **new API** (active) and `gridcp/old_api/` (preserved, not maintained, excluded from linting).
 
-### New API structure
-
 **`gridcp/typing.py`** — `ScoreModel` protocol: the interface all test statistics must implement.
-- `init_state()` → fresh state
-- `update(state, x)` → incorporate new observation
-- `compute_penalised_scores(state, grid_states)` → test statistics with penalties
 
-**`gridcp/detector.py`** — `GridDetector`: the meta-detector that works with any `ScoreModel`.
-- Maintains a logarithmic grid of O(log n) candidate changepoint positions
-- `update(state, x)` returns `(new_state, output_dict)` where output includes `alarm`, `max_score`, `max_score_index`, `n_samples`
+**`gridcp/detector.py`** — `GridDetector`: the meta-detector that works with any `ScoreModel`. Maintains a logarithmic grid of O(log n) candidate changepoint positions.
 
-**`gridcp/scores/`** — Concrete score implementations:
-- `MeanCUSUM` — CUSUM for mean changes (known variance)
-- `MeanCUSUMUnknownVariance` — LR test for mean changes (unknown variance)
-- `Variance` — LR test for variance changes (known zero mean)
-- `MeanOrVariance` — combined mean/variance LR test (univariate)
-- `MultivariateMeanIdentityCov` — multivariate mean LR test (known identity covariance)
-- `MultivariateMeanUnknownCov` — multivariate mean LR test (unknown covariance)
-- `MultivariateMeanOrCovariance` — combined multivariate mean/covariance LR test
-- `RegressionDirect` / `RegressionMcScan` — regression changepoint scores
-- `ExponentialFamilyGLR` — GLR test for canonical exponential families (user supplies sufficient statistic, log-partition, derivatives). Supports both Numba-compiled and plain NumPy callables; automatically detects which and builds JIT or pure-Python kernels accordingly. Penalty controlled via `penalty: PenaltyType` (stored as `self.penalty`); computed by `_get_penalty(n_samples)` method. Built-in families available via `ExponentialFamilyGLR.from_family(name)`.
+**`gridcp/scores/`** — Concrete score implementations: `MeanCUSUM`, `MeanCUSUMUnknownVariance`, `Variance`, `MeanOrVariance`, `MultivariateMeanIdentityCov`, `MultivariateMeanUnknownCov`, `MultivariateMeanOrCovariance`, `RegressionDirect`, `RegressionMcScan`, `ExponentialFamilyGLR`. Built-in exponential families accessible via `ExponentialFamilyGLR.from_family(name)`.
 
-**`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration:
-- `draw_samples`, `mc_max_scores`, `mc_alarm_times`
-- `calibrate_threshold_false_alarm`, `calibrate_detector_threshold_false_alarm`, `with_calibrated_threshold`
-- Supports parallel execution via `n_jobs` parameter
+**`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration. Supports parallel execution via `n_jobs`.
 
-**`gridcp/utils.py`** — Internal utilities: `v2(r)` (grid pruning), `fastlog`, `get_changeloc_grid`/`get_G_grid` (debugging)
+**`gridcp/utils.py`** — Internal utilities.
 
-### Public API
+## Adding a new score
 
-```python
-from gridcp import GridDetector, calibrate_detector_threshold_false_alarm, with_calibrated_threshold, ...
-from gridcp.scores import (
-    MeanCUSUM, MeanCUSUMUnknownVariance, Variance, MeanOrVariance,
-    MultivariateMeanIdentityCov, MultivariateMeanUnknownCov, MultivariateMeanOrCovariance,
-    RegressionDirect, RegressionMcScan, ExponentialFamilyGLR,
-)
-```
+1. Create `gridcp/scores/_my_score.py` with `MyScore` (implements `ScoreModel`) and `MyScoreState`
+2. Export both from `gridcp/scores/__init__.py`
 
 ## Coding conventions
 
@@ -87,28 +62,6 @@ from gridcp.scores import (
 - Sampler outputs per step have shape `(n_features,)`; scalars are broadcast
 - `n_features` inferred from `score.n_features` when present; pass explicitly for custom scores
 
-## Adding a new score
-
-1. Create `gridcp/scores/_my_score.py` with `MyScore` (implements `ScoreModel`) and `MyScoreState`
-2. Export both from `gridcp/scores/__init__.py`
-
-## Upcoming work
-
-- **Built-in exponential families — open question:** Whether to add a family for multivariate Gaussian with *both* mean and covariance unknown, to compare against the built-in `MultivariateMeanUnknownCov` score.
-- **Promote ARL calibration to `gridcp/calibration.py`:** `calibrate_threshold_arl` and `calibrate_detector_threshold_arl` are currently prototyped in `old_notebooks/arl_calibration.py`. They should be moved into the main package (`gridcp/calibration.py`) and exported from `gridcp/__init__.py`, following the same pattern as `calibrate_threshold_false_alarm` / `calibrate_detector_threshold_false_alarm`.
-- **Domain enforcement for vector Newton solver (`v>1`):** `theta_min`/`theta_max` are currently only wired up for scalar families (`v=1`). For multivariate families the vector solver relies on Hessian-finiteness checks, which is a weaker guard. A proper fix would require either (a) per-component bounds `theta_min: np.ndarray, theta_max: np.ndarray`, or (b) a callable `in_domain(theta) -> bool` predicate. Option (b) is fully general but harder to JIT-compile in Numba; option (a) covers families like `gaussian_mean_variance` (where θ₂ < 0) but not `gaussian_covariance` (where the full matrix must be negative-definite).
-
-## Recent work
-
-- **`ExponentialFamilyGLR` `min_seg` fix:** Default `min_seg = v + 1` was too large for high-dimensional families (e.g. `gaussian_mean` with p=1000 → `min_seg=1001`, blocking all candidates on short streams). Fixed by adding family-specific defaults to `_families.py`: `gaussian_mean` → 2, scalar families → 2, `gaussian_mean_variance` → 3, `gaussian_covariance` → p+1. `from_family` reads these via `spec.get("min_seg")`.
-- **Built-in exponential families:** `gridcp/scores/_families.py` implements `gaussian_mean` (scalar and multivariate), `gaussian_variance`, `gaussian_mean_variance`, `gaussian_covariance`, `poisson`, `exponential`, `bernoulli`, `gamma_rate`. All accessible via `ExponentialFamilyGLR.from_family(name)`.
-- **`gamma_rate` family:** Gamma distribution with known shape `k`, detecting a change in rate. θ = −rate < 0, h(x) = x, A(θ) = −k·log(−θ). Shape is a user parameter: `ExponentialFamilyGLR.from_family("gamma_rate", shape=2.0)`. Defaults to `shape=1.0` (identical to `exponential`). Implemented as a factory in `_families.py` using Numba closures (no `cache=True` on inner functions). `from_family` now accepts `**family_kwargs` and passes them to spec factories, enabling parameterized families.
-- **Newton solver domain bounds (`theta_min`/`theta_max`):** `make_newton_solver` now accepts `theta_min=-inf, theta_max=inf`. The backtracking loop rejects any candidate outside `(theta_min, theta_max)` before evaluating `A'`, preventing ZeroDivisionError in Numba (which raises exceptions for float/0 rather than returning ±inf). `ExponentialFamilyGLR.__init__` exposes these params; `from_family` reads them from the spec dict. Currently only applies to `v=1` (scalar) families — the vector solver (`make_vector_newton_solver`) uses residual-norm/Hessian-finiteness checks instead.
-- **Simulation metrics in `sandbox_Espen.ipynb`:** `run_scenario` now reports FA% (alarms before changepoint), ms/str, and ms/obs.
-- **ARL calibration prototype:** `old_notebooks/arl_calibration.py` implements `calibrate_threshold_arl` and `calibrate_detector_threshold_arl`. API mirrors `calibrate_threshold_false_alarm`/`calibrate_detector_threshold_false_alarm` — same parameters, just replacing `false_alarm_probability + stream_len` with `target_arl`. Uses `mc_max_scores` with `stream_len=target_arl` and returns the (1/e)-quantile. Requires `PenaltyType.CONSTANT` on the score (all built-in scores support this via their `penalty` field). Tested in `old_notebooks/sandbox_Espen.ipynb` (cells 64–67): exponential assumption check (QQ-plot + histogram) and 3-scenario detection delay sweep (Gaussian mean, Gaussian mean+var, Poisson).
-- **`_solve` simplification:** Removed the explicit 3×3 Cramer's rule case from `_solve` in `_exponential_family_glr.py` — only the 2×2 case is kept; n≥3 falls through to `np.linalg.solve`. No measurable performance impact given O(log n) solver calls per step.
-- **`ExponentialFamilyGLR` documentation pass:** Module docstring expanded with a pipeline overview (GLR formula, construction, per-step computation). Class docstring trimmed to match the style of other score classes (removed ScoreModel protocol mention and internal implementation details).
-
 ## Configuration notes
 
 - `ruff` excludes `gridcp/old_api/` from linting
@@ -119,8 +72,6 @@ from gridcp.scores import (
 
 ## Coding notes
 
-- whenever you edit code, you must always apply ruff linting afterwards, so that the pre-commit hooks will pass
-- whenever you are writing new code that does some change or functionality, always adjust the test functions before you make the new code (or change existing code). This is to ensure that the code is written to match with the desired functionality and properties, and not adjust the tests to what the code actually does. This is an important best practice.
-
-## Spelling
+- Always run ruff linting after editing code so that pre-commit hooks pass
+- Always write or adjust tests before writing new/changed functionality — tests should reflect desired behavior, not be retrofitted to match what the code does
 - Spelling should always be according to American English
