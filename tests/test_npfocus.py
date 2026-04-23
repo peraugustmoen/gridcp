@@ -101,6 +101,101 @@ def test_npfocus_constant_penalty_is_one():
     assert score._get_penalty(1000) == 1.0
 
 
+def test_npfocus_multivariate_update_and_score_shapes():
+    score = NPFOCuS(
+        value_grid=np.linspace(-2.0, 2.0, 11),
+        n_features=2,
+        penalty=PenaltyType.CONSTANT,
+    )
+
+    detector = GridDetector(score=score, threshold=np.array([1.0e6, 1.0e6]))
+    state = detector.init_state()
+
+    x = np.array(
+        [
+            [0.0, 0.5],
+            [1.0, -0.5],
+            [1.5, 0.25],
+            [2.0, -1.0],
+        ]
+    )
+
+    outputs = []
+    for row in x:
+        state, out = detector.update(state, row)
+        outputs.append(out)
+
+    assert state.running_score_state.n_smaller.shape == (2, 11)
+    assert outputs[-1]["max_score"].shape == (2,)
+    assert outputs[-1]["max_score_index"].shape == (2,)
+
+
+def test_npfocus_multivariate_scores_take_max_over_channels():
+    value_grid = np.array([-1.0, 0.0, 1.0])
+    score_multi = NPFOCuS(
+        value_grid=value_grid,
+        n_features=2,
+        penalty=PenaltyType.CONSTANT,
+    )
+    score_ch0 = NPFOCuS(
+        value_grid=value_grid,
+        n_features=1,
+        penalty=PenaltyType.CONSTANT,
+    )
+    score_ch1 = NPFOCuS(
+        value_grid=value_grid,
+        n_features=1,
+        penalty=PenaltyType.CONSTANT,
+    )
+
+    x = np.array(
+        [
+            [-2.0, 0.2],
+            [-1.5, 0.1],
+            [-0.8, -0.2],
+            [2.5, 0.3],
+            [2.7, 0.4],
+            [3.0, 0.5],
+        ]
+    )
+
+    det_multi = GridDetector(score=score_multi, threshold=np.array([1.0e6, 1.0e6]))
+    det_ch0 = GridDetector(score=score_ch0, threshold=np.array([1.0e6, 1.0e6]))
+    det_ch1 = GridDetector(score=score_ch1, threshold=np.array([1.0e6, 1.0e6]))
+
+    state_multi = det_multi.init_state()
+    state_ch0 = det_ch0.init_state()
+    state_ch1 = det_ch1.init_state()
+
+    for row in x:
+        state_multi, _ = det_multi.update(state_multi, row)
+        state_ch0, _ = det_ch0.update(state_ch0, row[0])
+        state_ch1, _ = det_ch1.update(state_ch1, row[1])
+
+    scores_multi = score_multi.compute_penalised_scores(
+        state_multi.running_score_state,
+        state_multi.candidate_score_states,
+        n_samples_for_penalty=state_multi.n_samples,
+    )
+    scores_ch0 = score_ch0.compute_penalised_scores(
+        state_ch0.running_score_state,
+        state_ch0.candidate_score_states,
+        n_samples_for_penalty=state_ch0.n_samples,
+    )
+    scores_ch1 = score_ch1.compute_penalised_scores(
+        state_ch1.running_score_state,
+        state_ch1.candidate_score_states,
+        n_samples_for_penalty=state_ch1.n_samples,
+    )
+
+    assert np.allclose(
+        scores_multi[:, 0], np.maximum(scores_ch0[:, 0], scores_ch1[:, 0])
+    )
+    assert np.allclose(
+        scores_multi[:, 1], np.maximum(scores_ch0[:, 1], scores_ch1[:, 1])
+    )
+
+
 @pytest.mark.parametrize(
     ("value_grid", "pre_sampler", "post_sampler"),
     [

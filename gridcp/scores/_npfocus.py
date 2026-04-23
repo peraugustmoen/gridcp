@@ -1,4 +1,4 @@
-"""Nonparametric FOCuS score for univariate changepoint detection."""
+"""Nonparametric FOCuS score for changepoint detection."""
 
 from __future__ import annotations
 
@@ -39,16 +39,18 @@ def npfocus_score(
 ) -> np.ndarray:
     """Compute NPFOCuS scores for all active candidate changepoints.
 
-    Returns one row per active candidate and two columns:
-    - column 0: sum of Bernoulli LR statistics across the user grid
-    - column 1: maximum Bernoulli LR statistic over the user grid
+    Returns one row per active candidate and two columns.
+
+    For each feature, NPFOCuS forms the sum and maximum of the Bernoulli LR
+    statistics across the user grid. The returned score is then the maximum of
+    these per-feature statistics across channels.
     """
     n_candidates = before_sums.shape[0]
     scores = np.zeros((n_candidates, 2), dtype=np.float64)
     if total_samples <= 0:
         return scores
 
-    ll_tot = bernoulli_max_ll(total_sum, total_samples)
+    n_features = total_sum.shape[0]
 
     for j in range(n_candidates):
         n_pre = before_samples[j]
@@ -56,13 +58,29 @@ def npfocus_score(
         if n_pre <= 0 or n_post <= 0:
             continue
 
-        sum_pre = before_sums[j]
-        sum_post = total_sum - sum_pre
-        ll_pre = bernoulli_max_ll(sum_pre, n_pre)
-        ll_post = bernoulli_max_ll(sum_post, n_post)
-        lr_scores = 2.0 * (ll_post + ll_pre - ll_tot)
-        scores[j, 0] = np.sum(lr_scores)
-        scores[j, 1] = np.max(lr_scores)
+        best_sum_score = 0.0
+        best_max_score = 0.0
+
+        for feature_idx in range(n_features):
+            total_sum_feature = total_sum[feature_idx]
+            sum_pre_feature = before_sums[j, feature_idx]
+            sum_post_feature = total_sum_feature - sum_pre_feature
+
+            ll_tot = bernoulli_max_ll(total_sum_feature, total_samples)
+            ll_pre = bernoulli_max_ll(sum_pre_feature, n_pre)
+            ll_post = bernoulli_max_ll(sum_post_feature, n_post)
+            lr_scores = 2.0 * (ll_post + ll_pre - ll_tot)
+
+            sum_score = np.sum(lr_scores)
+            max_score = np.max(lr_scores)
+
+            if feature_idx == 0 or sum_score > best_sum_score:
+                best_sum_score = sum_score
+            if feature_idx == 0 or max_score > best_max_score:
+                best_max_score = max_score
+
+        scores[j, 0] = best_sum_score
+        scores[j, 1] = best_max_score
 
     return scores
 
@@ -77,13 +95,17 @@ class NPFOCuSState:
 
 @dataclass(frozen=True, slots=True)
 class NPFOCuS:
-    """Nonparametric FOCuS score for univariate changepoint detection.
+    """Nonparametric FOCuS score for changepoint detection.
 
     The score discretizes the sample space using a one-dimensional evaluation
-    grid. For each grid point it tracks the running count of observations below
-    that point, then forms a two-statistic multivariate score from the
+    grid. For each feature and each grid point it tracks the running count of
+    observations below that point, then forms a two-statistic score from the
     resulting Bernoulli likelihood-ratio values across the grid:
     the grid-sum and the grid-maximum.
+
+    For ``n_features > 1``, NPFOCuS is applied independently to each feature
+    and the final two-component score is the maximum across features, matching
+    the channelwise-max convention used by the other univariate-style scores.
 
     Parameters
     ----------
@@ -91,13 +113,13 @@ class NPFOCuS:
         Strictly increasing one-dimensional grid used to construct the
         indicator process underlying the score.
     n_features : int, default=1
-        Observation dimension expected by the score. NPFOCuS only supports the
-        univariate case, so this must be ``1``.
+        Observation dimension expected by the score.
     penalty : PenaltyType, default=PenaltyType.CONSTANT
         Penalty mode used to scale the score. ``PenaltyType.CONSTANT`` uses a
         unit penalty. ``PenaltyType.TIME_DEPENDENT`` uses the same divisor as
-        the two-dimensional exponential-family GLR case,
-        ``sqrt(2 log(t)) + log(t)``.
+        the two-dimensional exponential-family GLR case with a Bonferroni-style
+        feature correction, ``sqrt(2 log(t p)) + log(t p)`` where
+        ``p = n_features``.
     """
 
     value_grid: ArrayLike
@@ -106,8 +128,8 @@ class NPFOCuS:
 
     def __post_init__(self) -> None:
         """Validate and normalize the evaluation grid and score config."""
-        if self.n_features != 1:
-            raise ValueError("NPFOCuS only supports n_features=1.")
+        if self.n_features < 1:
+            raise ValueError("n_features must be >= 1.")
 
         value_grid_arr = np.asarray(self.value_grid, dtype=np.float64)
         if value_grid_arr.ndim != 1:
@@ -124,7 +146,7 @@ class NPFOCuS:
     def init_state(self) -> NPFOCuSState:
         """Return a fresh initial state with no observations seen."""
         return NPFOCuSState(
-            n_smaller=np.zeros(self.value_grid.size, dtype=np.int64),
+            n_smaller=np.zeros((self.n_features, self.value_grid.size), dtype=np.int64),
         )
 
     def update(
@@ -132,13 +154,13 @@ class NPFOCuS:
         state: NPFOCuSState,
         x: ArrayLike,
     ) -> NPFOCuSState:
-        """Update the state with one univariate observation."""
+        """Update the state with one observation."""
         x_arr = as_obs(x, self.n_features)
 
         next_n_samples = state.n_samples + 1
-        next_n_smaller = state.n_smaller + (x_arr[0] <= self.value_grid).astype(
-            np.int64
-        )
+        next_n_smaller = state.n_smaller + (
+            x_arr[:, None] <= self.value_grid[None, :]
+        ).astype(np.int64)
         return NPFOCuSState(
             n_samples=next_n_samples,
             n_smaller=next_n_smaller,
@@ -168,8 +190,8 @@ class NPFOCuS:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.penalty == PenaltyType.TIME_DEPENDENT:
-            log_t = np.log(n_samples)
-            return np.sqrt(2.0 * log_t) + log_t
+            log_tp = np.log(n_samples * self.n_features)
+            return np.sqrt(2.0 * log_tp) + log_tp
         if self.penalty == PenaltyType.CONSTANT:
             return 1.0
         raise ValueError(f"Unsupported penalty mode: {self.penalty!r}")
