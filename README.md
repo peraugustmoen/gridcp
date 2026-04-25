@@ -139,6 +139,12 @@ state = reset_detector_state(state, detector)
 - Clears the grid and all candidate score snapshots
 - Sets local `n_samples` back to 0
 
+**Note:** Any time-dependent penalty that uses `state.n_samples` (for example, `log(t)` or
+`sqrt(log(t)) + log(t)`) also restarts from this post-reset local time. This differs from
+a "continuous penalty time" interpretation where the penalty clock keeps increasing across
+resets. As a result, long-run false-alarm guarantees or intuitions that assume a globally
+increasing time index do not automatically carry over across multiple resets.
+
 #### Custom score contract
 
 Custom score models must implement:
