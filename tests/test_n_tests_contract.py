@@ -364,13 +364,14 @@ class TestMalformedScoreEnforcement:
             detector.update(state, 0.0)
 
     def test_malformed_score_not_accepted_as_valid_detector(self):
-        """GridDetector must detect ScoreModel protocol violations at construction."""
-        # If _AlwaysWrongWidthScore passes construction (it has required attributes),
-        # the violation should be caught at runtime during update.
-        score = _AlwaysWrongWidthScore()
+        """GridDetector must reject scores whose output width changes across calls."""
+        score = _MalformedScore()
         detector = GridDetector(score=score, threshold=1.0)
         state = detector.init_state()
 
         state, _ = detector.update(state, 0.0)
+        # First scoring call returns the declared width (G, 1), so it is accepted.
+        state, _ = detector.update(state, 0.0)
+        # The next scoring call changes width to (G, 2) and must be rejected.
         with pytest.raises((ValueError, Exception)):
             detector.update(state, 0.0)
