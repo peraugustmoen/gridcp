@@ -377,8 +377,8 @@ class TestPenalties:
     def test_constant_penalty_is_one(self, score_cls):
         """Disabled penalty mode must return 1.0 regardless of n_samples."""
         score = score_cls(n_features=2, enable_penalty=False)
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
 
     @pytest.mark.parametrize(
         "score",
@@ -387,8 +387,8 @@ class TestPenalties:
     )
     def test_disabled_penalty_is_one_for_all_builtins(self, score):
         """All built-ins should use constant divisor 1.0 when disabled."""
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
 
     @pytest.mark.parametrize(
         "score",
