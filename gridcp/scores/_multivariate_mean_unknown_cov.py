@@ -28,6 +28,11 @@ class MultivariateMeanUnknownCov:
     n_features: int
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MultivariateMeanUnknownCovState:
         return MultivariateMeanUnknownCovState(
             sum=np.zeros(self.n_features, dtype=np.float64),
@@ -51,7 +56,7 @@ class MultivariateMeanUnknownCov:
         state: MultivariateMeanUnknownCovState,
         grid_states: list[MultivariateMeanUnknownCovState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
@@ -99,12 +104,13 @@ class MultivariateMeanUnknownCov:
             return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: MultivariateMeanUnknownCovState,
         grid_states: list[MultivariateMeanUnknownCovState],
     ) -> np.ndarray:
-        """Compute penalised LR score at every active grid candidate."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized LR score at every active grid candidate."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

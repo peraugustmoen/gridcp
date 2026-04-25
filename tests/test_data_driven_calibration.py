@@ -96,12 +96,13 @@ class TestComputeThreshold:
     """Tests for the shared threshold quantile helper."""
 
     def test_scalar_scores(self):
-        max_scores = np.arange(1.0, 101.0)  # 1, 2, ..., 100
+        max_scores = np.arange(1.0, 101.0).reshape(-1, 1)  # 1, 2, ..., 100
         th = _compute_false_alarm_threshold_from_max_scores(
             max_scores, 0.05, apply_bonferroni=True
         )
-        assert isinstance(th, float)
-        assert th == pytest.approx(np.quantile(max_scores, 0.95))
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert th[0] == pytest.approx(np.quantile(max_scores[:, 0], 0.95))
 
     def test_multivariate_with_bonferroni(self):
         rng = np.random.default_rng(0)
@@ -145,8 +146,9 @@ class TestCalibrateThresholdFromSamples:
             samples=samples,
             false_alarm_probability=0.10,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_invalid_fap(self):
         score = MeanCUSUM(n_features=1)
@@ -188,12 +190,9 @@ class TestCalibrateThresholdFromSamples:
             samples=samples,
             false_alarm_probability=0.10,
         )
-        # MultivariateMeanIdentityCov returns scalar score per candidate
-        assert isinstance(th, float) or (isinstance(th, np.ndarray) and th.ndim <= 1)
-        if isinstance(th, np.ndarray):
-            assert np.all(th > 0)
-        else:
-            assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (2,)
+        assert np.all(th > 0)
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +215,9 @@ class TestCalibrateThresholdFromData:
             n_paths=100,
             rng=42,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_basic_multivariate(self):
         score = MeanCUSUM(n_features=3, enable_penalty=False)
@@ -231,8 +231,9 @@ class TestCalibrateThresholdFromData:
             n_paths=100,
             rng=42,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_deterministic_with_same_rng(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -253,7 +254,7 @@ class TestCalibrateThresholdFromData:
             n_paths=50,
             rng=99,
         )
-        assert th1 == pytest.approx(th2)
+        np.testing.assert_allclose(th1, th2)
 
     def test_auto_block_length(self):
         """Default block_length should be max(1, int(N^(1/3)))."""
@@ -269,7 +270,7 @@ class TestCalibrateThresholdFromData:
             n_paths=50,
             rng=0,
         )
-        assert th > 0
+        assert np.all(th > 0)
 
     def test_block_length_one(self):
         """Explicit block_length=1 should work (i.i.d. bootstrap)."""
@@ -284,7 +285,7 @@ class TestCalibrateThresholdFromData:
             block_length=1,
             rng=0,
         )
-        assert th > 0
+        assert np.all(th > 0)
 
     def test_invalid_fap(self):
         score = MeanCUSUM(n_features=1)
@@ -404,7 +405,7 @@ class TestCalibrateDetectorThresholdFromData:
             block_length=5,
             rng=42,
         )
-        assert th1 == pytest.approx(th2)
+        np.testing.assert_allclose(th1, th2)
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +448,7 @@ class TestParitySamplesVsMC:
             parallel=False,
             strict_equivalence=False,
         )
-        assert th_samples == pytest.approx(th_mc)
+        np.testing.assert_allclose(th_samples, th_mc)
 
     def test_multivariate_parity(self):
         score = MeanCUSUM(n_features=3, enable_penalty=False)
@@ -514,7 +515,7 @@ class TestParitySamplesVsMC:
             parallel=True,
             strict_equivalence=True,
         )
-        assert th_from_samples == pytest.approx(th_mc_strict)
+        np.testing.assert_allclose(th_from_samples, th_mc_strict)
 
 
 # ---------------------------------------------------------------------------

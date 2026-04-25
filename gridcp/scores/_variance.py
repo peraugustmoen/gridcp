@@ -33,6 +33,11 @@ class Variance:
     n_features: int = 1
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> VarianceState:
         return VarianceState(sum_sq=np.zeros(self.n_features, dtype=np.float64))
 
@@ -48,7 +53,7 @@ class Variance:
         state: VarianceState,
         grid_states: list[VarianceState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
@@ -89,12 +94,13 @@ class Variance:
             return logg + np.sqrt(logg)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: VarianceState,
         grid_states: list[VarianceState],
     ) -> np.ndarray:
-        """Compute penalised variance-change scores for all active candidates."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized variance-change scores for all active candidates."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

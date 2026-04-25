@@ -63,7 +63,7 @@ def test_outlier_triggers_alarm():
 
     state, out = detector.update(state, np.asarray([1000.0]))
     assert out["alarm"]
-    assert out["max_score"] > detector.threshold
+    assert out["max_score"][0] > detector.threshold
 
 
 def test_running_sum_matches_numpy_cumsum():
@@ -128,7 +128,8 @@ def test_short_stream_behavior_and_output_schema():
         }
 
     # By construction, first step has no valid split candidate.
-    assert outputs[0]["max_score"] == 0.0
+    assert outputs[0]["max_score"].shape == (1,)
+    assert outputs[0]["max_score"][0] == 0.0
 
 
 def test_n_samples_increments_by_one():
@@ -159,14 +160,14 @@ def test_max_score_alarms_when_exceeds_threshold():
         state, out = detector.update(state, np.asarray([val]))
         if out["alarm"]:
             # When alarm is triggered, max_score should exceed threshold
-            assert out["max_score"] > detector.threshold, (
-                f"Alarm triggered but max_score {out['max_score']} <= threshold {detector.threshold}"
+            assert out["max_score"][0] > detector.threshold, (
+                f"Alarm triggered but max_score {out['max_score'][0]} <= threshold {detector.threshold}"
             )
 
     # Force an alarm with extreme value and verify max_score exceeds threshold
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"]
-    assert out["max_score"] > detector.threshold
+    assert out["max_score"][0] > detector.threshold
 
 
 def test_max_score_index_is_valid_after_alarm():
@@ -183,8 +184,8 @@ def test_max_score_index_is_valid_after_alarm():
     # Trigger alarm with extreme value
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"]
-    assert isinstance(out["max_score_index"], int)
-    assert 0 <= out["max_score_index"] < len(state.grid)
+    assert out["max_score_index"].shape == (1,)
+    assert 0 <= out["max_score_index"][0] < len(state.grid)
 
 
 def test_univariate_mean_1_baseline():
@@ -207,8 +208,8 @@ def test_univariate_mean_1_baseline():
     # Extreme observation triggers alarm
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"], "Failed to alarm on extreme observation"
-    assert out["max_score"] > detector.threshold, (
-        f"max_score {out['max_score']} should exceed threshold {detector.threshold}"
+    assert out["max_score"][0] > detector.threshold, (
+        f"max_score {out['max_score'][0]} should exceed threshold {detector.threshold}"
     )
 
     # Check cumulative sums match expected values
@@ -509,10 +510,10 @@ def test_multivariate_known_variance_matches_independent_streams():
         multi_log = np.log(multi_state.n_samples * n_features)
         single_penalty = single_log + np.sqrt(single_log)
         multi_penalty = multi_log + np.sqrt(multi_log)
-        expected_max_score = max(out["max_score"] for out in single_outs) * (
+        expected_max_score = max(out["max_score"][0] for out in single_outs) * (
             single_penalty / multi_penalty
         )
-        assert np.isclose(multi_out["max_score"], expected_max_score)
+        assert np.isclose(multi_out["max_score"][0], expected_max_score)
 
 
 def test_multivariate_variance_matches_independent_streams():
@@ -572,10 +573,10 @@ def test_multivariate_variance_matches_independent_streams():
             multi_log = np.log(multi_state.n_samples * n_features)
             single_penalty = single_log + np.sqrt(single_log)
             multi_penalty = multi_log + np.sqrt(multi_log)
-            expected_max_score = max(out["max_score"] for out in single_outs) * (
+            expected_max_score = max(out["max_score"][0] for out in single_outs) * (
                 single_penalty / multi_penalty
             )
-            assert np.isclose(multi_out["max_score"], expected_max_score)
+            assert np.isclose(multi_out["max_score"][0], expected_max_score)
 
 
 def test_multivariate_mean_or_variance_matches_independent_streams():
@@ -646,10 +647,10 @@ def test_multivariate_mean_or_variance_matches_independent_streams():
             multi_log = np.log(multi_state.n_samples * n_features)
             single_penalty = single_log + np.sqrt(2.0 * single_log)
             multi_penalty = multi_log + np.sqrt(2.0 * multi_log)
-            expected_max_score = max(out["max_score"] for out in single_outs) * (
+            expected_max_score = max(out["max_score"][0] for out in single_outs) * (
                 single_penalty / multi_penalty
             )
-            assert np.isclose(multi_out["max_score"], expected_max_score)
+            assert np.isclose(multi_out["max_score"][0], expected_max_score)
 
 
 def test_multivariate_unknown_variance_matches_independent_streams():
@@ -724,7 +725,7 @@ def test_multivariate_unknown_variance_matches_independent_streams():
         multi_log = np.log(multi_state.n_samples * n_features)
         single_penalty = single_log + np.sqrt(single_log)
         multi_penalty = multi_log + np.sqrt(multi_log)
-        expected_max_score = max(out["max_score"] for out in single_outs) * (
+        expected_max_score = max(out["max_score"][0] for out in single_outs) * (
             single_penalty / multi_penalty
         )
-        assert np.isclose(multi_out["max_score"], expected_max_score)
+        assert np.isclose(multi_out["max_score"][0], expected_max_score)

@@ -177,15 +177,15 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
         state_ch0, _ = det_ch0.update(state_ch0, row[0])
         state_ch1, _ = det_ch1.update(state_ch1, row[1])
 
-    scores_multi = score_multi.compute_penalised_scores(
+    scores_multi = score_multi.compute_penalized_scores(
         state_multi.running_score_state,
         state_multi.candidate_score_states,
     )
-    scores_ch0 = score_ch0.compute_penalised_scores(
+    scores_ch0 = score_ch0.compute_penalized_scores(
         state_ch0.running_score_state,
         state_ch0.candidate_score_states,
     )
-    scores_ch1 = score_ch1.compute_penalised_scores(
+    scores_ch1 = score_ch1.compute_penalized_scores(
         state_ch1.running_score_state,
         state_ch1.candidate_score_states,
     )

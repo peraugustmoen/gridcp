@@ -40,10 +40,12 @@ def _run_parity_check(
     for obs in X:
         old_detector.update(obs)
         state, out = new_detector.update(state, obs)
-        ms = np.asarray(out["max_score"])
-        if score_index is not None and ms.ndim > 0:
-            ms = ms[score_index]
-        running_new_max = max(running_new_max, float(ms))
+        ms = np.asarray(out["max_score"], dtype=np.float64)
+        if score_index is not None:
+            score_value = float(ms[score_index])
+        else:
+            score_value = float(ms[0])
+        running_new_max = max(running_new_max, score_value)
 
         old_state = old_detector._state
 

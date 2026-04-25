@@ -761,7 +761,20 @@ class TestDetectorEdgeCases:
         state, out = det.update(state, 999999.0)
         assert out["n_samples"] == 1
         assert not out["alarm"]
-        assert out["max_score"] == 0.0
+        assert out["max_score"].shape == (1,)
+        assert out["max_score"][0] == 0.0
+
+    def test_first_update_multitest_scalar_threshold_placeholder_shape(self):
+        """Placeholder shape must be (K,) even for multi-test scores with scalar threshold."""
+        det = GridDetector(
+            score=MultivariateMeanIdentityCov(n_features=3), threshold=1.0
+        )
+        state = det.init_state()
+        state, out = det.update(state, [1.0, 2.0, 3.0])
+        assert out["n_samples"] == 1
+        assert not out["alarm"]
+        assert out["max_score"].shape == (2,)
+        assert out["max_score_index"].shape == (2,)
 
     def test_grid_matches_changeloc_grid(self):
         """After n updates, the detector grid must match get_changeloc_grid(n)."""

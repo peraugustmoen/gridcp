@@ -125,6 +125,11 @@ class NPFOCuS:
     n_features: int = 1
     enable_penalty: bool = False
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 2
+
     def __post_init__(self) -> None:
         """Validate and normalize the evaluation grid and score config."""
         if self.n_features < 1:
@@ -170,7 +175,7 @@ class NPFOCuS:
         state: NPFOCuSState,
         grid_states: list[NPFOCuSState],
     ) -> np.ndarray:
-        """Compute centered but unpenalised scores for active candidates."""
+        """Compute centered but unpenalized scores for active candidates."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -193,12 +198,12 @@ class NPFOCuS:
             return np.sqrt(2.0 * log_tp) + log_tp
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: NPFOCuSState,
         grid_states: list[NPFOCuSState],
     ) -> np.ndarray:
-        """Compute penalised score for every active grid candidate."""
+        """Compute penalized score for every active grid candidate."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )

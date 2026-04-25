@@ -28,7 +28,7 @@ def _normal_sampler(rng):
 
 
 class TestCalibrateThresholdArl:
-    def test_basic_returns_positive_float(self):
+    def test_basic_returns_positive_vector(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
         th = calibrate_threshold_arl(
             score=score,
@@ -38,8 +38,9 @@ class TestCalibrateThresholdArl:
             rng=42,
             parallel=False,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_reproducible_with_same_seed(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -89,7 +90,7 @@ class TestCalibrateThresholdArl:
         )
         th_score = calibrate_threshold_arl(score, **kwargs)
         th_det = calibrate_detector_threshold_arl(detector, **kwargs)
-        assert th_score == pytest.approx(th_det)
+        np.testing.assert_allclose(th_score, th_det)
 
 
 # ---------------------------------------------------------------------------
@@ -99,10 +100,11 @@ class TestCalibrateThresholdArl:
 
 class TestComputeArlThreshold:
     def test_scalar_is_1_over_e_quantile(self):
-        max_scores = np.arange(1.0, 1001.0)
+        max_scores = np.arange(1.0, 1001.0).reshape(-1, 1)
         th = _compute_arl_threshold_from_max_scores(max_scores)
-        assert isinstance(th, float)
-        assert th == pytest.approx(float(np.quantile(max_scores, 1.0 / np.e)))
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert th[0] == pytest.approx(float(np.quantile(max_scores[:, 0], 1.0 / np.e)))
 
     def test_multivariate_shape(self):
         rng = np.random.default_rng(0)
@@ -135,8 +137,9 @@ class TestCalibrateArlFromSamples:
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(50, 30, 1))
         th = calibrate_threshold_arl_from_samples(score=score, samples=samples)
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_wrong_ndim(self):
         score = MeanCUSUM(n_features=1)
@@ -172,10 +175,9 @@ class TestCalibrateArlFromSamples:
         rng = np.random.default_rng(7)
         samples = rng.normal(size=(30, 20, 2))
         th = calibrate_threshold_arl_from_samples(score=score, samples=samples)
-        if isinstance(th, np.ndarray):
-            assert np.all(th > 0)
-        else:
-            assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (2,)
+        assert np.all(th > 0)
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +196,9 @@ class TestCalibrateArlFromData:
             n_paths=100,
             rng=42,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_basic_multivariate(self):
         score = MeanCUSUM(n_features=3, enable_penalty=False)
@@ -207,8 +210,9 @@ class TestCalibrateArlFromData:
             n_paths=100,
             rng=42,
         )
-        assert isinstance(th, float)
-        assert th > 0
+        assert isinstance(th, np.ndarray)
+        assert th.shape == (1,)
+        assert np.all(th > 0)
 
     def test_deterministic_with_same_rng(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -219,7 +223,7 @@ class TestCalibrateArlFromData:
         th2 = calibrate_threshold_arl_from_data(
             score=score, training_data=data, target_arl=30, n_paths=50, rng=99
         )
-        assert th1 == pytest.approx(th2)
+        np.testing.assert_allclose(th1, th2)
 
     def test_auto_block_length(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -227,7 +231,7 @@ class TestCalibrateArlFromData:
         th = calibrate_threshold_arl_from_data(
             score=score, training_data=data, target_arl=50, n_paths=50, rng=0
         )
-        assert th > 0
+        assert np.all(th > 0)
 
     def test_block_length_one(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -240,7 +244,7 @@ class TestCalibrateArlFromData:
             block_length=1,
             rng=0,
         )
-        assert th > 0
+        assert np.all(th > 0)
 
     def test_invalid_target_arl(self):
         score = MeanCUSUM(n_features=1)
@@ -322,7 +326,7 @@ class TestCalibrateDetectorArlFromData:
             block_length=5,
             rng=42,
         )
-        assert th1 == pytest.approx(th2)
+        np.testing.assert_allclose(th1, th2)
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +362,7 @@ class TestParitySamplesVsMC:
             parallel=False,
             strict_equivalence=False,
         )
-        assert th_samples == pytest.approx(th_mc)
+        np.testing.assert_allclose(th_samples, th_mc)
 
     def test_multivariate_parity(self):
         score = MeanCUSUM(n_features=3, enable_penalty=False)
@@ -405,7 +409,7 @@ class TestParallelSerialEquivalence:
         th_parallel = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=True
         )
-        assert th_serial == pytest.approx(th_parallel)
+        np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_from_samples_parallel_multivariate(self):
         score = MeanCUSUM(n_features=2, enable_penalty=False)
@@ -439,7 +443,7 @@ class TestParallelSerialEquivalence:
             rng=42,
             parallel=True,
         )
-        assert th_serial == pytest.approx(th_parallel)
+        np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_from_data_parallel_multivariate(self):
         score = MeanCUSUM(n_features=3, enable_penalty=False)
@@ -486,7 +490,7 @@ class TestParallelSerialEquivalence:
             rng=42,
             parallel=True,
         )
-        assert th_serial == pytest.approx(th_parallel)
+        np.testing.assert_allclose(th_serial, th_parallel)
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +508,7 @@ class TestNJobs:
         th_j1 = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=True, n_jobs=1
         )
-        assert th_serial == pytest.approx(th_j1)
+        np.testing.assert_allclose(th_serial, th_j1)
 
     def test_from_samples_n_jobs_2(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -515,7 +519,7 @@ class TestNJobs:
         th_j2 = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=True, n_jobs=2
         )
-        assert th_serial == pytest.approx(th_j2)
+        np.testing.assert_allclose(th_serial, th_j2)
 
     def test_from_data_n_jobs_2(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
@@ -537,7 +541,7 @@ class TestNJobs:
             parallel=True,
             n_jobs=2,
         )
-        assert th_serial == pytest.approx(th_j2)
+        np.testing.assert_allclose(th_serial, th_j2)
 
 
 # ---------------------------------------------------------------------------
@@ -562,9 +566,11 @@ class TestResimulateCombinedThreshold:
         th_on = calibrate_threshold_arl(
             score=score, resimulate_combined_threshold=True, **common
         )
-        assert isinstance(th_off, float)
-        assert isinstance(th_on, float)
-        assert th_off == pytest.approx(th_on)
+        assert isinstance(th_off, np.ndarray)
+        assert isinstance(th_on, np.ndarray)
+        assert th_off.shape == (1,)
+        assert th_on.shape == (1,)
+        np.testing.assert_allclose(th_off, th_on)
 
     def test_multivariate_flag_changes_result(self):
         """K>=2 with fixed seed: True vs False must yield different thresholds."""
@@ -637,4 +643,4 @@ class TestCalibrateDetectorArlFromSamples:
         th_det = calibrate_detector_threshold_arl_from_samples(
             detector=detector, samples=samples, parallel=False
         )
-        assert th_score == pytest.approx(th_det)
+        np.testing.assert_allclose(th_score, th_det)

@@ -29,6 +29,11 @@ class MultivariateMeanOrCovariance:
     n_features: int
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MultivariateMeanOrCovarianceState:
         return MultivariateMeanOrCovarianceState(
             sum=np.zeros(self.n_features, dtype=np.float64),
@@ -52,7 +57,7 @@ class MultivariateMeanOrCovariance:
         state: MultivariateMeanOrCovarianceState,
         grid_states: list[MultivariateMeanOrCovarianceState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
@@ -98,12 +103,13 @@ class MultivariateMeanOrCovariance:
             return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: MultivariateMeanOrCovarianceState,
         grid_states: list[MultivariateMeanOrCovarianceState],
     ) -> np.ndarray:
-        """Compute penalised multivariate mean-or-covariance scores."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized multivariate mean-or-covariance scores."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

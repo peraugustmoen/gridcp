@@ -204,7 +204,7 @@ def test_scalar_score_uses_centered_two_glr_normalization():
         if i == 1:
             grid_states.append(state)
 
-    scores = score.compute_penalised_scores(state, grid_states)
+    scores = score.compute_penalized_scores(state, grid_states)
 
     glr = 8.0
     expected_centered = 2.0 * glr - 1.0

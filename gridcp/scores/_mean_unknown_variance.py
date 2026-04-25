@@ -36,7 +36,7 @@ def mean_unknown_variance_score(
     Returns
     -------
     np.ndarray, shape (n_candidates,)
-        Penalisation-free score (LR) per candidate. For multivariate data this is
+        Penalization-free score (LR) per candidate. For multivariate data this is
         the maximum of per-feature LR scores.
     """
     n_candidates = before_samples.shape[0]
@@ -129,6 +129,11 @@ class MeanCUSUMUnknownVariance:
     n_features: int = 1
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
         """Return a fresh initial state with no observations seen."""
         if self.n_features < 1:
@@ -172,7 +177,7 @@ class MeanCUSUMUnknownVariance:
         state: MeanCUSUMUnknownVarianceState,
         grid_states: list[MeanCUSUMUnknownVarianceState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -197,12 +202,13 @@ class MeanCUSUMUnknownVariance:
             return mean_unknown_variance_penalty(n_samples, self.n_features)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: MeanCUSUMUnknownVarianceState,
         grid_states: list[MeanCUSUMUnknownVarianceState],
     ) -> np.ndarray:
-        """Compute penalised LR score at every active grid candidate."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized LR score at every active grid candidate."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

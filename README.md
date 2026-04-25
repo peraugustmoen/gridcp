@@ -88,6 +88,8 @@ pre-commit run --all-files
 ### Calibration notes
 
 - `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
+- Calibration threshold APIs return 1-D NumPy arrays of shape `(K,)`.
+    For single-test scores, this is shape `(1,)`.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
 - Indexing convention in calibration internals:
     - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
@@ -112,12 +114,16 @@ pre-commit run --all-files
 ### Threshold shape behavior in `GridDetector`
 
 - Threshold values must be strictly positive.
-- If penalised scores are scalar-valued (`shape (G,)`), threshold must be scalar.
-- If penalised scores are multivariate (`shape (G, K)`):
-    - A scalar threshold is silently expanded to a length-`K` vector on each call.
-    - A vector threshold must have length `K`.
-- For `n_samples < 2`, no candidate score exists yet. `max_score` is 0 (or a zero-vector)
-    and `max_score_index` is a placeholder (0 or zero-vector).
+- `ScoreModel.compute_penalized_scores` must return shape `(G, K)`.
+    Single-test scores must return `(G, 1)`.
+- A scalar threshold is expanded to a length-`K` vector on each call once penalized
+    scores are available.
+- A vector threshold must have length `K`.
+- When penalized scores are available, `DetectorOutput.max_score` and
+    `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
+    for single-test scores).
+- For `n_samples < 2`, no candidate score exists yet. `max_score` and
+    `max_score_index` are zero vectors of shape `(K,)`.
 
 ### Reset semantics in `GridDetector`
 
@@ -150,7 +156,7 @@ increasing time index do not automatically carry over across multiple resets.
 Custom score models must implement:
 
 ```python
-def compute_penalised_scores(
+def compute_penalized_scores(
     self,
     state,
     grid_states,
