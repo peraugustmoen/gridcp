@@ -117,8 +117,17 @@ class TestNTestsStability:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_n_tests_stable_across_calls(self, name, score, expected_K):
-        """n_tests returns the same value on repeated calls."""
-        assert score.n_tests == score.n_tests == score.n_tests
+        """n_tests returns the same value before and after score updates."""
+        detector = GridDetector(score=score, threshold=1e10)
+        state = detector.init_state()
+        initial_n_tests = score.n_tests
+
+        rng = np.random.default_rng(42)
+        obs_size = score.n_features
+        for _ in range(5):
+            state, _ = detector.update(state, rng.standard_normal(obs_size))
+
+        assert score.n_tests == initial_n_tests == expected_K
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +358,32 @@ class _AlwaysWrongWidthScore:
         return np.zeros((G, 3))  # Wrong! declared n_tests=1 but returns 3 cols
 
 
+class _NTestsDriftScore:
+    """A broken score whose n_tests property changes at runtime.
+
+    Declares n_tests=1 at construction (call_count=0) but switches to 2 after
+    the second call to update(), simulating a score that violates the contract.
+    """
+
+    n_features: int = 1
+    _call_count: int = 0
+
+    @property
+    def n_tests(self) -> int:
+        return 2 if self._call_count >= 2 else 1
+
+    def init_state(self):
+        return {"n_samples": 0}
+
+    def update(self, state, x):
+        self._call_count += 1
+        return {"n_samples": state["n_samples"] + 1}
+
+    def compute_penalized_scores(self, state, grid_states):
+        G = len(grid_states)
+        return np.zeros((G, 1))
+
+
 class TestMalformedScoreEnforcement:
     """Detector must catch malformed scores that return wrong output width."""
 
@@ -374,4 +409,18 @@ class TestMalformedScoreEnforcement:
         state, _ = detector.update(state, 0.0)
         # The next scoring call changes width to (G, 2) and must be rejected.
         with pytest.raises((ValueError, Exception)):
+            detector.update(state, 0.0)
+
+    def test_n_tests_drift_raises_in_detector_update(self):
+        """A score whose n_tests changes at runtime must be caught by update()."""
+        score = _NTestsDriftScore()
+        # Construction reads n_tests=1 (call_count=0), threshold stored as shape (1,)
+        detector = GridDetector(score=score, threshold=1.0)
+        state = detector.init_state()
+
+        # First update: score.update() bumps call_count to 1, n_tests still 1 → OK
+        state, _ = detector.update(state, 0.0)
+        # Second update: score.update() bumps call_count to 2, n_tests becomes 2
+        # The runtime check detects n_tests != threshold.shape[0] and must raise.
+        with pytest.raises(ValueError, match="n_tests has changed"):
             detector.update(state, 0.0)

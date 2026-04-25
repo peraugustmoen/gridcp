@@ -174,6 +174,14 @@ class GridDetector:
             n_samples=new_n_samples,
         )
 
+        current_n_tests = self.score.n_tests
+        if current_n_tests != self.threshold.shape[0]:
+            raise ValueError(
+                f"score.n_tests has changed since construction: expected "
+                f"{self.threshold.shape[0]} but got {current_n_tests}. "
+                "score.n_tests must remain constant across calls."
+            )
+
         if new_n_samples >= 2:
             penalized_scores = self.score.compute_penalized_scores(
                 new_state.running_score_state,
@@ -185,7 +193,7 @@ class GridDetector:
                     "with shape (G, K); "
                     f"got shape {penalized_scores.shape}."
                 )
-            declared_k = self.score.n_tests
+            declared_k = current_n_tests
             actual_k = penalized_scores.shape[1]
             if actual_k != declared_k:
                 raise ValueError(
