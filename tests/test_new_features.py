@@ -102,7 +102,9 @@ class TestEnablePenalty:
         # Enabled mode divides by a time-varying divisor > 1 for large n,
         # while disabled mode divides by 1.0.
         assert not np.allclose(td_final, c_final), (
-            f"Expected different scores: TD={td_final}, CONST={c_final}"
+            "Expected different scores: "
+            f"enable_penalty=True={td_final}, "
+            f"enable_penalty=False={c_final}"
         )
 
     def test_constant_penalty_returns_one(self):
