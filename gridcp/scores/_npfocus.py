@@ -200,15 +200,8 @@ class NPFOCuS:
         self,
         state: NPFOCuSState,
         grid_states: list[NPFOCuSState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute penalised score for every active grid candidate.
-
-        Parameters
-        ----------
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-        """
+        """Compute penalised score for every active grid candidate."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )

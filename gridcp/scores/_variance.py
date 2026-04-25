@@ -93,15 +93,8 @@ class Variance:
         self,
         state: VarianceState,
         grid_states: list[VarianceState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute penalised variance-change scores for all active candidates.
-
-        Parameters
-        ----------
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-        """
+        """Compute penalised variance-change scores for all active candidates."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )

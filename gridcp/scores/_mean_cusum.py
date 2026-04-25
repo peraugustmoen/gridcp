@@ -182,24 +182,8 @@ class MeanCUSUM:
         self,
         state: MeanCUSUMState,
         grid_states: list[MeanCUSUMState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute a penalised score for every active grid candidate.
-
-        Parameters
-        ----------
-        state : MeanCUSUMState
-            Global running state after the latest observation.
-        grid_states : list[MeanCUSUMState]
-            Per-candidate state snapshots, one per active grid point.
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-
-        Returns
-        -------
-        np.ndarray, shape (len(grid_states),)
-            Penalised score for each active candidate.
-        """
+        """Compute a penalised score for every active grid candidate."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )

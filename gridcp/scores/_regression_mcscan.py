@@ -82,15 +82,8 @@ class RegressionMcScan:
         self,
         state: RegressionMcScanState,
         grid_states: list[RegressionMcScanState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute penalised McScan regression scores.
-
-        Parameters
-        ----------
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-        """
+        """Compute penalised McScan regression scores."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )

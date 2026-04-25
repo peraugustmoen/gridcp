@@ -17,12 +17,6 @@ class DetectorOutput(TypedDict):
         Number of observations seen since the most recent reset.
         This is the detector's local time and is the value that returns to 0
         after a reset.
-    global_n_samples : int
-        Total number of observations seen across the full detector lifetime,
-        including observations before resets when offset preservation is used.
-        When a reset is performed with ``preserve_offset=False``, this counter
-        also restarts from 0 because the detector intentionally discards the
-        previous false-alarm time accounting.
     alarm : bool
         Whether any score exceeded the threshold at this time step.
     max_score : float | np.ndarray
@@ -39,7 +33,6 @@ class DetectorOutput(TypedDict):
     """
 
     n_samples: int
-    global_n_samples: int
     alarm: bool
     max_score: float | np.ndarray
     max_score_index: int | np.ndarray
@@ -72,11 +65,9 @@ class ScoreModel(Protocol[TScoreState]):
     immutable snapshots by ``GridDetector``. ``update`` must return a new state
     and must not mutate the input ``state`` in place.
 
-    IMPORTANT: ``GridDetector`` always calls
-    ``compute_penalised_scores(..., n_samples_for_penalty=global_n_samples)``
-    where ``global_n_samples`` is the cumulative observation count across
-    resets.  Custom score implementations must accept this as a required
-    positional-or-keyword ``int`` argument.
+    IMPORTANT: ``GridDetector`` calls ``compute_penalised_scores(state, grid_states)``
+    and score implementations should derive any time-dependent penalty scaling
+    from the provided state.
 
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
@@ -112,7 +103,6 @@ class ScoreModel(Protocol[TScoreState]):
         self,
         state: TScoreState,
         grid_states: list[TScoreState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
         """Compute a penalised score for every active grid candidate.
 
@@ -122,10 +112,6 @@ class ScoreModel(Protocol[TScoreState]):
             Global running state after the latest observation.
         grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
-        n_samples_for_penalty : int
-            Sample count to use for time-dependent penalties.
-            ``GridDetector`` always passes the global cumulative count here so
-            that penalty scaling remains continuous across resets.
 
         Returns
         -------
@@ -136,13 +122,5 @@ class ScoreModel(Protocol[TScoreState]):
             mean vs variance), the shape is ``(G, K)`` where ``K`` is the
             number of tests.
 
-        Notes
-        -----
-        A reset-aware score implementation should usually compute its raw or
-        centered statistic from the local ``state`` and ``grid_states``, but
-        compute the penalty divisor from ``n_samples_for_penalty`` when it is
-        provided. This keeps the sufficient statistics local to the post-reset
-        segment while keeping the penalty on the original false-alarm time
-        scale.
         """
         ...

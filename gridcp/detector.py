@@ -1,17 +1,4 @@
-"""The online grid detector.
-
-The detector maintains two notions of time:
-
-- ``n_samples``: local sample count since the most recent reset.
-- ``n_samples_offset``: cumulative count carried over from previous detector
-    epochs when reset is performed with offset preservation enabled.
-
-The sum ``n_samples_offset + n_samples`` is the detector's global sample count.
-Built-in score models use this global count only for time-dependent penalties,
-while the sufficient statistics themselves remain local to the current epoch.
-This lets the detector forget pre-reset data while keeping false-alarm control
-on the original time scale.
-"""
+"""The online grid detector."""
 
 from dataclasses import dataclass, field
 from typing import Generic
@@ -84,9 +71,6 @@ class DetectorState(Generic[TScoreState]):
         Current running score state for the active post-reset epoch.
     n_samples : int, default=0
         Number of observations processed since the most recent reset.
-    n_samples_offset : int, default=0
-        Number of observations processed before the current epoch and preserved
-        for global penalty-time accounting.
     candidate_score_states : list[TScoreState]
         Score-state snapshots for the active logarithmic grid.
     grid : list[int]
@@ -96,7 +80,6 @@ class DetectorState(Generic[TScoreState]):
 
     running_score_state: TScoreState
     n_samples: int = 0
-    n_samples_offset: int = 0
     candidate_score_states: list[TScoreState] = field(default_factory=list)
     grid: list[int] = field(default_factory=list)
 
@@ -111,9 +94,9 @@ class GridDetector:
     Reset semantics
     ---------------
     Resetting is handled by the module-level function
-    ``reset_detector_state(state, detector, preserve_offset=...)``. Keeping
-    reset external preserves the detector's functional update style and avoids
-    hidden state transitions in ``update()``.
+    ``reset_detector_state(state, detector)``. Keeping reset external
+    preserves the detector's functional update style and avoids hidden state
+    transitions in ``update()``.
 
     Threshold semantics
     -------------------
@@ -181,8 +164,7 @@ class GridDetector:
     def init_state(self) -> DetectorState:
         """Return a fresh initial state with no observations seen.
 
-        The returned state has empty grid history, ``n_samples = 0``, and
-        ``n_samples_offset = 0``.
+        The returned state has empty grid history and ``n_samples = 0``.
         """
         return DetectorState(running_score_state=self.score.init_state())
 
@@ -204,12 +186,6 @@ class GridDetector:
         -------
         tuple[DetectorState, DetectorOutput]
             Updated state and output dictionary.
-
-            The output always includes both local and global time:
-
-            - ``output["n_samples"]``: local post-reset sample count
-            - ``output["global_n_samples"]``: cumulative count used for
-              penalty-time accounting when offset preservation is active
         """
         new_n_samples = state.n_samples + 1
         new_running_score_state = self.score.update(state.running_score_state, x)
@@ -221,16 +197,12 @@ class GridDetector:
             candidate_score_states=new_candidate_score_states,
             grid=new_grid,
             n_samples=new_n_samples,
-            n_samples_offset=state.n_samples_offset,
         )
-
-        global_n_samples = new_state.n_samples_offset + new_state.n_samples
 
         if new_n_samples >= 2:
             penalised_scores = self.score.compute_penalised_scores(
                 new_state.running_score_state,
                 new_state.candidate_score_states,
-                n_samples_for_penalty=global_n_samples,
             )
             th = np.asarray(self.threshold, dtype=np.float64)
             comparison_threshold = self._resolve_threshold_for_scores(
@@ -261,11 +233,8 @@ class GridDetector:
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
-        output_global_n_samples = new_state.n_samples_offset + new_state.n_samples
-
         output: DetectorOutput = {
             "n_samples": new_state.n_samples,
-            "global_n_samples": output_global_n_samples,
             "alarm": alarm,
             "max_score": max_score,
             "max_score_index": max_score_index,
@@ -276,15 +245,12 @@ class GridDetector:
 def reset_detector_state(
     state: DetectorState,
     detector: GridDetector,
-    *,
-    preserve_offset: bool = True,
 ) -> DetectorState:
-    """Reset detector history while optionally preserving global sample time.
+    """Reset detector history to a fresh initial-like state.
 
     Resetting discards all previously stored sufficient statistics and grid
     candidates, so the detector behaves as though it has just started on a
-    new segment. The only quantity that may survive the reset is the sample
-    count offset used for time-dependent penalty scaling.
+    new segment.
 
     Parameters
     ----------
@@ -292,31 +258,16 @@ def reset_detector_state(
         Current detector state.
     detector : GridDetector
         Detector instance used to initialize a fresh score state.
-    preserve_offset : bool, default=True
-        If True, preserve cumulative sample count for penalty scaling by
-        advancing ``n_samples_offset`` by the current local ``n_samples``.
-        If False, fully reset cumulative sample tracking.
 
     Returns
     -------
     DetectorState
         Fresh detector state with cleared grid/candidate history and a new
         score state from ``detector.score.init_state()``.
-
-    Notes
-    -----
-    ``preserve_offset=True`` is the statistically conservative choice when
-    the threshold is interpreted through a long-run false-alarm guarantee.
-    ``preserve_offset=False`` intentionally restarts that time scale.
     """
-    next_offset = 0
-    if preserve_offset:
-        next_offset = state.n_samples_offset + state.n_samples
-
     return DetectorState(
         running_score_state=detector.score.init_state(),
         n_samples=0,
-        n_samples_offset=next_offset,
         candidate_score_states=[],
         grid=[],
     )

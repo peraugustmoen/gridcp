@@ -88,15 +88,8 @@ class MultivariateMeanIdentityCov:
         self,
         state: MultivariateMeanIdentityCovState,
         grid_states: list[MultivariateMeanIdentityCovState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute penalised multivariate mean-change scores.
-
-        Parameters
-        ----------
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-        """
+        """Compute penalised multivariate mean-change scores."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )
