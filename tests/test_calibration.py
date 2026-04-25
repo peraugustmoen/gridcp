@@ -337,7 +337,7 @@ def test_mc_max_scores_returns_one_value_per_path():
         parallel=False,
     )
 
-    assert max_scores.shape == (25,)
+    assert max_scores.shape == (25, 1)
     assert np.all(np.isfinite(max_scores))
 
 
@@ -357,7 +357,7 @@ def test_mc_max_scores_accepts_array_like_sampler_for_multivariate():
         parallel=False,
     )
 
-    assert out.shape == (15,)
+    assert out.shape == (15, 1)
     assert np.all(np.isfinite(out))
 
 
@@ -432,8 +432,9 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
         parallel=False,
     )
 
-    assert np.isfinite(threshold)
-    assert threshold > 0.0
+    assert threshold.shape == (1,)
+    assert np.all(np.isfinite(threshold))
+    assert np.all(threshold > 0.0)
 
     calibrated = with_calibrated_threshold(detector, threshold)
     assert calibrated.threshold == threshold
@@ -463,7 +464,7 @@ def test_calibrate_detector_threshold_wrapper_matches_score_first():
         parallel=False,
     )
 
-    assert np.isclose(threshold_from_score, threshold_from_detector)
+    assert np.allclose(threshold_from_score, threshold_from_detector)
 
 
 def test_calibrate_detector_threshold_depends_on_score_not_threshold_field():
@@ -492,7 +493,7 @@ def test_calibrate_detector_threshold_depends_on_score_not_threshold_field():
         parallel=False,
     )
 
-    assert np.isclose(th_low, th_high)
+    assert np.allclose(th_low, th_high)
 
 
 def test_mc_max_scores_accepts_int_seed_and_is_reproducible():
@@ -560,7 +561,7 @@ def test_calibrate_threshold_accepts_int_seed_and_is_reproducible():
         rng=456,
     )
 
-    assert th1 == th2
+    assert np.array_equal(th1, th2)
 
 
 def test_mc_max_scores_invalid_rng_type_raises():
@@ -766,7 +767,7 @@ def test_mc_max_scores_parallel_handles_local_sampler_function():
             n_jobs=2,
         )
 
-    assert out.shape == (20,)
+    assert out.shape == (20, 1)
     assert np.all(np.isfinite(out))
     assert not any(issubclass(w.category, RuntimeWarning) for w in caught)
 

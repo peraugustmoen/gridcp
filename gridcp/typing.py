@@ -18,23 +18,22 @@ class DetectorOutput(TypedDict):
         after a reset.
     alarm : bool
         Whether any score exceeded the threshold at this time step.
-    max_score : float | np.ndarray
-        Maximum penalised score across grid candidates.  Scalar for
-        single-test scores, shape ``(K,)`` for multivariate scores.
-    max_score_index : int | np.ndarray
+    max_score : np.ndarray
+        Maximum penalized score across grid candidates, shape ``(K,)``.
+        Single-test scores use ``K=1``.
+    max_score_index : np.ndarray
         0-based index into the active candidate list (``state.grid``)
-        that achieved the max score. Scalar for single-test scores,
-        shape ``(K,)`` for multivariate scores.
+        that achieved the max score, shape ``(K,)``. Single-test scores use
+        ``K=1``.
 
         For ``n_samples < 2``, no candidate scores are available yet and this
-        field is a placeholder (0 for scalar thresholds, zeros for vector
-        thresholds).
+        field is a placeholder zero vector of shape ``(K,)``.
     """
 
     n_samples: int
     alarm: bool
-    max_score: float | np.ndarray
-    max_score_index: int | np.ndarray
+    max_score: np.ndarray
+    max_score_index: np.ndarray
 
 
 @runtime_checkable
@@ -48,7 +47,7 @@ class ScoreModel(Protocol[TScoreState]):
     immutable snapshots by ``GridDetector``. ``update`` must return a new state
     and must not mutate the input ``state`` in place.
 
-    IMPORTANT: ``GridDetector`` calls ``compute_penalised_scores(state, grid_states)``
+    IMPORTANT: ``GridDetector`` calls ``compute_penalized_scores(state, grid_states)``
     and score implementations should derive any time-dependent penalty scaling
     from the provided state.  Accordingly, ``TScoreState`` must carry whatever
     time information the score needs (typically an ``n_samples`` counter updated
@@ -84,12 +83,12 @@ class ScoreModel(Protocol[TScoreState]):
         """
         ...
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: TScoreState,
         grid_states: list[TScoreState],
     ) -> np.ndarray:
-        """Compute a penalised score for every active grid candidate.
+        """Compute a penalized score for every active grid candidate.
 
         Parameters
         ----------
@@ -104,12 +103,10 @@ class ScoreModel(Protocol[TScoreState]):
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states),) or (len(grid_states), n_tests)
-            Penalised score for each active candidate.  When the score model
-            produces a single test statistic the shape is ``(G,)``.  When the
-            model produces multiple test statistics (e.g. separate tests for
-            mean vs variance), the shape is ``(G, K)`` where ``K`` is the
-            number of tests.
+        np.ndarray, shape (len(grid_states), n_tests)
+            Penalized score matrix for active candidates. The first dimension is
+            the number of candidates ``G`` and the second dimension is the
+            number of tests ``K``. Single-test scores must return ``(G, 1)``.
 
         """
         ...

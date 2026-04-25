@@ -53,7 +53,7 @@ class RegressionMcScan:
         state: RegressionMcScanState,
         grid_states: list[RegressionMcScanState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
 
@@ -78,12 +78,13 @@ class RegressionMcScan:
             return np.sqrt(np.log(self.n_regressors * n_samples))
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: RegressionMcScanState,
         grid_states: list[RegressionMcScanState],
     ) -> np.ndarray:
-        """Compute penalised McScan regression scores."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized McScan regression scores."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

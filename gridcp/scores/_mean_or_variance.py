@@ -48,7 +48,7 @@ class MeanOrVariance:
         state: MeanOrVarianceState,
         grid_states: list[MeanOrVarianceState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         out = np.zeros(len(grid_states), dtype=np.float64)
         t = state.n_samples
         p = self.n_features
@@ -94,12 +94,13 @@ class MeanOrVariance:
             return logg + np.sqrt(2.0 * logg)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: MeanOrVarianceState,
         grid_states: list[MeanOrVarianceState],
     ) -> np.ndarray:
-        """Compute penalised mean-or-variance scores for all active candidates."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute penalized mean-or-variance scores for all active candidates."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

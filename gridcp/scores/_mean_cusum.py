@@ -159,7 +159,7 @@ class MeanCUSUM:
         state: MeanCUSUMState,
         grid_states: list[MeanCUSUMState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalised) scores for every active grid candidate."""
+        """Compute centered (but unpenalized) scores for every active grid candidate."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -178,12 +178,13 @@ class MeanCUSUM:
             return mean_cusum_penalty(n_samples, self.n_features)
         return 1.0
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: MeanCUSUMState,
         grid_states: list[MeanCUSUMState],
     ) -> np.ndarray:
-        """Compute a penalised score for every active grid candidate."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
+        """Compute a penalized score for every active grid candidate."""
+        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
             state.n_samples
         )
+        return scores[:, np.newaxis]

@@ -361,8 +361,8 @@ def _mc_worker_chunk(
     if task == "alarm":
         out = np.empty(n_local_paths, dtype=np.int64)
     else:
-        # For "max", out is allocated lazily once we know n_tests.
-        out = np.empty(0, dtype=np.float64)  # Placeholder; will be reallocated
+        # For "max", out is allocated lazily once we know K.
+        out = np.empty((0, 0), dtype=np.float64)  # Placeholder; reallocated below
 
     # One RNG per worker chunk to minimize generator construction overhead.
     local_rng = np.random.default_rng(chunk_seed)
@@ -407,8 +407,13 @@ def _mc_worker_chunk(
 
             if task == "max":
                 temp = np.asarray(output["max_score"], dtype=np.float64)
+                if temp.ndim != 1:
+                    raise ValueError(
+                        "detector output max_score must be 1-D with shape (K,); "
+                        f"got shape {temp.shape}."
+                    )
                 if max_score is None:
-                    max_score = temp.copy() if temp.ndim > 0 else temp
+                    max_score = temp.copy()
                 else:
                     max_score = np.maximum(max_score, temp)
             elif bool(output["alarm"]):
@@ -421,15 +426,12 @@ def _mc_worker_chunk(
         if task == "max":
             if max_score is None:
                 # stream_len == 0 edge case
-                max_score = 0.0
+                max_score = np.zeros(1, dtype=np.float64)
             if not out_allocated:
-                ms_arr = np.asarray(max_score)
-                if ms_arr.ndim == 0:
-                    out = np.empty(n_local_paths, dtype=np.float64)
-                else:
-                    out = np.empty((n_local_paths, ms_arr.shape[0]), dtype=np.float64)
+                ms_arr = np.asarray(max_score, dtype=np.float64)
+                out = np.empty((n_local_paths, ms_arr.shape[0]), dtype=np.float64)
                 out_allocated = True
-            out[local_idx] = max_score
+            out[local_idx, :] = max_score
 
     return start, out
 
@@ -449,22 +451,24 @@ def _mc_max_scores_chunk_from_samples(
         for t in range(stream_len):
             state, output = detector.update(state, X_chunk[i, t, :])
             temp = np.asarray(output["max_score"], dtype=np.float64)
+            if temp.ndim != 1:
+                raise ValueError(
+                    "detector output max_score must be 1-D with shape (K,); "
+                    f"got shape {temp.shape}."
+                )
             if max_score is None:
-                max_score = temp.copy() if temp.ndim > 0 else temp
+                max_score = temp.copy()
             else:
                 max_score = np.maximum(max_score, temp)
         if max_score is None:
-            max_score = 0.0
+            max_score = np.zeros(1, dtype=np.float64)
         if out is None:
-            temp_arr = np.asarray(max_score)
-            if temp_arr.ndim == 0:
-                out = np.empty(n_local, dtype=np.float64)
-            else:
-                out = np.empty((n_local, temp_arr.shape[0]), dtype=np.float64)
-        out[i] = max_score
+            temp_arr = np.asarray(max_score, dtype=np.float64)
+            out = np.empty((n_local, temp_arr.shape[0]), dtype=np.float64)
+        out[i, :] = max_score
 
     if out is None:
-        out = np.empty(n_local, dtype=np.float64)
+        out = np.empty((n_local, 1), dtype=np.float64)
     return out
 
 
@@ -914,8 +918,7 @@ def mc_max_scores(
     """
     n_features: int = detector.score.n_features
 
-    # Output array allocated lazily; shape depends on whether scores are
-    # scalar (n_paths,) or multivariate (n_paths, n_tests).
+    # Output array allocated lazily; shape is always (n_paths, K), including K=1.
     max_scores: np.ndarray | None = None
 
     if pre_kwargs is None:
@@ -978,10 +981,7 @@ def mc_max_scores(
 
             results = [fut.result() for (_, _), fut in zip(chunks, futures)]
             first = results[0]
-            if first.ndim == 1:
-                max_scores = np.empty(n_paths, dtype=np.float64)
-            else:
-                max_scores = np.empty((n_paths, first.shape[1]), dtype=np.float64)
+            max_scores = np.empty((n_paths, first.shape[1]), dtype=np.float64)
             for (start, end), res in zip(chunks, results):
                 max_scores[start:end] = res
         return max_scores
@@ -1060,12 +1060,7 @@ def mc_max_scores(
             for fut in as_completed(futures):
                 start, values = fut.result()
                 if max_scores is None:
-                    if values.ndim == 1:
-                        max_scores = np.empty(n_paths, dtype=np.float64)
-                    else:
-                        max_scores = np.empty(
-                            (n_paths, values.shape[1]), dtype=np.float64
-                        )
+                    max_scores = np.empty((n_paths, values.shape[1]), dtype=np.float64)
                 n_vals = values.shape[0]
                 max_scores[start : start + n_vals] = values
     except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
@@ -1352,15 +1347,13 @@ def calibrate_threshold_false_alarm(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate a score threshold from Monte Carlo max scores under the null.
 
-    For scalar scores, returns the empirical ``(1 - false_alarm_probability)``
-    quantile of max scores (a float).
-
-    For multivariate scores (K tests), applies a Bonferroni correction by
+    Applies a Bonferroni correction by
     default: each per-test threshold is set at the ``(1 - alpha/K)`` quantile,
-    and the result is a 1-D array of shape ``(K,)``. This can be disabled by
+    and the result is a 1-D array of shape ``(K,)`` (including ``K=1``).
+    This can be disabled by
     setting ``apply_bonferroni=False``.
 
     Parameters
@@ -1431,7 +1424,7 @@ def calibrate_detector_threshold_false_alarm(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate threshold for an existing detector.
 
     This is a convenience wrapper around :func:`calibrate_threshold_false_alarm`.
@@ -1534,14 +1527,13 @@ def _compute_false_alarm_threshold_from_max_scores(
     max_scores: np.ndarray,
     false_alarm_probability: float,
     apply_bonferroni: bool,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Compute threshold(s) from an array of per-path max scores.
 
     Parameters
     ----------
     max_scores : np.ndarray
-        Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for
-        multivariate scores.
+        Shape ``(n_paths, K)``, including ``K=1``.
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
     apply_bonferroni : bool
@@ -1549,11 +1541,13 @@ def _compute_false_alarm_threshold_from_max_scores(
 
     Returns
     -------
-    float | np.ndarray
-        Scalar threshold or 1-D array of shape ``(K,)``.
+    np.ndarray
+        Threshold vector of shape ``(K,)``.
     """
-    if max_scores.ndim == 1:
-        return float(np.quantile(max_scores, 1.0 - false_alarm_probability))
+    if max_scores.ndim != 2:
+        raise ValueError(
+            f"max_scores must have shape (n_paths, K); got shape {max_scores.shape}."
+        )
 
     n_tests = max_scores.shape[1]
     if apply_bonferroni:
@@ -1570,29 +1564,34 @@ def _compute_false_alarm_threshold_from_max_scores(
 def _compute_arl_threshold_from_max_scores(
     max_scores: np.ndarray,
     max_scores_step2: np.ndarray | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Compute ARL threshold(s) from an array of per-path max scores.
 
     Parameters
     ----------
     max_scores : np.ndarray
-        Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for
-        multivariate scores.  Always used for step 1 (per-test quantiles).
+        Shape ``(n_paths, K)``, including ``K=1``. Always used for step 1
+        (per-test quantiles).
     max_scores_step2 : np.ndarray or None, optional
         If provided (multivariate only), used for step 2 (joint scaling) in
         place of ``max_scores``.  Ignored for scalar scores.
 
     Returns
     -------
-    float | np.ndarray
-        Scalar threshold or 1-D array of shape ``(K,)``.
+    np.ndarray
+        Threshold vector of shape ``(K,)``.
     """
-    if max_scores.ndim == 1:
-        return float(np.quantile(max_scores, 1.0 / np.e))
+    if max_scores.ndim != 2:
+        raise ValueError(
+            f"max_scores must have shape (n_paths, K); got shape {max_scores.shape}."
+        )
 
     # K > 1 — two-step procedure.
     # Step 1: per-test (1/e)-quantiles.
     n_tests = max_scores.shape[1]
+    if n_tests == 1:
+        return np.array([float(np.quantile(max_scores[:, 0], 1.0 / np.e))])
+
     individual_thresholds = np.array(
         [float(np.quantile(max_scores[:, k], 1.0 / np.e)) for k in range(n_tests)],
         dtype=np.float64,
@@ -1653,7 +1652,7 @@ def _eval_max_scores(
     Returns
     -------
     np.ndarray
-        Shape ``(n_paths,)`` for scalar scores, ``(n_paths, K)`` for multivariate.
+        Shape ``(n_paths, K)``, including ``K=1``.
     """
     n_paths = samples.shape[0]
     detector = GridDetector(score=score, threshold=1.0)
@@ -1693,7 +1692,7 @@ def calibrate_threshold_false_alarm_from_samples(
     apply_bonferroni: bool = True,
     parallel: bool = True,
     n_jobs: int | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate a threshold from pre-generated sample paths.
 
     This is the most flexible data-driven calibration entry point.  The caller
@@ -1814,7 +1813,7 @@ def calibrate_threshold_false_alarm_from_data(
     apply_bonferroni: bool = True,
     parallel: bool = True,
     n_jobs: int | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate a threshold by circular block-bootstrapping training data.
 
     When the null distribution is unknown but a representative change-free
@@ -1974,7 +1973,7 @@ def calibrate_detector_threshold_false_alarm_from_data(
     apply_bonferroni: bool = True,
     parallel: bool = True,
     n_jobs: int | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate threshold for an existing detector using training data.
 
     Convenience wrapper around :func:`calibrate_threshold_false_alarm_from_data`.
@@ -2011,7 +2010,7 @@ def calibrate_threshold_arl(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
     resimulate_combined_threshold: bool = False,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate a score threshold via Average Run Length (ARL) calibration.
 
     Simulates *n_paths* null streams of length *target_arl*, collects the
@@ -2051,15 +2050,13 @@ def calibrate_threshold_arl(
         advanced by the first simulation), so step-2 samples are independent
         of step-1 samples.  This removes the sample-reuse bias between the
         two estimation steps at the cost of twice the computation.  Has no
-        effect for scalar scores (K=1).
+        effect for ``K=1``.
 
     Returns
     -------
-    float or np.ndarray
-        The ARL threshold.  For scalar scores (K=1), a float equal to the
-        (1/e)-quantile of null max scores.  For multivariate scores (K>1),
-        a 1-D array of shape ``(K,)`` with *combined* thresholds that
-        control the *joint* ARL.
+    np.ndarray
+        ARL threshold vector of shape ``(K,)`` (including ``K=1``), with
+        combined thresholds that control the joint ARL.
 
     Notes
     -----
@@ -2097,7 +2094,7 @@ def calibrate_threshold_arl(
     )
 
     max_scores_step2 = None
-    if resimulate_combined_threshold and max_scores.ndim > 1:
+    if resimulate_combined_threshold and max_scores.shape[1] > 1:
         max_scores_step2 = mc_max_scores(
             detector=detector,
             n_paths=n_paths,
@@ -2127,7 +2124,7 @@ def calibrate_detector_threshold_arl(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
     resimulate_combined_threshold: bool = False,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate ARL threshold for an existing detector.
 
     Convenience wrapper around :func:`calibrate_threshold_arl`.
@@ -2153,7 +2150,7 @@ def calibrate_threshold_arl_from_samples(
     *,
     parallel: bool = True,
     n_jobs: int | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate an ARL threshold from pre-generated sample paths.
 
     The caller supplies an array of observation streams and the function runs
@@ -2181,9 +2178,8 @@ def calibrate_threshold_arl_from_samples(
 
     Returns
     -------
-    float | np.ndarray
-        Estimated ARL threshold.  Scalar for single-test scores, shape
-        ``(K,)`` for multivariate scores.
+    np.ndarray
+        Estimated ARL threshold vector of shape ``(K,)``.
 
     Notes
     -----
@@ -2217,7 +2213,7 @@ def calibrate_detector_threshold_arl_from_samples(
     *,
     parallel: bool = True,
     n_jobs: int | None = None,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate ARL threshold for an existing detector from pre-generated samples.
 
     Convenience wrapper around :func:`calibrate_threshold_arl_from_samples`.
@@ -2241,7 +2237,7 @@ def calibrate_threshold_arl_from_data(
     parallel: bool = True,
     n_jobs: int | None = None,
     resimulate_combined_threshold: bool = False,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate an ARL threshold by circular block-bootstrapping training data.
 
     When the null distribution is unknown but a representative change-free
@@ -2282,14 +2278,12 @@ def calibrate_threshold_arl_from_data(
         continues from the same ``rng`` (advanced by the first draw), so
         step-2 samples are independent of step-1 samples.  This removes the
         sample-reuse bias between the two estimation steps at the cost of
-        twice the bootstrap computation.  Has no effect for scalar scores
-        (K=1).
+        twice the bootstrap computation.  Has no effect for ``K=1``.
 
     Returns
     -------
-    float | np.ndarray
-        Estimated ARL threshold.  Scalar for single-test scores, shape
-        ``(K,)`` for multivariate scores.
+    np.ndarray
+        Estimated ARL threshold vector of shape ``(K,)``.
 
     Notes
     -----
@@ -2349,7 +2343,7 @@ def calibrate_threshold_arl_from_data(
     max_scores = _eval_max_scores(score, samples, parallel=parallel, n_jobs=n_jobs)
 
     max_scores_step2 = None
-    if resimulate_combined_threshold and max_scores.ndim > 1:
+    if resimulate_combined_threshold and max_scores.shape[1] > 1:
         samples_step2 = _block_bootstrap_samples(
             data=training_data,
             n_paths=n_paths,
@@ -2375,7 +2369,7 @@ def calibrate_detector_threshold_arl_from_data(
     parallel: bool = True,
     n_jobs: int | None = None,
     resimulate_combined_threshold: bool = False,
-) -> float | np.ndarray:
+) -> np.ndarray:
     """Estimate ARL threshold for an existing detector using training data.
 
     Convenience wrapper around :func:`calibrate_threshold_arl_from_data`.

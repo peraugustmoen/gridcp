@@ -71,7 +71,7 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
         lr = (n1 * n2 / n) * float(np.dot(diff, diff))
         expected_raw = lr - p
 
-        scores = detector.score.compute_penalised_scores(
+        scores = detector.score.compute_penalized_scores(
             state.running_score_state,
             state.candidate_score_states,
         )[i]

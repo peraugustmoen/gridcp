@@ -205,6 +205,8 @@ class TestApplyBonferroni:
             apply_bonferroni=False,
         )
 
-        assert isinstance(th_bonf, float)
-        assert isinstance(th_no_bonf, float)
-        assert th_bonf == th_no_bonf
+        assert isinstance(th_bonf, np.ndarray)
+        assert isinstance(th_no_bonf, np.ndarray)
+        assert th_bonf.shape == (1,)
+        assert th_no_bonf.shape == (1,)
+        assert np.array_equal(th_bonf, th_no_bonf)

@@ -11,7 +11,7 @@ Pipeline
 2. ``update``: Accumulates ``h(x)`` into ``ExponentialFamilyGLRState``
    (running sufficient statistic + sample count).
 
-3. ``compute_penalised_scores``: Passes the sufficient statistics of all
+3. ``compute_penalized_scores``: Passes the sufficient statistics of all
    O(log t) grid candidates to the pre-built GLR score function, which computes the GLR
    score for each candidate by fitting three MLEs (pre, post, null) via
    Newton's method.  Raw scores are divided by the penalty before returning.
@@ -173,7 +173,7 @@ def make_vector_newton_solver(A_grad, A_hess):
     """Build a vector Newton MLE solver with backtracking line search.
 
     Solves the MLE equation ∇A(θ) = S / n by damped Newton iterations.
-    The Hessian is regularised by adding 1e-6 to the diagonal to improve
+    The Hessian is regularized by adding 1e-6 to the diagonal to improve
     conditioning, and a backtracking line search ensures each step reduces
     the residual norm.
 
@@ -325,7 +325,7 @@ def _make_scalar_glr_score_fn(
     -------
     callable
         ``kernel(total_stat, before_stats, t, before_n) -> np.ndarray``
-        returning raw (unpenalised) GLR scores for all candidates.
+        returning raw (unpenalized) GLR scores for all candidates.
     """
     _eps = 1e-10  # small buffer to keep warm-starts strictly inside the domain
     _lo = theta_min + _eps if math.isfinite(theta_min) else theta_min
@@ -456,7 +456,7 @@ def _make_vector_glr_score_fn(A, solver, A_grad, A_hess, theta_init, min_seg):
     -------
     callable
         ``kernel(total_stat, before_stats, t, before_n) -> np.ndarray``
-        returning raw (unpenalised) GLR scores for all candidates.
+        returning raw (unpenalized) GLR scores for all candidates.
     """
     use_numba = (
         _is_numba_compiled(A)
@@ -881,12 +881,12 @@ class ExponentialFamilyGLR:
             suff_stat=state.suff_stat + h_arr,
         )
 
-    def compute_penalised_scores(
+    def compute_penalized_scores(
         self,
         state: ExponentialFamilyGLRState,
         grid_states: list[ExponentialFamilyGLRState],
     ) -> np.ndarray:
-        """Compute a penalised GLR score for every active grid candidate.
+        """Compute a penalized GLR score for every active grid candidate.
 
         Parameters
         ----------
@@ -897,8 +897,8 @@ class ExponentialFamilyGLR:
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states),)
-            Penalised centered ``2*GLR`` score for each active candidate.
+        np.ndarray, shape (len(grid_states), 1)
+            Penalized centered ``2*GLR`` score for each active candidate.
             Scores can be negative; candidates with too few observations on
             either side receive a score of 0.
         """
@@ -911,4 +911,5 @@ class ExponentialFamilyGLR:
         centered_scores = raw_scores - self.v
         zero_score_mask = raw_scores == 0.0
         centered_scores[zero_score_mask] = 0.0
-        return centered_scores / self._get_penalty(state.n_samples)
+        scores = centered_scores / self._get_penalty(state.n_samples)
+        return scores[:, np.newaxis]
