@@ -67,7 +67,9 @@ class ScoreModel(Protocol[TScoreState]):
 
     IMPORTANT: ``GridDetector`` calls ``compute_penalised_scores(state, grid_states)``
     and score implementations should derive any time-dependent penalty scaling
-    from the provided state.
+    from the provided state.  Accordingly, ``TScoreState`` must carry whatever
+    time information the score needs (typically an ``n_samples`` counter updated
+    by ``update``).  No separate ``n_samples_for_penalty`` argument is passed.
 
     The grid detector calls these methods; the implementation is free to choose
     any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
@@ -109,7 +111,11 @@ class ScoreModel(Protocol[TScoreState]):
         Parameters
         ----------
         state : TScoreState
-            Global running state after the latest observation.
+            Global running state after the latest observation.  This is the
+            authoritative source for any time-dependent penalty scaling; for
+            example, built-in scores read ``state.n_samples`` from here.
+            Custom ``TScoreState`` types must therefore include an ``n_samples``
+            field (or equivalent) if time-dependent penalties are required.
         grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
 
