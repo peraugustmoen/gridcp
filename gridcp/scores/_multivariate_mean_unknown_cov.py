@@ -103,15 +103,8 @@ class MultivariateMeanUnknownCov:
         self,
         state: MultivariateMeanUnknownCovState,
         grid_states: list[MultivariateMeanUnknownCovState],
-        n_samples_for_penalty: int,
     ) -> np.ndarray:
-        """Compute penalised LR score at every active grid candidate.
-
-        Parameters
-        ----------
-        n_samples_for_penalty : int
-            Sample count used for the penalty divisor.
-        """
+        """Compute penalised LR score at every active grid candidate."""
         return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            n_samples_for_penalty
+            state.n_samples
         )

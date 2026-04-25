@@ -175,17 +175,14 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
     scores_multi = score_multi.compute_penalised_scores(
         state_multi.running_score_state,
         state_multi.candidate_score_states,
-        n_samples_for_penalty=state_multi.n_samples,
     )
     scores_ch0 = score_ch0.compute_penalised_scores(
         state_ch0.running_score_state,
         state_ch0.candidate_score_states,
-        n_samples_for_penalty=state_ch0.n_samples,
     )
     scores_ch1 = score_ch1.compute_penalised_scores(
         state_ch1.running_score_state,
         state_ch1.candidate_score_states,
-        n_samples_for_penalty=state_ch1.n_samples,
     )
 
     assert np.allclose(

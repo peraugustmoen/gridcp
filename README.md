@@ -121,43 +121,29 @@ pre-commit run --all-files
 
 ### Reset semantics in `GridDetector`
 
-`GridDetector` distinguishes between two time scales:
+`GridDetector` uses one time scale:
 
 - `n_samples`: local time since the most recent reset.
-- `global_n_samples`: cumulative time used for penalty scaling.
 
-The detector state stores the cumulative part internally as `n_samples_offset`,
-and each call to `update(...)` returns both counters in the output dictionary.
-
-This matters because many built-in scores use a time-dependent penalty such as
-`log(t)` or `sqrt(log(t)) + log(t)`, where `t` is the sample size. If you fully
-restart the detector after an alarm and also restart that penalty time from 1,
-you are no longer operating on the same long-run false-alarm time scale.
+Each call to `update(...)` returns `n_samples` in the output dictionary.
 
 Resetting is external to `GridDetector` and handled with `reset_detector_state`:
 
 ```python
 from gridcp import reset_detector_state
 
-state = reset_detector_state(state, detector, preserve_offset=True)
+state = reset_detector_state(state, detector)
 ```
 
 - Clears the running score state
 - Clears the grid and all candidate score snapshots
 - Sets local `n_samples` back to 0
-- Keeps the penalty time continuous by carrying the old sample count into the
-  new epoch
 
-Use `preserve_offset=True` when the threshold is meant to control the
-probability of ever seeing a false alarm over a long or indefinite stream.
-
-```python
-state = reset_detector_state(state, detector, preserve_offset=False)
-```
-
-- Performs a full restart
-- Resets both local and global sample counts to 0
-- Intentionally discards the previous false-alarm time accounting
+**Note:** Any time-dependent penalty that uses `state.n_samples` (for example, `log(t)` or
+`sqrt(log(t)) + log(t)`) also restarts from this post-reset local time. This differs from
+a "continuous penalty time" interpretation where the penalty clock keeps increasing across
+resets. As a result, long-run false-alarm guarantees or intuitions that assume a globally
+increasing time index do not automatically carry over across multiple resets.
 
 #### Custom score contract
 
@@ -168,7 +154,6 @@ def compute_penalised_scores(
     self,
     state,
     grid_states,
-    n_samples_for_penalty: int,
 ) -> np.ndarray:
     ...
 ```
@@ -176,12 +161,7 @@ def compute_penalised_scores(
 The intended pattern is:
 
 - compute centered or raw statistics from `state` and `grid_states`
-- use `n_samples_for_penalty` for the penalty divisor (it is always the global
-  cumulative sample count, not the local post-reset count)
-
-`GridDetector` always passes `n_samples_for_penalty` as a required argument.
-Writing custom scores that only use `state.n_samples` will produce incorrect
-false-alarm behavior after a reset with `preserve_offset=True`.
+- use `state.n_samples` for any time-dependent penalty divisor
 
 ### Adding a new score/test statistic
 
