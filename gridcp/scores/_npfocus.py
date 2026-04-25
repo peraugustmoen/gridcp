@@ -114,11 +114,11 @@ class NPFOCuS:
         indicator process underlying the score.
     n_features : int, default=1
         Observation dimension expected by the score.
-        enable_penalty : bool, default=False
-            If ``True``, apply the time-dependent divisor used in the
-            two-dimensional exponential-family GLR case with a Bonferroni-style
-            feature correction, ``sqrt(2 log(t p)) + log(t p)`` where
-            ``p = n_features``. If ``False``, use constant divisor 1.0.
+    enable_penalty : bool, default=False
+        If ``True``, apply the time-dependent divisor used in the
+        two-dimensional exponential-family GLR case with a Bonferroni-style
+        feature correction, ``sqrt(2 log(t p)) + log(t p)`` where
+        ``p = n_features``. If ``False``, use constant divisor 1.0.
     """
 
     value_grid: ArrayLike
