@@ -16,7 +16,6 @@ from gridcp.calibration import (
 )
 from gridcp.detector import GridDetector
 from gridcp.scores import MeanCUSUM, MultivariateMeanIdentityCov
-from gridcp.typing import PenaltyType
 
 
 def _normal_sampler(rng):
@@ -30,7 +29,7 @@ def _normal_sampler(rng):
 
 class TestCalibrateThresholdArl:
     def test_basic_returns_positive_float(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         th = calibrate_threshold_arl(
             score=score,
             target_arl=50,
@@ -43,7 +42,7 @@ class TestCalibrateThresholdArl:
         assert th > 0
 
     def test_reproducible_with_same_seed(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         kwargs = dict(
             target_arl=50,
             n_paths=30,
@@ -56,7 +55,7 @@ class TestCalibrateThresholdArl:
         )
 
     def test_invalid_target_arl(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         with pytest.raises(ValueError, match="target_arl"):
             calibrate_threshold_arl(
                 score,
@@ -79,7 +78,7 @@ class TestCalibrateThresholdArl:
             )
 
     def test_detector_wrapper_matches_score_first(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         kwargs = dict(
             target_arl=50,
@@ -132,7 +131,7 @@ class TestComputeArlThreshold:
 
 class TestCalibrateArlFromSamples:
     def test_basic_scalar(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(50, 30, 1))
         th = calibrate_threshold_arl_from_samples(score=score, samples=samples)
@@ -160,7 +159,7 @@ class TestCalibrateArlFromSamples:
             calibrate_threshold_arl_from_samples(score=score, samples=samples)
 
     def test_no_warning_for_constant_penalty(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         samples = np.random.default_rng(0).normal(size=(20, 10, 1))
         with warnings.catch_warnings():
             import warnings as _warnings
@@ -186,7 +185,7 @@ class TestCalibrateArlFromSamples:
 
 class TestCalibrateArlFromData:
     def test_basic_univariate(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=200)
         th = calibrate_threshold_arl_from_data(
             score=score,
@@ -199,7 +198,7 @@ class TestCalibrateArlFromData:
         assert th > 0
 
     def test_basic_multivariate(self):
-        score = MeanCUSUM(n_features=3, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=3, enable_penalty=False)
         data = np.random.default_rng(1).normal(size=(200, 3))
         th = calibrate_threshold_arl_from_data(
             score=score,
@@ -212,7 +211,7 @@ class TestCalibrateArlFromData:
         assert th > 0
 
     def test_deterministic_with_same_rng(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th1 = calibrate_threshold_arl_from_data(
             score=score, training_data=data, target_arl=30, n_paths=50, rng=99
@@ -223,7 +222,7 @@ class TestCalibrateArlFromData:
         assert th1 == pytest.approx(th2)
 
     def test_auto_block_length(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=1000)
         th = calibrate_threshold_arl_from_data(
             score=score, training_data=data, target_arl=50, n_paths=50, rng=0
@@ -231,7 +230,7 @@ class TestCalibrateArlFromData:
         assert th > 0
 
     def test_block_length_one(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th = calibrate_threshold_arl_from_data(
             score=score,
@@ -289,7 +288,7 @@ class TestCalibrateArlFromData:
             )
 
     def test_short_data_warns(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.ones(5)
         with pytest.warns(UserWarning, match="wrap around"):
             calibrate_threshold_arl_from_data(
@@ -304,7 +303,7 @@ class TestCalibrateArlFromData:
 
 class TestCalibrateDetectorArlFromData:
     def test_matches_calibrate_threshold_from_data(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         data = np.random.default_rng(5).normal(size=100)
         th1 = calibrate_threshold_arl_from_data(
@@ -333,7 +332,7 @@ class TestCalibrateDetectorArlFromData:
 
 class TestParitySamplesVsMC:
     def test_scalar_parity(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         seed = 77
         n_paths, target_arl = 80, 30
 
@@ -362,7 +361,7 @@ class TestParitySamplesVsMC:
         assert th_samples == pytest.approx(th_mc)
 
     def test_multivariate_parity(self):
-        score = MeanCUSUM(n_features=3, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=3, enable_penalty=False)
         seed = 55
         n_paths, target_arl = 60, 25
 
@@ -398,7 +397,7 @@ class TestParitySamplesVsMC:
 
 class TestParallelSerialEquivalence:
     def test_from_samples_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         samples = np.random.default_rng(42).normal(size=(80, 30, 1))
         th_serial = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=False
@@ -409,7 +408,7 @@ class TestParallelSerialEquivalence:
         assert th_serial == pytest.approx(th_parallel)
 
     def test_from_samples_parallel_multivariate(self):
-        score = MeanCUSUM(n_features=2, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=2, enable_penalty=False)
         samples = np.random.default_rng(7).normal(size=(60, 25, 2))
         th_serial = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=False
@@ -420,7 +419,7 @@ class TestParallelSerialEquivalence:
         np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_from_data_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=200)
         th_serial = calibrate_threshold_arl_from_data(
             score=score,
@@ -443,7 +442,7 @@ class TestParallelSerialEquivalence:
         assert th_serial == pytest.approx(th_parallel)
 
     def test_from_data_parallel_multivariate(self):
-        score = MeanCUSUM(n_features=3, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=3, enable_penalty=False)
         data = np.random.default_rng(1).normal(size=(200, 3))
         th_serial = calibrate_threshold_arl_from_data(
             score=score,
@@ -466,7 +465,7 @@ class TestParallelSerialEquivalence:
         np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_detector_wrapper_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         data = np.random.default_rng(5).normal(size=150)
         th_serial = calibrate_detector_threshold_arl_from_data(
@@ -497,7 +496,7 @@ class TestParallelSerialEquivalence:
 
 class TestNJobs:
     def test_from_samples_n_jobs_1(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         samples = np.random.default_rng(42).normal(size=(50, 20, 1))
         th_serial = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=False
@@ -508,7 +507,7 @@ class TestNJobs:
         assert th_serial == pytest.approx(th_j1)
 
     def test_from_samples_n_jobs_2(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         samples = np.random.default_rng(42).normal(size=(50, 20, 1))
         th_serial = calibrate_threshold_arl_from_samples(
             score=score, samples=samples, parallel=False
@@ -519,7 +518,7 @@ class TestNJobs:
         assert th_serial == pytest.approx(th_j2)
 
     def test_from_data_n_jobs_2(self):
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th_serial = calibrate_threshold_arl_from_data(
             score=score,
@@ -549,7 +548,7 @@ class TestNJobs:
 class TestResimulateCombinedThreshold:
     def test_scalar_flag_is_noop(self):
         """K=1: flag must not trigger a second simulation; result == flag-off."""
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         common = dict(
             target_arl=50,
             n_paths=100,
@@ -570,7 +569,7 @@ class TestResimulateCombinedThreshold:
     def test_multivariate_flag_changes_result(self):
         """K>=2 with fixed seed: True vs False must yield different thresholds."""
         # MultivariateMeanIdentityCov emits a 2-component max_score (two tests).
-        score = MultivariateMeanIdentityCov(n_features=4, penalty=PenaltyType.CONSTANT)
+        score = MultivariateMeanIdentityCov(n_features=4, enable_penalty=False)
 
         def sampler(rng):
             return rng.standard_normal(4)
@@ -593,7 +592,7 @@ class TestResimulateCombinedThreshold:
 
     def test_multivariate_flag_propagates_through_from_data(self):
         """calibrate_threshold_arl_from_data honors the flag the same way."""
-        score = MultivariateMeanIdentityCov(n_features=3, penalty=PenaltyType.CONSTANT)
+        score = MultivariateMeanIdentityCov(n_features=3, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=(400, 3))
         common = dict(
             score=score,
@@ -628,7 +627,7 @@ class TestCalibrateDetectorArlFromSamples:
             calibrate_detector_threshold_arl_from_samples,
         )
 
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         samples = np.random.default_rng(0).normal(size=(50, 30, 1))
 

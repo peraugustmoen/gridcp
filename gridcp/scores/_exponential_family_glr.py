@@ -26,7 +26,7 @@ import numpy as np
 
 from gridcp.scores._families import FAMILIES, VALID_FAMILIES
 from gridcp.scores._score_helpers import as_obs
-from gridcp.typing import ArrayLike, PenaltyType
+from gridcp.typing import ArrayLike
 
 # ---------------------------------------------------------------------------
 # Module-level Numba helpers
@@ -617,24 +617,24 @@ class ExponentialFamilyGLR:
         changepoint.  Candidates with fewer observations are assigned a score
         of 0.  Defaults to ``v + 1``, which is the minimum needed to identify
         ``v`` parameters.  Must be at least 2.
-    penalty : PenaltyType, optional
-        Penalty type.  ``PenaltyType.TIME_DEPENDENT`` (default) uses
-        ``sqrt(v log t) + log t`` after centering the ``2*GLR`` statistic by
-        ``v``; ``PenaltyType.CONSTANT`` uses 1.
+    enable_penalty : bool, optional
+        If ``True`` (default), use ``sqrt(v log t) + log t`` after centering
+        the ``2*GLR`` statistic by ``v``. If ``False``, use constant divisor
+        1.0.
 
     Notes
     -----
     The score computed for each candidate changepoint s at time t is:
 
-        score(s, t) = (2 GLR(s, t) - v) / penalty(t)
+        score(s, t) = (2 GLR(s, t) - v) / divisor(t)
 
     where the generalized log-likelihood ratio is:
 
         GLR(s, t) = ℓ(θ̂_pre; x_{1:s}) + ℓ(θ̂_post; x_{s+1:t}) − ℓ(θ̂_null; x_{1:t})
 
-    and the penalty is:
+    and the default divisor is:
 
-        penalty(t) = √(v log t) + log t
+        divisor(t) = √(v log t) + log t
 
     A candidate triggers an alarm when its score exceeds the calibrated
     threshold.  MLEs are computed by Newton's method, warm-started one step
@@ -680,7 +680,7 @@ class ExponentialFamilyGLR:
         theta_min: float = -math.inf,
         theta_max: float = math.inf,
         min_seg: int | None = None,
-        penalty: PenaltyType = PenaltyType.TIME_DEPENDENT,
+        enable_penalty: bool = True,
     ):
         self.v = v
         self.n_features = n_features
@@ -718,7 +718,7 @@ class ExponentialFamilyGLR:
                 A, solver, A_grad, A_hess, theta_init, min_seg
             )
 
-        self.penalty = penalty
+        self.enable_penalty = enable_penalty
         self._theta_init = theta_init
 
     @classmethod
@@ -729,7 +729,7 @@ class ExponentialFamilyGLR:
         *,
         theta_init=None,
         min_seg: int | None = None,
-        penalty: PenaltyType = PenaltyType.TIME_DEPENDENT,
+        enable_penalty: bool = True,
         **family_kwargs,
     ) -> "ExponentialFamilyGLR":
         """Construct a GLR score for a built-in exponential family.
@@ -767,7 +767,7 @@ class ExponentialFamilyGLR:
             ``None`` (default), the canonical starting point is used.
         min_seg : int or None, optional
             Passed through to ``__init__``.  Defaults to ``v + 1``.
-        penalty : PenaltyType, optional
+        enable_penalty : bool, optional
             Passed through to ``__init__``.
 
         Returns
@@ -821,7 +821,7 @@ class ExponentialFamilyGLR:
             theta_min=spec.get("theta_min", -math.inf),
             theta_max=spec.get("theta_max", math.inf),
             min_seg=effective_min_seg,
-            penalty=penalty,
+            enable_penalty=enable_penalty,
         )
         if spec["v"] == 1:
             kwargs["A_prime"] = spec["A_prime"]
@@ -833,7 +833,7 @@ class ExponentialFamilyGLR:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty == PenaltyType.TIME_DEPENDENT:
+        if self.enable_penalty:
             log_t = np.log(n_samples)
             return np.sqrt(self.v * log_t) + log_t
         return 1.0

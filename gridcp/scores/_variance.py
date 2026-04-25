@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from gridcp.typing import ArrayLike, PenaltyType
+from gridcp.typing import ArrayLike
 from gridcp.scores._score_helpers import as_obs
 
 
@@ -31,7 +31,7 @@ class Variance:
     """
 
     n_features: int = 1
-    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
+    enable_penalty: bool = True
 
     def init_state(self) -> VarianceState:
         return VarianceState(sum_sq=np.zeros(self.n_features, dtype=np.float64))
@@ -84,7 +84,7 @@ class Variance:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty == PenaltyType.TIME_DEPENDENT:
+        if self.enable_penalty:
             logg = np.log(n_samples * self.n_features)
             return logg + np.sqrt(logg)
         return 1.0
