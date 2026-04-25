@@ -831,6 +831,11 @@ class ExponentialFamilyGLR:
             kwargs["A_hess"] = spec["A_hess"]
         return cls(**kwargs)
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.enable_penalty:

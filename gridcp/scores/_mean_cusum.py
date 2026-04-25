@@ -120,6 +120,11 @@ class MeanCUSUM:
     n_features: int = 1
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MeanCUSUMState:
         """Return a fresh initial state with no observations seen."""
         return MeanCUSUMState(sum=np.zeros(self.n_features))

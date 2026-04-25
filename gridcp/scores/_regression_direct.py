@@ -33,6 +33,11 @@ class RegressionDirect:
     def n_features(self) -> int:
         return self.n_regressors + 1
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> RegressionDirectState:
         q = self.n_regressors
         return RegressionDirectState(

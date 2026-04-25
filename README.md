@@ -122,10 +122,8 @@ pre-commit run --all-files
 - When penalized scores are available, `DetectorOutput.max_score` and
     `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
     for single-test scores).
-- For `n_samples < 2`, no candidate score exists yet, so placeholder outputs are
-    returned instead. If `threshold` is scalar, `max_score` and `max_score_index`
-    are length-1 zero vectors at this stage. If `threshold` is a vector, the
-    placeholder vectors match its length.
+- For `n_samples < 2`, no candidate score exists yet. `max_score` and
+    `max_score_index` are zero vectors of shape `(K,)`.
 
 ### Reset semantics in `GridDetector`
 

@@ -29,6 +29,11 @@ class MeanOrVariance:
     n_features: int = 1
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MeanOrVarianceState:
         return MeanOrVarianceState(
             sum=np.zeros(self.n_features, dtype=np.float64),

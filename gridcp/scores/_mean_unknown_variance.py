@@ -129,6 +129,11 @@ class MeanCUSUMUnknownVariance:
     n_features: int = 1
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 1
+
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
         """Return a fresh initial state with no observations seen."""
         if self.n_features < 1:

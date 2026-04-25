@@ -27,6 +27,11 @@ class MultivariateMeanIdentityCov:
     n_features: int
     enable_penalty: bool = True
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 2
+
     def init_state(self) -> MultivariateMeanIdentityCovState:
         return MultivariateMeanIdentityCovState(
             sum=np.zeros(self.n_features, dtype=np.float64)

@@ -125,6 +125,11 @@ class NPFOCuS:
     n_features: int = 1
     enable_penalty: bool = False
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests returned by ``compute_penalized_scores``."""
+        return 2
+
     def __post_init__(self) -> None:
         """Validate and normalize the evaluation grid and score config."""
         if self.n_features < 1:

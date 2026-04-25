@@ -62,6 +62,15 @@ class ScoreModel(Protocol[TScoreState]):
         """Observation dimension expected by the score model."""
         ...
 
+    @property
+    def n_tests(self) -> int:
+        """Number of tests ``K`` returned by ``compute_penalized_scores``.
+
+        This determines the second dimension of the ``(G, K)`` score matrix
+        and the length of ``DetectorOutput.max_score`` / ``max_score_index``.
+        """
+        ...
+
     def init_state(self) -> TScoreState:
         """Return fresh initial state with no observations seen."""
         ...

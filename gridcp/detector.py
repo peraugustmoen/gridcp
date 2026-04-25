@@ -210,12 +210,12 @@ class GridDetector:
             argmax_per_test = np.argmax(penalized_scores, axis=0)
             max_score_index = argmax_per_test.astype(np.int64, copy=False)
         else:
+            n_tests = self.score.n_tests
             th = np.asarray(self.threshold, dtype=np.float64)
             if th.ndim == 0:
-                comparison_threshold = np.full(1, float(th), dtype=np.float64)
+                comparison_threshold = np.full(n_tests, float(th), dtype=np.float64)
             else:
                 comparison_threshold = th
-            n_tests = comparison_threshold.shape[0]
             max_score = np.zeros(n_tests, dtype=np.float64)
             max_score_index = np.zeros(n_tests, dtype=np.int64)
 
