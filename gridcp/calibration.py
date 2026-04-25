@@ -78,7 +78,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from gridcp.detector import GridDetector
-from gridcp.typing import PenaltyType, ScoreModel
+from gridcp.typing import ScoreModel
 
 # Changepoint callables receive ``(rng, stream_len, path_index)`` and must
 # return an integer in ``[0, stream_len]`` representing the first post-change
@@ -1619,12 +1619,12 @@ def _compute_arl_threshold_from_max_scores(
 
 
 def _warn_if_non_constant_penalty(score: ScoreModel) -> None:
-    penalty = getattr(score, "penalty", None)
-    if penalty is not None and penalty != PenaltyType.CONSTANT:
+    enable_penalty = getattr(score, "enable_penalty", None)
+    if enable_penalty:
         warnings.warn(
             "ARL calibration requires a stationary score. "
             "The supplied score uses a time-dependent penalty, which will "
-            "produce incorrect ARL results. Set penalty=PenaltyType.CONSTANT.",
+            "produce incorrect ARL results. Set enable_penalty=False.",
             UserWarning,
             stacklevel=3,
         )
@@ -2189,7 +2189,7 @@ def calibrate_threshold_arl_from_samples(
     -----
     ARL calibration is only valid when the score is stationary under the null.
     Scores with time-dependent penalties (anything other than
-    ``PenaltyType.CONSTANT``) will trigger a ``UserWarning``.
+    ``enable_penalty=False``) will trigger a ``UserWarning``.
     """
     _warn_if_non_constant_penalty(score)
 

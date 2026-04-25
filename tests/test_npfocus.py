@@ -18,7 +18,6 @@ from gridcp import (
     with_calibrated_threshold,
 )
 from gridcp.detector import GridDetector
-from gridcp.typing import PenaltyType
 from gridcp.scores import NPFOCuS
 
 
@@ -85,17 +84,23 @@ def test_npfocus_time_dependent_penalty_matches_exponential_family_glr_shape():
     score = NPFOCuS(
         value_grid=np.linspace(-3.0, 3.0, 25),
         n_features=1,
-        penalty=PenaltyType.TIME_DEPENDENT,
+        enable_penalty=True,
     )
     t = 100
     assert np.isclose(score._get_penalty(t), np.sqrt(2.0 * np.log(t)) + np.log(t))
+
+
+def test_npfocus_default_has_penalty_disabled():
+    score = NPFOCuS(value_grid=np.linspace(-3.0, 3.0, 25), n_features=1)
+    assert score.enable_penalty is False
+    assert score._get_penalty(100) == 1.0
 
 
 def test_npfocus_constant_penalty_is_one():
     score = NPFOCuS(
         value_grid=np.linspace(-3.0, 3.0, 25),
         n_features=1,
-        penalty=PenaltyType.CONSTANT,
+        enable_penalty=False,
     )
     assert score._get_penalty(10) == 1.0
     assert score._get_penalty(1000) == 1.0
@@ -105,7 +110,7 @@ def test_npfocus_multivariate_update_and_score_shapes():
     score = NPFOCuS(
         value_grid=np.linspace(-2.0, 2.0, 11),
         n_features=2,
-        penalty=PenaltyType.CONSTANT,
+        enable_penalty=False,
     )
 
     detector = GridDetector(score=score, threshold=np.array([1.0e6, 1.0e6]))
@@ -135,17 +140,17 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
     score_multi = NPFOCuS(
         value_grid=value_grid,
         n_features=2,
-        penalty=PenaltyType.CONSTANT,
+        enable_penalty=False,
     )
     score_ch0 = NPFOCuS(
         value_grid=value_grid,
         n_features=1,
-        penalty=PenaltyType.CONSTANT,
+        enable_penalty=False,
     )
     score_ch1 = NPFOCuS(
         value_grid=value_grid,
         n_features=1,
-        penalty=PenaltyType.CONSTANT,
+        enable_penalty=False,
     )
 
     x = np.array(

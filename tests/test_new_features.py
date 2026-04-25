@@ -1,11 +1,10 @@
-"""Tests for PenaltyType.CONSTANT and apply_bonferroni features."""
+"""Tests for enable_penalty behavior and apply_bonferroni features."""
 
 import numpy as np
 import pytest
 
 from gridcp.calibration import calibrate_threshold_false_alarm
 from gridcp.detector import GridDetector
-from gridcp.typing import PenaltyType
 from gridcp.scores import (
     MeanCUSUM,
     MeanCUSUMUnknownVariance,
@@ -30,12 +29,12 @@ def _run_stream(detector, x):
 
 
 # ---------------------------------------------------------------------------
-# PenaltyType.CONSTANT tests
+# enable_penalty tests
 # ---------------------------------------------------------------------------
 
 
-class TestPenaltyTypeConstant:
-    """Verify that PenaltyType.CONSTANT works and differs from TIME_DEPENDENT."""
+class TestEnablePenalty:
+    """Verify that enable_penalty=False works and differs from enabled mode."""
 
     @pytest.mark.parametrize(
         "score_cls, kwargs",
@@ -53,8 +52,8 @@ class TestPenaltyTypeConstant:
         ids=lambda x: x.__name__ if isinstance(x, type) else str(x),
     )
     def test_constant_penalty_produces_finite_scores(self, score_cls, kwargs):
-        """CONSTANT mode should produce finite scores without errors."""
-        score = score_cls(**kwargs, penalty=PenaltyType.CONSTANT)
+        """Disabled penalty mode should produce finite scores without errors."""
+        score = score_cls(**kwargs, enable_penalty=False)
         n_features = getattr(score, "n_features")
         detector = GridDetector(score=score, threshold=1e6)
 
@@ -81,9 +80,9 @@ class TestPenaltyTypeConstant:
         ids=lambda x: x.__name__ if isinstance(x, type) else str(x),
     )
     def test_constant_vs_time_dependent_differ(self, score_cls, kwargs):
-        """CONSTANT and TIME_DEPENDENT should produce different scores."""
-        score_td = score_cls(**kwargs, penalty=PenaltyType.TIME_DEPENDENT)
-        score_c = score_cls(**kwargs, penalty=PenaltyType.CONSTANT)
+        """Enabled and disabled penalty modes should produce different scores."""
+        score_td = score_cls(**kwargs, enable_penalty=True)
+        score_c = score_cls(**kwargs, enable_penalty=False)
 
         n_features = getattr(score_td, "n_features")
         det_td = GridDetector(score=score_td, threshold=1e6)
@@ -100,20 +99,22 @@ class TestPenaltyTypeConstant:
         td_final = np.asarray(outs_td[-1]["max_score"])
         c_final = np.asarray(outs_c[-1]["max_score"])
 
-        # TIME_DEPENDENT divides by a penalty > 1 for large n, making it smaller
-        # CONSTANT divides by 1.0, so max_score should generally be larger
+        # Enabled mode divides by a time-varying divisor > 1 for large n,
+        # while disabled mode divides by 1.0.
         assert not np.allclose(td_final, c_final), (
-            f"Expected different scores: TD={td_final}, CONST={c_final}"
+            "Expected different scores: "
+            f"enable_penalty=True={td_final}, "
+            f"enable_penalty=False={c_final}"
         )
 
     def test_constant_penalty_returns_one(self):
-        """_get_penalty should return 1.0 for CONSTANT mode."""
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.CONSTANT)
+        """_get_penalty should return 1.0 for disabled mode."""
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
         assert score._get_penalty(100) == 1.0
 
     def test_time_dependent_penalty_greater_than_one(self):
-        """_get_penalty should return > 1.0 for TIME_DEPENDENT with large n."""
-        score = MeanCUSUM(n_features=1, penalty=PenaltyType.TIME_DEPENDENT)
+        """_get_penalty should return > 1.0 for enabled mode with large n."""
+        score = MeanCUSUM(n_features=1, enable_penalty=True)
         assert score._get_penalty(100) > 1.0
 
 

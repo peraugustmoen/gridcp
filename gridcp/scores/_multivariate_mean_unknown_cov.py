@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from gridcp.typing import ArrayLike, PenaltyType
+from gridcp.typing import ArrayLike
 from gridcp.scores._score_helpers import as_obs
 
 
@@ -26,7 +26,7 @@ class MultivariateMeanUnknownCov:
     """
 
     n_features: int
-    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
+    enable_penalty: bool = True
 
     def init_state(self) -> MultivariateMeanUnknownCovState:
         return MultivariateMeanUnknownCovState(
@@ -94,7 +94,7 @@ class MultivariateMeanUnknownCov:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty == PenaltyType.TIME_DEPENDENT:
+        if self.enable_penalty:
             df = float(self.n_features)
             return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
         return 1.0

@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import numba as nb
 import numpy as np
 
-from gridcp.typing import ArrayLike, PenaltyType
+from gridcp.typing import ArrayLike
 
 
 @nb.njit(cache=True)
@@ -127,7 +127,7 @@ class MeanCUSUMUnknownVariance:
     """
 
     n_features: int = 1
-    penalty: PenaltyType = PenaltyType.TIME_DEPENDENT
+    enable_penalty: bool = True
 
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
         """Return a fresh initial state with no observations seen."""
@@ -193,7 +193,7 @@ class MeanCUSUMUnknownVariance:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty == PenaltyType.TIME_DEPENDENT:
+        if self.enable_penalty:
             return mean_unknown_variance_penalty(n_samples, self.n_features)
         return 1.0
 

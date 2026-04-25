@@ -44,12 +44,12 @@ from gridcp.scores import (
     MultivariateMeanIdentityCov,
     MultivariateMeanOrCovariance,
     MultivariateMeanUnknownCov,
+    NPFOCuS,
     RegressionDirect,
     RegressionMcScan,
     Variance,
 )
 from gridcp.scores._score_helpers import as_obs, inv_sqrtm_pd
-from gridcp.typing import PenaltyType
 from gridcp.utils import get_G_grid, get_changeloc_grid
 
 
@@ -221,8 +221,8 @@ class TestInvSqrtmPd:
 
 class TestPenalties:
     """Every score model's _get_penalty() was completely untested.
-    The penalty controls the false-alarm rate: TIME_DEPENDENT should grow with
-    n_samples, and CONSTANT should always return 1.0.
+    The penalty controls the false-alarm rate: enabled mode should grow with
+    n_samples, and disabled mode should always return 1.0.
     """
 
     SCORES_WITH_DEFAULTS = [
@@ -237,17 +237,129 @@ class TestPenalties:
         RegressionMcScan(n_regressors=2),
     ]
 
+    ALL_BUILTIN_DEFAULTS = [
+        ("MeanCUSUM", MeanCUSUM(n_features=1), True),
+        ("Variance", Variance(n_features=1), True),
+        ("MeanOrVariance", MeanOrVariance(n_features=1), True),
+        ("MeanCUSUMUnknownVariance", MeanCUSUMUnknownVariance(n_features=1), True),
+        (
+            "MultivariateMeanIdentityCov",
+            MultivariateMeanIdentityCov(n_features=2),
+            True,
+        ),
+        ("MultivariateMeanUnknownCov", MultivariateMeanUnknownCov(n_features=2), True),
+        (
+            "MultivariateMeanOrCovariance",
+            MultivariateMeanOrCovariance(n_features=2),
+            True,
+        ),
+        ("RegressionDirect", RegressionDirect(n_regressors=2), True),
+        ("RegressionMcScan", RegressionMcScan(n_regressors=2), True),
+        (
+            "ExponentialFamilyGLR",
+            ExponentialFamilyGLR(
+                v=2,
+                n_features=2,
+                h=_h_vector_identity,
+                A=_A_vector_gaussian,
+                A_grad=_Agrad_vector_gaussian,
+                A_hess=_Ahess_vector_gaussian,
+            ),
+            True,
+        ),
+        (
+            "NPFOCuS",
+            NPFOCuS(value_grid=np.linspace(-2.0, 2.0, 9), n_features=1),
+            False,
+        ),
+    ]
+
+    ALL_BUILTINS_DISABLED = [
+        MeanCUSUM(n_features=1, enable_penalty=False),
+        Variance(n_features=1, enable_penalty=False),
+        MeanOrVariance(n_features=1, enable_penalty=False),
+        MeanCUSUMUnknownVariance(n_features=1, enable_penalty=False),
+        MultivariateMeanIdentityCov(n_features=2, enable_penalty=False),
+        MultivariateMeanUnknownCov(n_features=2, enable_penalty=False),
+        MultivariateMeanOrCovariance(n_features=2, enable_penalty=False),
+        RegressionDirect(n_regressors=2, enable_penalty=False),
+        RegressionMcScan(n_regressors=2, enable_penalty=False),
+        ExponentialFamilyGLR(
+            v=2,
+            n_features=2,
+            h=_h_vector_identity,
+            A=_A_vector_gaussian,
+            A_grad=_Agrad_vector_gaussian,
+            A_hess=_Ahess_vector_gaussian,
+            enable_penalty=False,
+        ),
+        NPFOCuS(
+            value_grid=np.linspace(-2.0, 2.0, 9),
+            n_features=1,
+            enable_penalty=False,
+        ),
+    ]
+
+    ALL_BUILTINS_ENABLED = [
+        MeanCUSUM(n_features=1, enable_penalty=True),
+        Variance(n_features=1, enable_penalty=True),
+        MeanOrVariance(n_features=1, enable_penalty=True),
+        MeanCUSUMUnknownVariance(n_features=1, enable_penalty=True),
+        MultivariateMeanIdentityCov(n_features=2, enable_penalty=True),
+        MultivariateMeanUnknownCov(n_features=2, enable_penalty=True),
+        MultivariateMeanOrCovariance(n_features=2, enable_penalty=True),
+        RegressionDirect(n_regressors=2, enable_penalty=True),
+        RegressionMcScan(n_regressors=2, enable_penalty=True),
+        ExponentialFamilyGLR(
+            v=2,
+            n_features=2,
+            h=_h_vector_identity,
+            A=_A_vector_gaussian,
+            A_grad=_Agrad_vector_gaussian,
+            A_hess=_Ahess_vector_gaussian,
+            enable_penalty=True,
+        ),
+        NPFOCuS(
+            value_grid=np.linspace(-2.0, 2.0, 9),
+            n_features=1,
+            enable_penalty=True,
+        ),
+    ]
+
     @pytest.mark.parametrize(
         "score", SCORES_WITH_DEFAULTS, ids=lambda s: type(s).__name__
     )
     def test_time_dependent_penalty_increases(self, score):
-        """TIME_DEPENDENT penalty must be strictly increasing in n_samples."""
+        """Enabled penalty divisor must be strictly increasing in n_samples."""
         p10 = np.asarray(score._get_penalty(10))
         p100 = np.asarray(score._get_penalty(100))
         p1000 = np.asarray(score._get_penalty(1000))
         assert np.all(p10 > 0)
         assert np.all(p100 > p10)
         assert np.all(p1000 > p100)
+
+    @pytest.mark.parametrize(
+        "score",
+        SCORES_WITH_DEFAULTS,
+        ids=lambda s: f"{type(s).__name__}_default",
+    )
+    def test_default_has_penalty_enabled_for_standard_builtins(self, score):
+        """Standard built-ins should keep time-varying penalization enabled."""
+        assert score.enable_penalty is True
+
+    @pytest.mark.parametrize(
+        "name, score, expected_default",
+        ALL_BUILTIN_DEFAULTS,
+        ids=[item[0] for item in ALL_BUILTIN_DEFAULTS],
+    )
+    def test_default_enable_penalty_matches_api_contract(
+        self,
+        name,
+        score,
+        expected_default,
+    ):
+        """All built-ins should match documented default penalty behavior."""
+        assert score.enable_penalty is expected_default, name
 
     @pytest.mark.parametrize(
         "score_cls",
@@ -263,8 +375,45 @@ class TestPenalties:
         ids=lambda c: c.__name__,
     )
     def test_constant_penalty_is_one(self, score_cls):
-        """CONSTANT penalty must return 1.0 regardless of n_samples."""
-        score = score_cls(n_features=2, penalty=PenaltyType.CONSTANT)
+        """Disabled penalty mode must return 1.0 regardless of n_samples."""
+        score = score_cls(n_features=2, enable_penalty=False)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
+
+    @pytest.mark.parametrize(
+        "score",
+        ALL_BUILTINS_DISABLED,
+        ids=lambda s: f"{type(s).__name__}_disabled",
+    )
+    def test_disabled_penalty_is_one_for_all_builtins(self, score):
+        """All built-ins should use constant divisor 1.0 when disabled."""
+        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
+        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
+
+    @pytest.mark.parametrize(
+        "score",
+        ALL_BUILTINS_ENABLED,
+        ids=lambda s: f"{type(s).__name__}_enabled",
+    )
+    def test_enabled_penalty_increases_for_all_builtins(self, score):
+        """All built-ins should have increasing positive divisor when enabled."""
+        p10 = np.asarray(score._get_penalty(10))
+        p100 = np.asarray(score._get_penalty(100))
+        p1000 = np.asarray(score._get_penalty(1000))
+        assert np.all(p10 > 0)
+        assert np.all(p100 > p10)
+        assert np.all(p1000 > p100)
+
+    @pytest.mark.parametrize(
+        "score",
+        [
+            RegressionDirect(n_regressors=2, enable_penalty=False),
+            RegressionMcScan(n_regressors=2, enable_penalty=False),
+        ],
+        ids=lambda s: type(s).__name__,
+    )
+    def test_disabled_penalty_is_one_for_regression_scores(self, score):
+        """Regression scores should return unit divisor when penalty is disabled."""
         np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
         np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
 
@@ -313,6 +462,30 @@ class TestPenalties:
             score._get_penalty(t),
             np.sqrt(2.0 * np.log(t)) + np.log(t),
         )
+
+    def test_exponential_family_glr_default_has_penalty_enabled(self):
+        score = ExponentialFamilyGLR(
+            v=2,
+            n_features=2,
+            h=_h_vector_identity,
+            A=_A_vector_gaussian,
+            A_grad=_Agrad_vector_gaussian,
+            A_hess=_Ahess_vector_gaussian,
+        )
+        assert score.enable_penalty is True
+
+    def test_exponential_family_glr_disabled_penalty_is_one(self):
+        score = ExponentialFamilyGLR(
+            v=2,
+            n_features=2,
+            h=_h_vector_identity,
+            A=_A_vector_gaussian,
+            A_grad=_Agrad_vector_gaussian,
+            A_hess=_Ahess_vector_gaussian,
+            enable_penalty=False,
+        )
+        np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
+        np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
 
 
 # ---------------------------------------------------------------------------

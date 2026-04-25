@@ -8,7 +8,7 @@ import numba as nb
 import numpy as np
 
 from gridcp.scores._score_helpers import as_obs
-from gridcp.typing import ArrayLike, PenaltyType
+from gridcp.typing import ArrayLike
 
 
 @nb.njit(cache=True)
@@ -114,17 +114,16 @@ class NPFOCuS:
         indicator process underlying the score.
     n_features : int, default=1
         Observation dimension expected by the score.
-    penalty : PenaltyType, default=PenaltyType.CONSTANT
-        Penalty mode used to scale the score. ``PenaltyType.CONSTANT`` uses a
-        unit penalty. ``PenaltyType.TIME_DEPENDENT`` uses the same divisor as
-        the two-dimensional exponential-family GLR case with a Bonferroni-style
+    enable_penalty : bool, default=False
+        If ``True``, apply the time-dependent divisor used in the
+        two-dimensional exponential-family GLR case with a Bonferroni-style
         feature correction, ``sqrt(2 log(t p)) + log(t p)`` where
-        ``p = n_features``.
+        ``p = n_features``. If ``False``, use constant divisor 1.0.
     """
 
     value_grid: ArrayLike
     n_features: int = 1
-    penalty: PenaltyType = PenaltyType.CONSTANT
+    enable_penalty: bool = False
 
     def __post_init__(self) -> None:
         """Validate and normalize the evaluation grid and score config."""
@@ -189,12 +188,10 @@ class NPFOCuS:
 
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
-        if self.penalty == PenaltyType.TIME_DEPENDENT:
+        if self.enable_penalty:
             log_tp = np.log(n_samples * self.n_features)
             return np.sqrt(2.0 * log_tp) + log_tp
-        if self.penalty == PenaltyType.CONSTANT:
-            return 1.0
-        raise ValueError(f"Unsupported penalty mode: {self.penalty!r}")
+        return 1.0
 
     def compute_penalised_scores(
         self,
