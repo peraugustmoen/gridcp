@@ -116,12 +116,16 @@ pre-commit run --all-files
 - Threshold values must be strictly positive.
 - `ScoreModel.compute_penalized_scores` must return shape `(G, K)`.
     Single-test scores must return `(G, 1)`.
-- A scalar threshold is expanded to a length-`K` vector on each call.
+- A scalar threshold is expanded to a length-`K` vector on each call once penalized
+    scores are available.
 - A vector threshold must have length `K`.
-- `DetectorOutput.max_score` and `DetectorOutput.max_score_index` are always vectors
-    of shape `(K,)` (including `(1,)` for single-test scores).
-- For `n_samples < 2`, no candidate score exists yet. `max_score` and
-    `max_score_index` are zero vectors of shape `(K,)`.
+- When penalized scores are available, `DetectorOutput.max_score` and
+    `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
+    for single-test scores).
+- For `n_samples < 2`, no candidate score exists yet, so placeholder outputs are
+    returned instead. If `threshold` is scalar, `max_score` and `max_score_index`
+    are length-1 zero vectors at this stage. If `threshold` is a vector, the
+    placeholder vectors match its length.
 
 ### Reset semantics in `GridDetector`
 
