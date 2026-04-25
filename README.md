@@ -114,16 +114,23 @@ pre-commit run --all-files
 ### Threshold shape behavior in `GridDetector`
 
 - Threshold values must be strictly positive.
-- `ScoreModel.compute_penalized_scores` must return shape `(G, K)`.
+- `ScoreModel.n_tests` declares the number of tests `K`. This is the authoritative
+    value for the score output dimension.
+- `ScoreModel.compute_penalized_scores` must return shape `(G, K)` where `K == n_tests`.
     Single-test scores must return `(G, 1)`.
-- A scalar threshold is expanded to a length-`K` vector on each call once penalized
-    scores are available.
-- A vector threshold must have length `K`.
+- A vector threshold must have length `K == n_tests`. **Mismatch is caught at
+    construction time**, not deferred to the first `update()` call.
+- `GridDetector.threshold` is always stored as a 1-D `float64` NumPy array of
+    shape `(K,)`. Scalar inputs are broadcast once at construction time to a
+    length-`K` vector.
 - When penalized scores are available, `DetectorOutput.max_score` and
     `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
     for single-test scores).
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
     `max_score_index` are zero vectors of shape `(K,)`.
+- At runtime, if `compute_penalized_scores` returns an output width that does not
+    match `n_tests`, the detector raises `ValueError` immediately.
+
 
 ### Reset semantics in `GridDetector`
 

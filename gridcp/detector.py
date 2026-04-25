@@ -100,56 +100,41 @@ class GridDetector:
 
     Threshold semantics
     -------------------
-    Penalized scores have shape ``(G, K)`` (including ``K=1`` for single-test
-    scores):
-    - If threshold is scalar, it is broadcast to shape ``(K,)`` on each call.
-    - If threshold is a vector, it must have shape ``(K,)``.
+    ``threshold`` is always stored as a 1-D ``float64`` numpy array of shape
+    ``(K,)`` where ``K = score.n_tests``.  At construction time you may pass
+    either:
+
+    - a scalar (``float`` or 0-D array): broadcast to ``np.full(K, value)``.
+    - a 1-D array of length ``K``: used as-is after casting to ``float64``.
+
+    A mismatch between the array length and ``score.n_tests`` raises
+    ``ValueError`` at construction time.
     """
 
     score: ScoreModel
     threshold: float | np.ndarray = 1.0
 
-    def _resolve_threshold_for_scores(
-        self,
-        threshold: np.ndarray,
-        penalized_scores: np.ndarray,
-    ) -> np.ndarray:
-        """Return threshold shaped for score comparison.
-
-        For ``(G, K)`` score outputs, a scalar threshold is broadcast to all
-        score components.
-        """
-        if penalized_scores.ndim != 2:
-            raise ValueError(
-                "penalized_scores must be a 2-D array with shape (G, K); "
-                f"got shape {penalized_scores.shape}."
-            )
-
-        n_tests = penalized_scores.shape[1]
-        if threshold.ndim == 0:
-            return np.full(n_tests, float(threshold), dtype=np.float64)
-
-        if threshold.ndim != 1 or threshold.shape[0] != n_tests:
-            raise ValueError(
-                "threshold shape mismatch: per-candidate penalized score "
-                f"dimension is K={n_tests}, so threshold must have shape "
-                f"({n_tests},); got threshold shape {threshold.shape}."
-            )
-        return threshold
-
     def __post_init__(self):
-        """Validate the threshold and score object."""
-        th = np.asarray(self.threshold, dtype=np.float64)
-        if th.ndim == 0:
-            if float(th) <= 0:
-                raise ValueError("threshold must be positive.")
-        elif th.ndim == 1:
-            if np.any(th <= 0):
-                raise ValueError("All threshold entries must be positive.")
-        else:
-            raise ValueError("threshold must be a scalar or 1-D array.")
+        """Validate inputs and normalise threshold to a 1-D float64 array."""
         if not isinstance(self.score, ScoreModel):
             raise TypeError("score must implement the ScoreModel protocol.")
+        n_tests = self.score.n_tests
+        th = np.asarray(self.threshold, dtype=np.float64)
+        if th.ndim == 0:
+            th = np.full(n_tests, float(th), dtype=np.float64)
+        elif th.ndim == 1:
+            pass  # shape will be validated below
+        else:
+            raise ValueError("threshold must be a scalar or 1-D array.")
+        if th.shape[0] != n_tests:
+            raise ValueError(
+                f"threshold length {th.shape[0]} does not match "
+                f"score.n_tests={n_tests}. "
+                "Use a scalar threshold (broadcast) or a vector of length n_tests."
+            )
+        if np.any(th <= 0):
+            raise ValueError("All threshold entries must be positive.")
+        object.__setattr__(self, "threshold", th)
 
     def init_state(self) -> DetectorState:
         """Return a fresh initial state with no observations seen.
@@ -200,24 +185,24 @@ class GridDetector:
                     "with shape (G, K); "
                     f"got shape {penalized_scores.shape}."
                 )
-            th = np.asarray(self.threshold, dtype=np.float64)
-            comparison_threshold = self._resolve_threshold_for_scores(
-                th, penalized_scores
-            )
+            declared_k = self.score.n_tests
+            actual_k = penalized_scores.shape[1]
+            if actual_k != declared_k:
+                raise ValueError(
+                    f"score.compute_penalized_scores returned K={actual_k} columns "
+                    f"but score.n_tests declares K={declared_k}. "
+                    "The declared n_tests must match the actual output width."
+                )
+            comparison_threshold = self.threshold
 
             # Per-test max over grid candidates.
             max_score = np.max(penalized_scores, axis=0)
             argmax_per_test = np.argmax(penalized_scores, axis=0)
             max_score_index = argmax_per_test.astype(np.int64, copy=False)
         else:
-            n_tests = self.score.n_tests
-            th = np.asarray(self.threshold, dtype=np.float64)
-            if th.ndim == 0:
-                comparison_threshold = np.full(n_tests, float(th), dtype=np.float64)
-            else:
-                comparison_threshold = th
-            max_score = np.zeros(n_tests, dtype=np.float64)
-            max_score_index = np.zeros(n_tests, dtype=np.int64)
+            comparison_threshold = self.threshold
+            max_score = np.zeros(self.threshold.shape[0], dtype=np.float64)
+            max_score_index = np.zeros(self.threshold.shape[0], dtype=np.int64)
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
