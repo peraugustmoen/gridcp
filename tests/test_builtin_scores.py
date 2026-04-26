@@ -266,17 +266,17 @@ def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
 
 
 def test_multivariate_identity_cov_rejects_wrong_threshold_length():
-    """Threshold vector length must match the number of score components."""
-    p = 4
-    detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
-        threshold=np.array([1.0], dtype=np.float64),
-    )
-    state = detector.init_state()
+    """Threshold vector length must match the number of score components.
 
-    state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
-    with pytest.raises(ValueError, match="threshold shape mismatch"):
-        detector.update(state, np.zeros(p, dtype=np.float64))
+    With the dimension contract in place, the mismatch is caught at construction
+    time (not deferred to update), so GridDetector.__post_init__ should raise.
+    """
+    p = 4
+    with pytest.raises(ValueError, match="n_tests|threshold"):
+        GridDetector(
+            score=MultivariateMeanIdentityCov(n_features=p),
+            threshold=np.array([1.0], dtype=np.float64),
+        )
 
 
 def test_multivariate_identity_cov_accepts_matching_threshold_length():

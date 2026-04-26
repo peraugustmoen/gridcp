@@ -437,8 +437,8 @@ def test_calibrate_threshold_and_with_calibrated_threshold():
     assert np.all(threshold > 0.0)
 
     calibrated = with_calibrated_threshold(detector, threshold)
-    assert calibrated.threshold == threshold
-    assert detector.threshold == 1.0
+    np.testing.assert_array_equal(calibrated.threshold, threshold)
+    np.testing.assert_array_equal(detector.threshold, np.array([1.0]))
 
 
 def test_calibrate_detector_threshold_wrapper_matches_score_first():

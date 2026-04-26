@@ -357,12 +357,12 @@ def _mc_worker_chunk(
         raise RuntimeError("Monte Carlo worker sampler callables are missing.")
 
     n_local_paths = end - start
+    declared_k = _WORKER_DETECTOR.score.n_tests
     out: np.ndarray
     if task == "alarm":
         out = np.empty(n_local_paths, dtype=np.int64)
     else:
-        # For "max", out is allocated lazily once we know K.
-        out = np.empty((0, 0), dtype=np.float64)  # Placeholder; reallocated below
+        out = np.empty((n_local_paths, declared_k), dtype=np.float64)
 
     # One RNG per worker chunk to minimize generator construction overhead.
     local_rng = np.random.default_rng(chunk_seed)
@@ -370,14 +370,13 @@ def _mc_worker_chunk(
     pre_mode: str | None = None
     post_mode: str | None = None
     scalar_buffer = np.empty(n_features, dtype=np.float64)
-    out_allocated = task != "max"
 
     for local_idx in range(n_local_paths):
         path_idx = start + local_idx
         cp = _resolve_changepoint(_WORKER_CHANGEPOINT, local_rng, stream_len, path_idx)
 
         state = _WORKER_DETECTOR.init_state()
-        max_score = None
+        max_score = np.zeros(declared_k, dtype=np.float64)
 
         # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
         # This ranges from 1 to stream_len, not 0 to stream_len-1.
@@ -407,15 +406,7 @@ def _mc_worker_chunk(
 
             if task == "max":
                 temp = np.asarray(output["max_score"], dtype=np.float64)
-                if temp.ndim != 1:
-                    raise ValueError(
-                        "detector output max_score must be 1-D with shape (K,); "
-                        f"got shape {temp.shape}."
-                    )
-                if max_score is None:
-                    max_score = temp.copy()
-                else:
-                    max_score = np.maximum(max_score, temp)
+                np.maximum(max_score, temp, out=max_score)
             elif bool(output["alarm"]):
                 out[local_idx] = t - 1
                 break
@@ -424,13 +415,6 @@ def _mc_worker_chunk(
                 out[local_idx] = stream_len
 
         if task == "max":
-            if max_score is None:
-                # stream_len == 0 edge case
-                max_score = np.zeros(1, dtype=np.float64)
-            if not out_allocated:
-                ms_arr = np.asarray(max_score, dtype=np.float64)
-                out = np.empty((n_local_paths, ms_arr.shape[0]), dtype=np.float64)
-                out_allocated = True
             out[local_idx, :] = max_score
 
     return start, out
@@ -443,32 +427,18 @@ def _mc_max_scores_chunk_from_samples(
     """Compute max scores for a pre-generated sample chunk."""
     n_local = X_chunk.shape[0]
     stream_len = X_chunk.shape[1]
-    out = None
+    declared_k = detector.score.n_tests
+    out = np.empty((n_local, declared_k), dtype=np.float64)
 
     for i in range(n_local):
         state = detector.init_state()
-        max_score = None
+        max_score = np.zeros(declared_k, dtype=np.float64)
         for t in range(stream_len):
             state, output = detector.update(state, X_chunk[i, t, :])
             temp = np.asarray(output["max_score"], dtype=np.float64)
-            if temp.ndim != 1:
-                raise ValueError(
-                    "detector output max_score must be 1-D with shape (K,); "
-                    f"got shape {temp.shape}."
-                )
-            if max_score is None:
-                max_score = temp.copy()
-            else:
-                max_score = np.maximum(max_score, temp)
-        if max_score is None:
-            max_score = np.zeros(1, dtype=np.float64)
-        if out is None:
-            temp_arr = np.asarray(max_score, dtype=np.float64)
-            out = np.empty((n_local, temp_arr.shape[0]), dtype=np.float64)
+            np.maximum(max_score, temp, out=max_score)
         out[i, :] = max_score
 
-    if out is None:
-        out = np.empty((n_local, 1), dtype=np.float64)
     return out
 
 
@@ -980,8 +950,7 @@ def mc_max_scores(
             ]
 
             results = [fut.result() for (_, _), fut in zip(chunks, futures)]
-            first = results[0]
-            max_scores = np.empty((n_paths, first.shape[1]), dtype=np.float64)
+            max_scores = np.empty((n_paths, detector.score.n_tests), dtype=np.float64)
             for (start, end), res in zip(chunks, results):
                 max_scores[start:end] = res
         return max_scores
@@ -1025,6 +994,7 @@ def mc_max_scores(
     base_seed = _derive_base_seed(rng)
     chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
+    max_scores = np.empty((n_paths, detector.score.n_tests), dtype=np.float64)
 
     initargs = (
         _serialize_for_worker(detector),
@@ -1059,8 +1029,6 @@ def mc_max_scores(
 
             for fut in as_completed(futures):
                 start, values = fut.result()
-                if max_scores is None:
-                    max_scores = np.empty((n_paths, values.shape[1]), dtype=np.float64)
                 n_vals = values.shape[0]
                 max_scores[start : start + n_vals] = values
     except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
@@ -1087,7 +1055,6 @@ def mc_max_scores(
             strict_equivalence=False,
         )
 
-    assert max_scores is not None
     return max_scores
 
 
@@ -1457,16 +1424,11 @@ def with_calibrated_threshold(
     detector: GridDetector,
     threshold: float | np.ndarray,
 ) -> GridDetector:
-    """Return a copy of ``detector`` with updated threshold."""
-    th = np.asarray(threshold, dtype=np.float64)
-    if th.ndim == 0:
-        if float(th) <= 0:
-            raise ValueError("threshold must be positive.")
-    elif th.ndim == 1:
-        if np.any(th <= 0):
-            raise ValueError("All threshold entries must be positive.")
-    else:
-        raise ValueError("threshold must be a scalar or 1-D array.")
+    """Return a copy of ``detector`` with updated threshold.
+
+    The threshold is normalised to a 1-D ``float64`` array by
+    ``GridDetector.__post_init__``.
+    """
     return replace(detector, threshold=threshold)
 
 
@@ -1724,9 +1686,8 @@ def calibrate_threshold_false_alarm_from_samples(
 
     Returns
     -------
-    float | np.ndarray
-        Estimated threshold.  Scalar for single-test scores, shape ``(K,)``
-        for multivariate scores.
+    np.ndarray
+        Estimated threshold vector of shape ``(K,)`` (including ``K=1``).
 
     Examples
     --------
@@ -1871,9 +1832,8 @@ def calibrate_threshold_false_alarm_from_data(
 
     Returns
     -------
-    float | np.ndarray
-        Estimated threshold.  Scalar for single-test scores, shape ``(K,)``
-        for multivariate scores.
+    np.ndarray
+        Estimated threshold vector of shape ``(K,)`` (including ``K=1``).
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
