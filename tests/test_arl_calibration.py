@@ -22,6 +22,33 @@ def _normal_sampler(rng):
     return rng.standard_normal()
 
 
+class _CustomOpaqueScore:
+    """Minimal custom score used to validate built-ins-only warning behavior."""
+
+    def __init__(self, n_features: int = 1, *, enable_penalty: bool | None = None):
+        self._n_features = n_features
+        if enable_penalty is not None:
+            self.enable_penalty = enable_penalty
+
+    @property
+    def n_features(self) -> int:
+        return self._n_features
+
+    @property
+    def n_tests(self) -> int:
+        return 1
+
+    def init_state(self):
+        return {"sum": np.zeros(self._n_features, dtype=np.float64)}
+
+    def update(self, state, x):
+        x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
+        return {"sum": state["sum"] + x_arr[: self._n_features]}
+
+    def compute_penalized_scores(self, state, grid_states):
+        return np.zeros((len(grid_states), 1), dtype=np.float64)
+
+
 # ---------------------------------------------------------------------------
 # calibrate_threshold_arl (MC-based)
 # ---------------------------------------------------------------------------
@@ -69,6 +96,48 @@ class TestCalibrateThresholdArl:
     def test_stationarity_warning_on_non_constant_penalty(self):
         score = MeanCUSUM(n_features=1)  # default: time-dependent penalty
         with pytest.warns(UserWarning, match="stationary"):
+            calibrate_threshold_arl(
+                score,
+                target_arl=20,
+                n_paths=10,
+                pre_sampler=_normal_sampler,
+                rng=0,
+                parallel=False,
+            )
+
+    def test_builtin_with_enable_penalty_true_warns(self):
+        score = MeanCUSUM(n_features=1, enable_penalty=True)
+        with pytest.warns(UserWarning, match="stationary"):
+            calibrate_threshold_arl(
+                score,
+                target_arl=20,
+                n_paths=10,
+                pre_sampler=_normal_sampler,
+                rng=0,
+                parallel=False,
+            )
+
+    def test_no_warning_for_constant_penalty(self):
+        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        with warnings.catch_warnings():
+            import warnings as _warnings
+
+            _warnings.simplefilter("error", UserWarning)
+            calibrate_threshold_arl(
+                score,
+                target_arl=20,
+                n_paths=10,
+                pre_sampler=_normal_sampler,
+                rng=0,
+                parallel=False,
+            )
+
+    def test_custom_score_with_enable_penalty_true_does_not_warn(self):
+        score = _CustomOpaqueScore(n_features=1, enable_penalty=True)
+        with warnings.catch_warnings():
+            import warnings as _warnings
+
+            _warnings.simplefilter("error", UserWarning)
             calibrate_threshold_arl(
                 score,
                 target_arl=20,
@@ -163,6 +232,15 @@ class TestCalibrateArlFromSamples:
 
     def test_no_warning_for_constant_penalty(self):
         score = MeanCUSUM(n_features=1, enable_penalty=False)
+        samples = np.random.default_rng(0).normal(size=(20, 10, 1))
+        with warnings.catch_warnings():
+            import warnings as _warnings
+
+            _warnings.simplefilter("error", UserWarning)
+            calibrate_threshold_arl_from_samples(score=score, samples=samples)
+
+    def test_custom_score_without_enable_penalty_does_not_warn(self):
+        score = _CustomOpaqueScore(n_features=1)
         samples = np.random.default_rng(0).normal(size=(20, 10, 1))
         with warnings.catch_warnings():
             import warnings as _warnings

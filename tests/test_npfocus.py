@@ -106,6 +106,23 @@ def test_npfocus_constant_penalty_is_one():
     assert score._get_penalty(1000) == 1.0
 
 
+@pytest.mark.parametrize(
+    ("value_grid", "match"),
+    [
+        ([], "non-empty"),
+        ([[0.0, 1.0]], "one-dimensional"),
+        ([0.0, np.nan, 1.0], "finite"),
+        ([0.0, 1.0, 1.0], "strictly increasing"),
+        ([1.0, 0.5], "strictly increasing"),
+        ([0.0 + 1.0j, 1.0 + 0.0j], "real values"),
+        (object(), "array-like"),
+    ],
+)
+def test_npfocus_rejects_invalid_value_grid(value_grid, match):
+    with pytest.raises(ValueError, match=match):
+        NPFOCuS(value_grid=value_grid, n_features=1)
+
+
 def test_npfocus_multivariate_update_and_score_shapes():
     score = NPFOCuS(
         value_grid=np.linspace(-2.0, 2.0, 11),

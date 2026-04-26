@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import numba as nb
 import numpy as np
+from numpy.typing import NDArray
 
 from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike
@@ -130,12 +132,33 @@ class NPFOCuS:
         """Number of tests returned by ``compute_penalized_scores``."""
         return 2
 
+    @property
+    def _value_grid_array(self) -> NDArray[np.float64]:
+        """Return the normalized value grid as a float64 ndarray."""
+        return cast(NDArray[np.float64], self.value_grid)
+
     def __post_init__(self) -> None:
         """Validate and normalize the evaluation grid and score config."""
         if self.n_features < 1:
             raise ValueError("n_features must be >= 1.")
 
-        value_grid_arr = np.asarray(self.value_grid, dtype=np.float64)
+        try:
+            raw_value_grid = np.asarray(self.value_grid)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "value_grid must be an array-like of real numeric values."
+            ) from exc
+
+        if np.iscomplexobj(raw_value_grid):
+            raise ValueError("value_grid must contain real values, not complex.")
+
+        try:
+            value_grid_arr = np.asarray(raw_value_grid, dtype=np.float64)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "value_grid must be an array-like of real numeric values."
+            ) from exc
+
         if value_grid_arr.ndim != 1:
             raise ValueError("value_grid must be a one-dimensional array.")
         if value_grid_arr.size == 0:
@@ -149,8 +172,9 @@ class NPFOCuS:
 
     def init_state(self) -> NPFOCuSState:
         """Return a fresh initial state with no observations seen."""
+        value_grid_arr = self._value_grid_array
         return NPFOCuSState(
-            n_smaller=np.zeros((self.n_features, self.value_grid.size), dtype=np.int64),
+            n_smaller=np.zeros((self.n_features, value_grid_arr.size), dtype=np.int64),
         )
 
     def update(
@@ -160,10 +184,11 @@ class NPFOCuS:
     ) -> NPFOCuSState:
         """Update the state with one observation."""
         x_arr = as_obs(x, self.n_features)
+        value_grid_arr = self._value_grid_array
 
         next_n_samples = state.n_samples + 1
         next_n_smaller = state.n_smaller + (
-            x_arr[:, None] <= self.value_grid[None, :]
+            x_arr[:, None] <= value_grid_arr[None, :]
         ).astype(np.int64)
         return NPFOCuSState(
             n_samples=next_n_samples,

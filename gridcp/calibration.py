@@ -1580,8 +1580,12 @@ def _compute_arl_threshold_from_max_scores(
 
 
 def _warn_if_non_constant_penalty(score: ScoreModel) -> None:
-    enable_penalty = getattr(score, "enable_penalty", None)
-    if enable_penalty:
+    # Import lazily to avoid importing all built-in scores at module import time.
+    from gridcp.scores import BUILTIN_SCORE_TYPES
+
+    is_builtin_score = isinstance(score, BUILTIN_SCORE_TYPES)
+    enable_penalty = bool(getattr(score, "enable_penalty", False))
+    if is_builtin_score and enable_penalty:
         warnings.warn(
             "ARL calibration requires a stationary score. "
             "The supplied score uses a time-dependent penalty, which will "
@@ -2025,8 +2029,10 @@ def calibrate_threshold_arl(
     to E[alarm time] = γ.
 
     This calibration is only meaningful when the score statistic is stationary
-    under the null.  Scores with time-dependent penalties will trigger a
-    ``UserWarning``.
+    under the null. For built-in score classes with ``enable_penalty=True``,
+    a ``UserWarning`` is emitted because their time-dependent penalties violate
+    this assumption. Custom scores are treated as opaque and are not
+    auto-classified for this warning.
 
     To match a false alarm probability α over horizon N, set:
 
@@ -2144,8 +2150,9 @@ def calibrate_threshold_arl_from_samples(
     Notes
     -----
     ARL calibration is only valid when the score is stationary under the null.
-    Scores with time-dependent penalties (anything other than
-    ``enable_penalty=False``) will trigger a ``UserWarning``.
+    For built-in score classes with ``enable_penalty=True``, a ``UserWarning``
+    is emitted. Custom scores are treated as opaque and are not automatically
+    inferred to be time-dependent for this warning.
     """
     _warn_if_non_constant_penalty(score)
 
@@ -2248,7 +2255,9 @@ def calibrate_threshold_arl_from_data(
     Notes
     -----
     ARL calibration is only valid when the score is stationary under the null.
-    Scores with time-dependent penalties will trigger a ``UserWarning``.
+    For built-in score classes with ``enable_penalty=True``, a ``UserWarning``
+    is emitted. Custom scores are treated as opaque and are not automatically
+    inferred to be time-dependent for this warning.
     """
     _warn_if_non_constant_penalty(score)
 

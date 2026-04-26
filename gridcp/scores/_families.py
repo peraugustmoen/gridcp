@@ -271,8 +271,8 @@ def _Ah_gaussian_covariance(theta):
     if sign <= 0.0:
         return np.full((v, v), np.nan)
     Mi = np.linalg.inv(M)
-    rows = np.empty(v, dtype=nb.int64)
-    cols = np.empty(v, dtype=nb.int64)
+    rows = np.empty(v, dtype=np.int64)
+    cols = np.empty(v, dtype=np.int64)
     idx = 0
     for i in range(p):
         for j in range(i, p):
