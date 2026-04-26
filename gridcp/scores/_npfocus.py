@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 import numba as nb
 import numpy as np
+from numpy.typing import NDArray
 
 from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike
@@ -121,7 +122,7 @@ class NPFOCuS:
         ``p = n_features``. If ``False``, use constant divisor 1.0.
     """
 
-    value_grid: ArrayLike
+    value_grid: NDArray[np.float64]
     n_features: int = 1
     enable_penalty: bool = False
 

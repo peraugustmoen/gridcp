@@ -1,7 +1,7 @@
 """The online grid detector."""
 
 from dataclasses import dataclass, field
-from typing import Generic
+from typing import Generic, cast
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -174,11 +174,12 @@ class GridDetector:
             n_samples=new_n_samples,
         )
 
+        threshold = cast(np.ndarray, self.threshold)
         current_n_tests = self.score.n_tests
-        if current_n_tests != self.threshold.shape[0]:
+        if current_n_tests != threshold.shape[0]:
             raise ValueError(
                 f"score.n_tests has changed since construction: expected "
-                f"{self.threshold.shape[0]} but got {current_n_tests}. "
+                f"{threshold.shape[0]} but got {current_n_tests}. "
                 "score.n_tests must remain constant across calls."
             )
 
@@ -201,16 +202,16 @@ class GridDetector:
                     f"but score.n_tests declares K={declared_k}. "
                     "The declared n_tests must match the actual output width."
                 )
-            comparison_threshold = self.threshold
+            comparison_threshold = threshold
 
             # Per-test max over grid candidates.
             max_score = np.max(penalized_scores, axis=0)
             argmax_per_test = np.argmax(penalized_scores, axis=0)
             max_score_index = argmax_per_test.astype(np.int64, copy=False)
         else:
-            comparison_threshold = self.threshold
-            max_score = np.zeros(self.threshold.shape[0], dtype=np.float64)
-            max_score_index = np.zeros(self.threshold.shape[0], dtype=np.int64)
+            comparison_threshold = threshold
+            max_score = np.zeros(threshold.shape[0], dtype=np.float64)
+            max_score_index = np.zeros(threshold.shape[0], dtype=np.int64)
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
