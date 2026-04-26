@@ -78,19 +78,6 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from gridcp.detector import GridDetector
-from gridcp.scores import (
-    ExponentialFamilyGLR,
-    MeanCUSUM,
-    MeanCUSUMUnknownVariance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
-    NPFOCuS,
-    RegressionDirect,
-    RegressionMcScan,
-    Variance,
-)
 from gridcp.typing import ScoreModel
 
 # Changepoint callables receive ``(rng, stream_len, path_index)`` and must
@@ -114,21 +101,6 @@ _WORKER_POST_KWARGS: Mapping[str, Any] | None = None
 _WORKER_CHANGEPOINT: ChangepointSpec = None
 _WORKER_PRE_CALL: Callable[[np.random.Generator], Any] | None = None
 _WORKER_POST_CALL: Callable[[np.random.Generator], Any] | None = None
-
-
-_BUILTIN_SCORE_TYPES: tuple[type[Any], ...] = (
-    MeanCUSUM,
-    MeanCUSUMUnknownVariance,
-    Variance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanUnknownCov,
-    MultivariateMeanOrCovariance,
-    RegressionMcScan,
-    RegressionDirect,
-    ExponentialFamilyGLR,
-    NPFOCuS,
-)
 
 
 def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
@@ -1608,7 +1580,10 @@ def _compute_arl_threshold_from_max_scores(
 
 
 def _warn_if_non_constant_penalty(score: ScoreModel) -> None:
-    is_builtin_score = isinstance(score, _BUILTIN_SCORE_TYPES)
+    # Import lazily to avoid importing all built-in scores at module import time.
+    from gridcp.scores import BUILTIN_SCORE_TYPES
+
+    is_builtin_score = isinstance(score, BUILTIN_SCORE_TYPES)
     enable_penalty = bool(getattr(score, "enable_penalty", False))
     if is_builtin_score and enable_penalty:
         warnings.warn(

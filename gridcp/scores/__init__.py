@@ -18,6 +18,21 @@ from gridcp.scores._exponential_family_glr import ExponentialFamilyGLR
 from gridcp.scores._npfocus import NPFOCuS
 
 
+BUILTIN_SCORE_TYPES = (
+    MeanCUSUM,
+    MeanCUSUMUnknownVariance,
+    Variance,
+    MeanOrVariance,
+    MultivariateMeanIdentityCov,
+    MultivariateMeanUnknownCov,
+    MultivariateMeanOrCovariance,
+    RegressionMcScan,
+    RegressionDirect,
+    ExponentialFamilyGLR,
+    NPFOCuS,
+)
+
+
 __all__ = [
     "MeanCUSUM",
     "MeanCUSUMUnknownVariance",
@@ -30,4 +45,5 @@ __all__ = [
     "RegressionDirect",
     "ExponentialFamilyGLR",
     "NPFOCuS",
+    "BUILTIN_SCORE_TYPES",
 ]

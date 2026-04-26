@@ -73,5 +73,6 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 ## Coding notes
 
 - Always run ruff linting after editing code so that pre-commit hooks pass
+- Always check for and fix Pylance errors
 - Always write or adjust tests before writing new/changed functionality — tests should reflect desired behavior, not be retrofitted to match what the code does
 - Spelling should always be according to American English
