@@ -227,6 +227,10 @@ def test_regression_direct_parity_with_old_api():
     )
     new_det = GridDetector(score=RegressionDirect(n_regressors=q), threshold=1.0)
 
+    # The new API uses guard n1 < q (Gram matrix full rank at n1 = q), while
+    # the old API used n1 <= q (off by one, too conservative).  The running
+    # sufficient statistics and grid positions still match; only the max
+    # statistic can differ at exactly n1 = q.
     _run_parity_check(
         X=x,
         old_detector=old_det,
@@ -237,4 +241,5 @@ def test_regression_direct_parity_with_old_api():
         candidate_from_new_state=lambda st: np.concatenate(
             [st.yx_sum, st.xx_sum.reshape(-1)]
         ),
+        check_max_statistic=False,
     )

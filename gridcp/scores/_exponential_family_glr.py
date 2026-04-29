@@ -560,20 +560,48 @@ class ExponentialFamilyGLRState:
 class ExponentialFamilyGLR:
     """GLR score for canonical exponential families.
 
-    Canonical exponential families have density of the form
+    Under no change, X_1, ..., X_t are i.i.d. with density from a canonical
+    exponential family
 
-        f(x; θ) = c(x) exp(θᵀ h(x) - A(θ)).
+        f(x; θ) = c(x) exp(θᵀ h(x) - A(θ)),
 
-    Here, θ is the natural parameter, h(x) is the sufficient statistic, and
-    A(θ) is the log-partition function. c(x) is the base measure, which does not depend on θ and
-    is thus not needed to compute the GLR score.
+    where θ is the natural parameter, h(x) is the sufficient statistic, and
+    A(θ) is the log-partition function; under a change at τ, X_1, ..., X_{τ-1}
+    have parameter θ₁ and X_τ, ..., X_t have parameter θ₂ ≠ θ₁.
 
     The user supplies the sufficient statistic ``h``, log-partition ``A``, and
-    first and second derivatives of A. Built-in families are available via :meth:`from_family`.
+    first and second derivatives of A.  Built-in families are available via
+    :meth:`from_family`.
 
-    The default centering/penalty calibration is asymptotic: it uses the
-    centered statistic ``2*GLR - v`` together with the Wilks-style penalty
-    ``sqrt(v log t) + log t``. This is not exact finite-sample.
+    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    post-change observations, the generalized log-likelihood ratio is
+
+        GLR(n_1, t) = ℓ(θ̂₁; x_{1:n_1}) + ℓ(θ̂₂; x_{n_1+1:t}) − ℓ(θ̂_null; x_{1:t}),
+
+    where ℓ(θ; x_{a:b}) = θᵀ Σh(xᵢ) - n A(θ) is the log-likelihood and θ̂
+    are the MLEs obtained by Newton's method.  The final score is
+
+        score(n_1, t) = (2 GLR(n_1, t) - v) / pen(t).
+
+    **Aggregation.**  The score produces a single test statistic per candidate
+    (``n_tests = 1``).  No per-feature aggregation is performed; the GLR
+    operates on the full sufficient-statistic vector.
+
+    **Centering and penalty.**  The centered statistic is ``2 * GLR - v``
+    (centering by v, the chi-squared df under Wilks' theorem for a
+    v-dimensional exponential family parameter).  When ``enable_penalty=True``
+    (default), the centered statistic is divided by
+    ``pen(t) = sqrt(v log t) + log t``; this is an asymptotic Wilks-style
+    approximation.  When ``enable_penalty=False``, the divisor is 1.0 and the
+    raw centered statistic is returned.
+
+    **Sample size requirement.**  Candidates with fewer than ``min_seg``
+    observations on either side (default: v + 1) return 0.
+
+    **Implementation.**  MLEs are computed by Newton's method with backtracking
+    line search, warm-started one step from ``theta_init``.  If all supplied
+    callables are Numba-compiled, the solvers and kernels are JIT-compiled for
+    maximum performance; otherwise they fall back to plain NumPy.
 
     Parameters
     ----------
@@ -616,31 +644,11 @@ class ExponentialFamilyGLR:
         Minimum number of observations required on each side of a candidate
         changepoint.  Candidates with fewer observations are assigned a score
         of 0.  Defaults to ``v + 1``, which is the minimum needed to identify
-        ``v`` parameters.  Must be at least 2.
-    enable_penalty : bool, optional
-        If ``True`` (default), use ``sqrt(v log t) + log t`` after centering
-        the ``2*GLR`` statistic by ``v``. If ``False``, use constant divisor
-        1.0.
-
-    Notes
-    -----
-    The score computed for each candidate changepoint s at time t is:
-
-        score(s, t) = (2 GLR(s, t) - v) / divisor(t)
-
-    where the generalized log-likelihood ratio is:
-
-        GLR(s, t) = ℓ(θ̂_pre; x_{1:s}) + ℓ(θ̂_post; x_{s+1:t}) − ℓ(θ̂_null; x_{1:t})
-
-    and the default divisor is:
-
-        divisor(t) = √(v log t) + log t
-
-    A candidate triggers an alarm when its score exceeds the calibrated
-    threshold.  MLEs are computed by Newton's method, warm-started one step
-    from ``theta_init``.  If all supplied callables are Numba-compiled, the
-    solvers and kernels are JIT-compiled for maximum performance; otherwise
-    they fall back to plain NumPy.
+        ``v`` parameters.  Must be at least 1.
+    enable_penalty : bool, default=True
+        If ``True`` (default), use ``sqrt(v log t) + log t`` as divisor after
+        centering the ``2*GLR`` statistic by ``v``.  If ``False``, the divisor
+        is 1.0.
 
     Examples
     --------

@@ -25,7 +25,7 @@ def mean_cusum_score(
     total_sum : np.ndarray
         Cumulative sum over all observations, shape ``(n_features,)``.
     before_sums : np.ndarray
-        Cumulative sums for each grid candidate, shape ``(G, n_features)``.
+        Per-candidate sums of observations, shape ``(G, n_features)``.
     total_samples : int
         Total number of observations seen so far.
     before_samples : np.ndarray
@@ -34,7 +34,9 @@ def mean_cusum_score(
     Returns
     -------
     np.ndarray
-        CUSUM scores for each candidate, shape ``(G,)``.
+        Centered max CUSUM scores for each candidate, shape ``(G,)``.
+        Each value is ``max_j C_j - 1`` where
+        ``C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²``.
     """
     after_samples = total_samples - before_samples
     after_sums = total_sum - before_sums
@@ -63,6 +65,7 @@ def mean_cusum_score(
 
 @nb.njit(cache=True)
 def mean_cusum_penalty(n_samples: int, n_features: int) -> float:
+    """Return the penalty divisor ``log(t p) + sqrt(log(t p))``."""
     logg = np.log(n_samples * n_features)
     return logg + np.sqrt(logg)
 
@@ -90,21 +93,44 @@ class MeanCUSUMState:
 
 @dataclass(frozen=True, slots=True)
 class MeanCUSUM:
-    """CUSUM score for a change in the mean.
+    """CUSUM score for a change in the mean with known unit variance.
 
-    This score compares the mean of the data before and after the split within the
-    interval from ``start:end``. It is based on the cumulative sum of the data and,
-    for ``n_features > 1``, uses the maximum coordinate-wise squared CUSUM.
+    Under no change, X_1, ..., X_t are i.i.d. N(μ, I_p); under a change at τ,
+    X_1, ..., X_{τ-1} ~ N(μ₁, I_p) and X_τ, ..., X_t ~ N(μ₂, I_p) with μ₁ ≠ μ₂.
 
-    Centering by ``-1`` and the default time-dependent penalty
-    ``log(t p) + sqrt(log(t p))`` come from non-asymptotic Gaussian/chi-square
-    concentration bounds, with ``p = n_features``.
+    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    post-change observations, the per-coordinate squared CUSUM statistic is
+
+        C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²,
+
+    which equals the squared coordinate-j CUSUM and is the exact
+    2 * LR under known unit variance.  Under the null, C_j is
+    chi-squared(1) for each j.
+
+    **Aggregation.**  For ``n_features > 1``, the score is ``max_j C_j``,
+    sensitive to changes concentrated in any single coordinate.  For a dense
+    multivariate test that aggregates all coordinates, use
+    :class:`MultivariateMeanIdentityCov`, which also returns the coordinate-sum
+    statistic.
+
+    **Centering and penalty.**  The statistic is centered by subtracting 1 (the
+    chi-squared(1) mean).  When ``enable_penalty=True`` (default), the centered
+    score is divided by the time-dependent penalty
+    ``log(t p) + sqrt(log(t p))``, where p = ``n_features``; this penalty is
+    derived from a non-asymptotic Gaussian concentration bound.  When
+    ``enable_penalty=False``, the divisor is 1.0 and the raw centered statistic
+    is returned.
+
+    **Sample size requirement.**  None.
 
     Parameters
     ----------
     n_features : int, default=1
-        Number of features in the input data. This determines the shape of the running
-        sum statistic.
+        Number of features in the input data. This determines the shape of the
+        running sum statistic.
+    enable_penalty : bool, default=True
+        If ``True``, divide the centered score by ``log(t p) + sqrt(log(t p))``.
+        If ``False``, return the raw centered statistic with divisor 1.0.
 
     Examples
     --------
