@@ -99,28 +99,50 @@ class NPFOCuSState:
 class NPFOCuS:
     """Nonparametric FOCuS score for changepoint detection.
 
-    The score discretizes the sample space using a one-dimensional evaluation
-    grid. For each feature and each grid point it tracks the running count of
-    observations below that point, then forms a two-statistic score from the
-    resulting Bernoulli likelihood-ratio values across the grid:
-    the grid-sum and the grid-maximum.
+    Under no change, X_1, ..., X_t are i.i.d. with unknown distribution F;
+    under a change at τ, X_1, ..., X_{τ-1} ~ F₁ and X_τ, ..., X_t ~ F₂ for
+    continuous distributions F₁ ≠ F₂.
 
-    For ``n_features > 1``, NPFOCuS is applied independently to each feature
-    and the final two-component score is the maximum across features, matching
-    the channelwise-max convention used by the other univariate-style scores.
+    **Score.**  The score discretizes each feature's marginal using the
+    user-supplied ``value_grid``.  For each threshold v_k in the grid, the
+    indicator I(x ≤ v_k) is Bernoulli with parameter F(v_k) under no change.
+    The Bernoulli LR statistic is computed for each grid point and candidate
+    changepoint.
+
+    **Aggregation.**  The grid LR values are combined into two test statistics
+    per candidate (``n_tests = 2``):
+
+    - **Column 0 (sum):** Σₖ 2 * LR_k(b), summing Bernoulli LR values across
+      all grid points.
+    - **Column 1 (max):** max_k 2 * LR_k(b), the maximum Bernoulli LR across
+      grid points.
+
+    For ``n_features > 1``, both columns are computed per feature and the
+    per-feature maximum is taken, matching the channelwise-max convention of
+    the other univariate-style scores.
+
+    **Centering and penalty.**  No centering constant is subtracted from either
+    output column.  ``enable_penalty`` defaults to ``False`` for this score,
+    as threshold calibration is typically done empirically.  When
+    ``enable_penalty=True``, both columns are divided by
+    ``sqrt(2 log(t p)) + log(t p)``, where p = ``n_features``; this follows
+    a Bonferroni-corrected penalty analogous to the two-dimensional
+    exponential-family GLR case.  When ``enable_penalty=False`` (default), the
+    divisor is 1.0 and the raw scores are returned.
+
+    **Sample size requirement.**  None.
 
     Parameters
     ----------
     value_grid : ArrayLike
-        Strictly increasing one-dimensional grid used to construct the
-        indicator process underlying the score.
+        Strictly increasing one-dimensional grid of threshold values used to
+        construct the indicator process underlying the score.
     n_features : int, default=1
         Observation dimension expected by the score.
     enable_penalty : bool, default=False
-        If ``True``, apply the time-dependent divisor used in the
-        two-dimensional exponential-family GLR case with a Bonferroni-style
-        feature correction, ``sqrt(2 log(t p)) + log(t p)`` where
-        ``p = n_features``. If ``False``, use constant divisor 1.0.
+        If ``True``, apply the time-dependent divisor
+        ``sqrt(2 log(t p)) + log(t p)`` to both output columns.
+        If ``False`` (default), use divisor 1.0.
     """
 
     value_grid: ArrayLike

@@ -90,18 +90,22 @@ def mean_unknown_variance_score(
 
 @nb.njit(cache=True)
 def mean_unknown_variance_penalty(n_samples: int, n_features: int) -> float:
+    """Return the penalty divisor ``log(t p) + sqrt(log(t p))``."""
     logg = np.log(n_samples * n_features)
     return logg + np.sqrt(logg)
 
 
 @dataclass(slots=True)
 class MeanCUSUMUnknownVarianceState:
-    """Running sufficient statistics for unknown-variance mean-change score.
+    """Running sufficient statistics for the MeanCUSUMUnknownVariance score.
 
-    For univariate series, ``stats`` has shape ``(2,)`` with
-    ``[sum(x), sum(x^2)]``.
-    For multivariate series, ``stats`` has shape ``(2, n_features)`` with rows
-    ``sum(x)`` and ``sum(x^2)``.
+    Parameters
+    ----------
+    n_samples : int
+        Number of samples seen so far.
+    stats : np.ndarray
+        Running sufficient statistics ``[sum(x), sum(x²)]``.  Shape ``(2,)``
+        for univariate series or ``(2, n_features)`` for multivariate series.
     """
 
     n_samples: int = 0
@@ -110,20 +114,43 @@ class MeanCUSUMUnknownVarianceState:
 
 @dataclass(frozen=True, slots=True)
 class MeanCUSUMUnknownVariance:
-    """Mean-change score under unknown variance.
+    """Mean-change score with unknown common variance.
 
-    Uses Gaussian likelihood-ratio style scoring with unknown variance and
-    sufficient statistics ``[sum(x), sum(x^2)]`` per feature.
+    Under no change, X_1, ..., X_t are i.i.d. N(μ, σ²I_p) with σ² unknown;
+    under a change at τ, X_1, ..., X_{τ-1} ~ N(μ₁, σ²I_p) and
+    X_τ, ..., X_t ~ N(μ₂, σ²I_p) with μ₁ ≠ μ₂ and common unknown variance σ².
 
-    For ``n_features > 1``, the score is the maximum of the feature-wise LR
-    statistics. Centering by ``-1`` and the default penalty
-    ``log(t p) + sqrt(log(t p))`` follow a Wilks-style ``chi^2_1``
-    approximation per feature, not an exact finite-sample null law.
+    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    post-change observations, the twice profile log-likelihood ratio is
+
+        2 * LR = t * (log σ̂²_null - log σ̂²_alt),
+
+    where σ̂²_null is the biased variance of the full window and σ̂²_alt is the
+    pooled biased variance of the two segments (both estimated under the
+    shared-variance model).  By Wilks' theorem, 2 * LR is asymptotically
+    chi-squared(1) under the null.
+
+    **Aggregation.**  For ``n_features > 1``, the above statistic is computed
+    independently for each feature and the maximum is taken, matching the
+    coordinate-max convention of :class:`MeanCUSUM`.
+
+    **Centering and penalty.**  Each per-feature statistic is centered by
+    subtracting 1 (the chi-squared(1) mean), and the maximum is taken after
+    centering.  When ``enable_penalty=True`` (default), the centered score is
+    divided by ``log(t p) + sqrt(log(t p))``, where p = ``n_features``; this is
+    an asymptotic Wilks-style approximation.  When ``enable_penalty=False``, the
+    divisor is 1.0 and the raw centered statistic is returned.
+
+    **Sample size requirement.**  Candidates with n_1 ≤ 2 or n_2 ≤ 2 return
+    0.0 to avoid degenerate variance estimates.
 
     Parameters
     ----------
     n_features : int, default=1
         Number of features expected in each observation.
+    enable_penalty : bool, default=True
+        If ``True``, divide the centered score by ``log(t p) + sqrt(log(t p))``.
+        If ``False``, return the raw centered score with divisor 1.0.
     """
 
     n_features: int = 1
@@ -151,7 +178,20 @@ class MeanCUSUMUnknownVariance:
         state: MeanCUSUMUnknownVarianceState,
         x: ArrayLike,
     ) -> MeanCUSUMUnknownVarianceState:
-        """Update sufficient statistics with one observation."""
+        """Update the state with a new observation.
+
+        Parameters
+        ----------
+        state : MeanCUSUMUnknownVarianceState
+            Current state.
+        x : ArrayLike
+            New observation, shape ``(n_features,)``.
+
+        Returns
+        -------
+        MeanCUSUMUnknownVarianceState
+            Updated state.
+        """
         x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
         if x_arr.size != self.n_features:
             raise ValueError(
