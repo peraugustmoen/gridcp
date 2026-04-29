@@ -452,8 +452,9 @@ def test_no_runtime_warnings_mean_or_covariance():
 def test_no_runtime_warnings_mean_unknown_cov():
     """No RuntimeWarning is raised during a long null stream (p=20).
 
-    With the guard t >= p+2 and no inner segment-size guard, slogdet is
-    only called when the pooled scatter matrix is genuinely full rank.
+    With the conservative guard t >= 2*p+2 and no inner segment-size
+    guard, slogdet is only called when the pooled scatter matrix is
+    genuinely full rank.
     """
     import warnings
 
