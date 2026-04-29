@@ -844,7 +844,12 @@ def mc_max_scores(
     n_jobs: int | None = None,
     strict_equivalence: bool = False,
 ) -> np.ndarray:
-    """Run Monte Carlo paths and return the maximum score for each path.
+    """Run Monte Carlo paths and return per-path maxima of penalized scores.
+
+    For each path and each test component ``k`` (``k=1,...,K``), this function
+    records the maximum over time of ``output["max_score"][k]`` returned by
+    :meth:`GridDetector.update`. Since ``GridDetector`` compares thresholds
+    against penalized scores, the returned maxima are penalized-score maxima.
 
     Reproducibility follows the ``rng`` argument:
     - ``Generator``: continues from its current state.
@@ -874,17 +879,23 @@ def mc_max_scores(
 
     If ``changepoint`` is provided, ``post_sampler`` must also be provided.
 
-        Input requirements
-        ------------------
-        ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
+    Input requirements
+    ------------------
+    ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
 
-        ``changepoint`` must be one of:
-        - ``None`` (all pre-change)
-                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
-                    ``0`` = all post-change, ``stream_len`` = all pre-change.
-        - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``. The callable must accept these three
-            arguments in that order.
+    ``changepoint`` must be one of:
+    - ``None`` (all pre-change)
+    - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+        ``0`` means all post-change and ``stream_len`` means all pre-change.
+    - callable ``f(rng, stream_len, path_index) -> int`` returning a value in
+        ``[0, stream_len]``. The callable must accept these three arguments in
+        that order.
+
+    Returns
+    -------
+    np.ndarray
+        Array with shape ``(n_paths, K)`` containing per-path maxima of
+        penalized detection scores (including ``K=1``).
     """
     n_features: int = detector.score.n_features
 
@@ -1112,7 +1123,7 @@ def mc_alarm_times(
     scalar outputs are broadcast to length ``n_features`` and non-scalar
     outputs are flattened and required to have total size ``n_features``.
 
-    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
+        If ``changepoint`` is provided, ``post_sampler`` must also be provided.
 
         Input requirements
         ------------------
@@ -1120,11 +1131,11 @@ def mc_alarm_times(
 
         ``changepoint`` must be one of:
         - ``None`` (all pre-change)
-                - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
-                    ``0`` = all post-change, ``stream_len`` = all pre-change.
-        - callable ``f(rng, stream_len, path_index) -> int`` returning
-            ``[0, stream_len]``. The callable must accept these three
-            arguments in that order.
+        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
+            ``0`` means all post-change and ``stream_len`` means all pre-change.
+        - callable ``f(rng, stream_len, path_index) -> int`` returning a value in
+            ``[0, stream_len]``. The callable must accept these three arguments in
+            that order.
     """
     n_features: int = detector.score.n_features
 
@@ -1315,17 +1326,16 @@ def calibrate_threshold_false_alarm(
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
 ) -> np.ndarray:
-    """Estimate a score threshold from Monte Carlo max scores under the null.
+    """Estimate score threshold(s) from null Monte Carlo max penalized scores.
 
-    Applies a Bonferroni correction by
-    default: each per-test threshold is set at the ``(1 - alpha/K)`` quantile,
-    and the result is a 1-D array of shape ``(K,)`` (including ``K=1``).
-    This can be disabled by
-    setting ``apply_bonferroni=False``.
+    Applies a Bonferroni correction by default: each per-test threshold is set
+    at the ``(1 - alpha/K)`` quantile, and the result is a 1-D array of shape
+    ``(K,)`` (including ``K=1``). This can be disabled by setting
+    ``apply_bonferroni=False``.
 
     Parameters
     ----------
-    score : Any
+    score : ScoreModel
         Score model compatible with ``GridDetector``.
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
@@ -1345,9 +1355,12 @@ def calibrate_threshold_false_alarm(
     pre_args, pre_kwargs : optional
         Additional arguments passed to ``pre_sampler``.
     apply_bonferroni : bool, optional
-        For multivariate scores, whether to apply Bonferroni correction
-        (default=True). If False, each component uses the same quantile
-        level ``(1 - alpha)``.
+        Whether to apply Bonferroni correction across tests when ``K > 1``.
+        Here ``K = score.n_tests`` is the number of score components returned
+        by the score model.
+        If ``True`` (default), each test uses quantile level
+        ``1 - false_alarm_probability / K``. If ``False``, each test uses
+        ``1 - false_alarm_probability``.
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
@@ -1392,7 +1405,7 @@ def calibrate_detector_threshold_false_alarm(
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
 ) -> np.ndarray:
-    """Estimate threshold for an existing detector.
+    """Estimate threshold(s) for an existing detector from null max penalized scores.
 
     This is a convenience wrapper around :func:`calibrate_threshold_false_alarm`.
     In particular, ``pre_sampler`` must satisfy the same sampler contract:
@@ -1659,13 +1672,13 @@ def calibrate_threshold_false_alarm_from_samples(
     parallel: bool = True,
     n_jobs: int | None = None,
 ) -> np.ndarray:
-    """Estimate a threshold from pre-generated sample paths.
+    """Estimate threshold(s) from pre-generated paths via max penalized scores.
 
     This is the most flexible data-driven calibration entry point.  The caller
     supplies an array of observation streams (e.g. generated by any bootstrap
     method, including external packages such as ``tsbootstrap``) and the
     function runs each stream through the detector to build the null
-    distribution of maximum scores.
+    distribution of maximum penalized scores.
 
     Parameters
     ----------
@@ -1678,7 +1691,7 @@ def calibrate_threshold_false_alarm_from_samples(
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
     apply_bonferroni : bool, optional
-        For multivariate scores (K tests), apply Bonferroni correction so
+        For scores with ``K > 1`` tests, apply Bonferroni correction so
         each per-test threshold uses the ``(1 - alpha/K)`` quantile
         (default ``True``).
     parallel : bool, optional
@@ -1788,9 +1801,10 @@ def calibrate_threshold_false_alarm_from_data(
         ``training_data`` using the circular block bootstrap (Politis &
         Romano, 1992).
     2.  Running each stream through the detector and recording the path-wise
-        maximum score.
-    3.  Setting the threshold at the empirical
-        ``(1 - false_alarm_probability)`` quantile.
+        maximum penalized score.
+    3.  Setting per-test thresholds from path-wise maxima using
+        :func:`_compute_false_alarm_threshold_from_max_scores` (Bonferroni
+        corrected when ``apply_bonferroni=True``).
 
     Block length
     ------------
@@ -1825,7 +1839,7 @@ def calibrate_threshold_false_alarm_from_data(
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
     apply_bonferroni : bool, optional
-        For multivariate scores (K tests), apply Bonferroni correction
+        For scores with ``K > 1`` tests, apply Bonferroni correction
         (default ``True``).
     parallel : bool, optional
         If ``True`` (default), evaluate sample paths across multiple
@@ -1938,7 +1952,7 @@ def calibrate_detector_threshold_false_alarm_from_data(
     parallel: bool = True,
     n_jobs: int | None = None,
 ) -> np.ndarray:
-    """Estimate threshold for an existing detector using training data.
+    """Estimate threshold(s) for an existing detector using training data.
 
     Convenience wrapper around :func:`calibrate_threshold_false_alarm_from_data`.
     """

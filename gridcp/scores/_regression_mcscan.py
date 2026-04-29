@@ -114,13 +114,6 @@ class RegressionMcScan:
 
     **Sample size requirement.**  None.
 
-    **Comparison with RegressionDirect.**  :class:`RegressionDirect` computes a
-    covariance-normalized Wald-type statistic with df = q degrees of freedom
-    and does not require the regressors to have identity covariance.
-    :class:`RegressionMcScan` uses a simpler cross-product CUSUM and is
-    computationally cheaper (no matrix inversion), but assumes x has identity
-    covariance and zero mean.
-
     Parameters
     ----------
     n_regressors : int
@@ -136,6 +129,7 @@ class RegressionMcScan:
 
     @property
     def n_features(self) -> int:
+        """Observation width expected by ``update`` (response + regressors)."""
         return self.n_regressors + 1
 
     @property
@@ -183,7 +177,7 @@ class RegressionMcScan:
         state: RegressionMcScanState,
         grid_states: list[RegressionMcScanState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalized) scores for every active grid candidate."""
+        """Compute unpenalized McScan scores for every active grid candidate."""
         n = len(grid_states)
         before_yx_sums = np.empty((n, self.n_regressors), dtype=np.float64)
         before_samples = np.empty(n, dtype=np.int64)

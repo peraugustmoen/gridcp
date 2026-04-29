@@ -18,12 +18,12 @@ def _update_grid(
 
     Update the grid from one sample to the next and the corresponding list of
     per-candidate score state snapshots. The grid holds candidate changepoint
-    positions relative to the beginning of the time series.
+    positions in the detector's local post-reset time scale.
 
     Parameters
     ----------
     grid : list[int]
-        Current grid (candidate insertion times).
+        Current local-time grid (candidate changepoint locations).
     candidate_score_states : list[TScoreState]
         Per-candidate score state snapshots, parallel to `grid`.
     prev_running_score_state : TScoreState
@@ -238,6 +238,8 @@ def reset_detector_state(
     ----------
     state : DetectorState
         Current detector state.
+        Included for API symmetry with ``update`` and for call sites that
+        carry state explicitly; not used by the reset operation.
     detector : GridDetector
         Detector instance used to initialize a fresh score state.
 
@@ -249,7 +251,4 @@ def reset_detector_state(
     """
     return DetectorState(
         running_score_state=detector.score.init_state(),
-        n_samples=0,
-        candidate_score_states=[],
-        grid=[],
     )
