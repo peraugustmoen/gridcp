@@ -125,11 +125,11 @@ class RegressionDirect:
     **Sample size requirement.**  The uncentered Gram matrix X_k has rank
     ``min(n_k, q)``; full rank is achieved at exactly ``n_k = q`` (one fewer
     observation than a centered covariance requires).  The score returns 0
-    whenever ``n_1 < q`` or ``n_2 < q``.  :func:`inv_sqrtm_pd` additionally
-    clips small eigenvalues to ``1e-15`` for numerical safety at the boundary.
-    Unlike the Gaussian covariance scores, this penalty is derived from a
-    non-asymptotic concentration bound, so the strict sample size requirement
-    is also an appropriate practical guard.
+    whenever ``n_1 < q`` or ``n_2 < q``.  :func:`inv_sqrtm_pd_nb`
+    additionally clips small eigenvalues to ``1e-15`` for numerical safety at
+    the boundary. Unlike the Gaussian covariance scores, this penalty is
+    derived from a non-asymptotic concentration bound, so the strict sample
+    size requirement is also an appropriate practical guard.
 
     Parameters
     ----------
