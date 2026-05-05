@@ -20,6 +20,12 @@ def _update_grid(
     per-candidate score state snapshots. The grid holds candidate changepoint
     positions in the detector's local post-reset time scale.
 
+    For scored candidates (detector local time ``n_samples >= 2``), each grid
+    value is a valid split point ``n1`` in ``{1, ..., n_samples - 1}``, which
+    is also the first post-change index in 0-based slicing (``x[n1:]``).
+    During warmup (local time ``n_samples = 1``), the grid temporarily contains
+    placeholder ``0`` before any valid split exists.
+
     Parameters
     ----------
     grid : list[int]
@@ -74,8 +80,13 @@ class DetectorState(Generic[TScoreState]):
     candidate_score_states : list[TScoreState]
         Score-state snapshots for the active logarithmic grid.
     grid : list[int]
-        Candidate changepoint locations for the active epoch, expressed in the
-        local time scale ``[0, n_samples)``.
+        Candidate changepoint locations for the active epoch.
+
+        For scored candidates (``n_samples >= 2``), entries are split points
+        ``n1`` in ``{1, ..., n_samples - 1}`` (equivalently the first
+        post-change index in 0-based slicing, so the post-change segment is
+        ``x[n1:]``). At warmup ``n_samples = 1``, the grid contains placeholder
+        ``0``.
     """
 
     running_score_state: TScoreState
@@ -207,11 +218,12 @@ class GridDetector:
             # Per-test max over grid candidates.
             max_score = np.max(penalized_scores, axis=0)
             argmax_per_test = np.argmax(penalized_scores, axis=0)
-            max_score_index = argmax_per_test.astype(np.int64, copy=False)
+            grid_arr = np.asarray(new_state.grid, dtype=np.int64)
+            max_split_point = grid_arr[argmax_per_test].astype(np.int64, copy=False)
         else:
             comparison_threshold = threshold
             max_score = np.zeros(threshold.shape[0], dtype=np.float64)
-            max_score_index = np.zeros(threshold.shape[0], dtype=np.int64)
+            max_split_point = np.zeros(threshold.shape[0], dtype=np.int64)
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
@@ -219,7 +231,7 @@ class GridDetector:
             "n_samples": new_state.n_samples,
             "alarm": alarm,
             "max_score": max_score,
-            "max_score_index": max_score_index,
+            "max_split_point": max_split_point,
         }
         return new_state, output
 

@@ -233,3 +233,8 @@ software_paper.tex
 methodology_paper.tex
 main.tex
 npfocus_concentration_bound.md
+online_cpd_lagrangian_note.md
+software_paper.aux
+.gitignore
+software_paper.fdb_latexmk
+software_paper.fls

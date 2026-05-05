@@ -183,7 +183,7 @@ class TestPenalizedScoresShape:
         assert out["max_score"].shape == (expected_K,), (
             f"{name}: max_score shape {out['max_score'].shape} != ({expected_K},)"
         )
-        assert out["max_score_index"].shape == (expected_K,)
+        assert out["max_split_point"].shape == (expected_K,)
 
 
 # ---------------------------------------------------------------------------

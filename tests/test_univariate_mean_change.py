@@ -124,7 +124,7 @@ def test_short_stream_behavior_and_output_schema():
             "n_samples",
             "alarm",
             "max_score",
-            "max_score_index",
+            "max_split_point",
         }
 
     # By construction, first step has no valid split candidate.
@@ -170,8 +170,8 @@ def test_max_score_alarms_when_exceeds_threshold():
     assert out["max_score"][0] > detector.threshold
 
 
-def test_max_score_index_is_valid_after_alarm():
-    """After alarm, max_score_index should be a valid candidate-list index."""
+def test_max_split_point_is_valid_after_alarm():
+    """After alarm, max_split_point should be a valid split location."""
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=100)
 
@@ -184,8 +184,41 @@ def test_max_score_index_is_valid_after_alarm():
     # Trigger alarm with extreme value
     state, out = detector.update(state, np.asarray([1_000_000.0]))
     assert out["alarm"]
-    assert out["max_score_index"].shape == (1,)
-    assert 0 <= out["max_score_index"][0] < len(state.grid)
+    assert out["max_split_point"].shape == (1,)
+    max_split_point = int(out["max_split_point"][0])
+    assert 1 <= max_split_point < state.n_samples
+    assert max_split_point in state.grid
+
+
+def test_max_split_point_and_score_on_noiseless_step_stream():
+    """Noiseless step stream should maximize at split n1=3 with centered score 0.5."""
+    x = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0], dtype=float)
+
+    score = MeanCUSUM(n_features=1, enable_penalty=False)
+    detector = GridDetector(score=score, threshold=1e6)
+    state = detector.init_state()
+    out = None
+
+    for val in x:
+        state, out = detector.update(state, np.asarray([val]))
+
+    assert out is not None
+    assert out["n_samples"] == len(x)
+    assert out["max_split_point"].shape == (1,)
+    assert int(out["max_split_point"][0]) == 3
+    assert np.isclose(out["max_score"][0], 0.5)
+
+    # Cross-check output against recomputed candidate scores and state.grid mapping.
+    candidate_scores = score.compute_penalized_scores(
+        state.running_score_state,
+        state.candidate_score_states,
+    )
+    argmax = int(np.argmax(candidate_scores[:, 0]))
+    expected_split_point = int(state.grid[argmax])
+    expected_max_score = float(candidate_scores[argmax, 0])
+
+    assert int(out["max_split_point"][0]) == expected_split_point
+    assert np.isclose(out["max_score"][0], expected_max_score)
 
 
 def test_univariate_mean_1_baseline():

@@ -124,10 +124,14 @@ pre-commit run --all-files
     shape `(K,)`. Scalar inputs are broadcast once at construction time to a
     length-`K` vector.
 - When penalized scores are available, `DetectorOutput.max_score` and
-    `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
+    `DetectorOutput.max_split_point` are vectors of shape `(K,)` (including `(1,)`
     for single-test scores).
+- Each `max_split_point` entry is the maximizing split point `n1 = state.grid[argmax]`.
+    For valid scored candidates (`n_samples >= 2`), these split points are in
+    `{1, ..., n_samples-1}` (1-indexed pre-change counts), and the post-change
+    segment is `x[n1:]` in 0-based slicing.
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
-    `max_score_index` are zero vectors of shape `(K,)`.
+    `max_split_point` are zero vectors of shape `(K,)`.
 - At runtime, if `compute_penalized_scores` returns an output width that does not
     match `n_tests`, the detector raises `ValueError` immediately.
 

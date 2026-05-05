@@ -21,10 +21,10 @@ class DetectorOutput(TypedDict):
     max_score : np.ndarray
         Maximum penalized score across grid candidates, shape ``(K,)``.
         Single-test scores use ``K=1``.
-    max_score_index : np.ndarray
-        0-based index into the active candidate list (``state.grid``)
-        that achieved the max score, shape ``(K,)``. Single-test scores use
-        ``K=1``.
+    max_split_point : np.ndarray
+        Split location (pre-change sample count) achieving the max score,
+        computed as ``state.grid[argmax]`` for each test, shape ``(K,)``.
+        Single-test scores use ``K=1``.
 
         For ``n_samples < 2``, no candidate scores are available yet and this
         field is a placeholder zero vector of shape ``(K,)``.
@@ -33,7 +33,7 @@ class DetectorOutput(TypedDict):
     n_samples: int
     alarm: bool
     max_score: np.ndarray
-    max_score_index: np.ndarray
+    max_split_point: np.ndarray
 
 
 @runtime_checkable
@@ -67,7 +67,7 @@ class ScoreModel(Protocol[TScoreState]):
         """Number of tests ``K`` returned by ``compute_penalized_scores``.
 
         This determines the second dimension of the ``(G, K)`` score matrix
-        and the length of ``DetectorOutput.max_score`` / ``max_score_index``.
+        and the length of ``DetectorOutput.max_score`` / ``max_split_point``.
         """
         ...
 
