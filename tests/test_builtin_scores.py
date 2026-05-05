@@ -279,7 +279,7 @@ def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
     state, _ = detector.update(state, np.zeros(p, dtype=np.float64))
 
     assert np.asarray(out["max_score"]).shape == (2,)
-    assert np.asarray(out["max_score_index"]).shape == (2,)
+    assert np.asarray(out["max_split_point"]).shape == (2,)
 
 
 def test_multivariate_identity_cov_rejects_wrong_threshold_length():
@@ -289,7 +289,7 @@ def test_multivariate_identity_cov_rejects_wrong_threshold_length():
     time (not deferred to update), so GridDetector.__post_init__ should raise.
     """
     p = 4
-    with pytest.raises(ValueError, match="n_tests|threshold"):
+    with pytest.raises(ValueError, match="n_scores|threshold"):
         GridDetector(
             score=MultivariateMeanIdentityCov(n_features=p),
             threshold=np.array([1.0], dtype=np.float64),
@@ -306,11 +306,11 @@ def test_multivariate_identity_cov_accepts_matching_threshold_length():
     state = detector.init_state()
 
     state, out = detector.update(state, np.zeros(p, dtype=np.float64))
-    assert np.asarray(out["max_score_index"]).shape == (2,)
+    assert np.asarray(out["max_split_point"]).shape == (2,)
 
     state, out = detector.update(state, np.zeros(p, dtype=np.float64))
     assert np.asarray(out["max_score"]).shape == (2,)
-    assert np.asarray(out["max_score_index"]).shape == (2,)
+    assert np.asarray(out["max_split_point"]).shape == (2,)
 
 
 # ---------------------------------------------------------------------------

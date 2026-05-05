@@ -382,8 +382,17 @@ def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
 
     Parameters
     ----------
+    n_features : int
+        Observation dimension. Included for a uniform factory signature across
+        family factories; this scalar family ignores the value.
     shape : float
         Known shape parameter k > 0.  Defaults to 1.0 (Exponential).
+
+    Returns
+    -------
+    dict
+        Family specification dictionary with scalar sufficient statistic
+        dimension ``v=1``.
     """
     k = float(shape)
 
@@ -447,7 +456,19 @@ def _App_gaussian_variance(theta):
 
 
 def _gaussian_mean_spec(n_features: int) -> dict:
-    """Return the appropriate Gaussian-mean spec for the given observation dim."""
+    """Return the Gaussian-mean family spec for the given dimension.
+
+    Parameters
+    ----------
+    n_features : int
+        Observation dimension ``p``.
+
+    Returns
+    -------
+    dict
+        Scalar spec (``v=1``) when ``p=1`` and vector spec (``v=p``)
+        otherwise.
+    """
     if n_features == 1:
         return {
             "v": 1,

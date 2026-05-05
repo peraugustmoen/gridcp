@@ -110,7 +110,7 @@ class NPFOCuS:
     changepoint.
 
     **Aggregation.**  The grid LR values are combined into two test statistics
-    per candidate (``n_tests = 2``):
+    per candidate (``n_scores = 2``):
 
     - **Column 0 (sum):** Σₖ 2 * LR_k(b), summing Bernoulli LR values across
       all grid points.
@@ -150,8 +150,8 @@ class NPFOCuS:
     enable_penalty: bool = False
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 2
 
     @property
