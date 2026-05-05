@@ -1,10 +1,10 @@
-"""Tests for the n_tests dimension contract.
+"""Tests for the n_scores dimension contract.
 
 Phase 1 of the explicit score dimension contract plan:
-- Every score has a stable n_tests across all calls.
-- compute_penalized_scores always returns shape (G, K) with K == n_tests.
-- Detector construction fails early when vector threshold length != n_tests.
-- Calibration output width K is consistent and driven by n_tests.
+- Every score has a stable n_scores across all calls.
+- compute_penalized_scores always returns shape (G, K) with K == n_scores.
+- Detector construction fails early when vector threshold length != n_scores.
+- Calibration output width K is consistent and driven by n_scores.
 - A malformed score with changing output width triggers clear exceptions.
 """
 
@@ -85,12 +85,12 @@ ALL_BUILTIN_SCORES = [
 
 
 # ---------------------------------------------------------------------------
-# 1. Stable n_tests value
+# 1. Stable n_scores value
 # ---------------------------------------------------------------------------
 
 
 class TestNTestsStability:
-    """n_tests is a fixed declared integer for every built-in score."""
+    """n_scores is a fixed declared integer for every built-in score."""
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -98,9 +98,9 @@ class TestNTestsStability:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_n_tests_is_positive_int(self, name, score, expected_K):
-        """n_tests must be a positive integer."""
-        assert isinstance(score.n_tests, int)
-        assert score.n_tests >= 1
+        """n_scores must be a positive integer."""
+        assert isinstance(score.n_scores, int)
+        assert score.n_scores >= 1
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -108,8 +108,8 @@ class TestNTestsStability:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_n_tests_matches_expected(self, name, score, expected_K):
-        """n_tests matches the expected value for each built-in."""
-        assert score.n_tests == expected_K
+        """n_scores matches the expected value for each built-in."""
+        assert score.n_scores == expected_K
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -117,26 +117,26 @@ class TestNTestsStability:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_n_tests_stable_across_calls(self, name, score, expected_K):
-        """n_tests returns the same value before and after score updates."""
+        """n_scores returns the same value before and after score updates."""
         detector = GridDetector(score=score, threshold=1e10)
         state = detector.init_state()
-        initial_n_tests = score.n_tests
+        initial_n_scores = score.n_scores
 
         rng = np.random.default_rng(42)
         obs_size = score.n_features
         for _ in range(5):
             state, _ = detector.update(state, rng.standard_normal(obs_size))
 
-        assert score.n_tests == initial_n_tests == expected_K
+        assert score.n_scores == initial_n_scores == expected_K
 
 
 # ---------------------------------------------------------------------------
-# 2. compute_penalized_scores output shape is (G, K) with K == n_tests
+# 2. compute_penalized_scores output shape is (G, K) with K == n_scores
 # ---------------------------------------------------------------------------
 
 
 class TestPenalizedScoresShape:
-    """compute_penalized_scores must always return shape (G, n_tests)."""
+    """compute_penalized_scores must always return shape (G, n_scores)."""
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -144,7 +144,7 @@ class TestPenalizedScoresShape:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_output_shape_matches_n_tests(self, name, score, expected_K):
-        """After several updates, output shape is (G, n_tests) for all G > 0."""
+        """After several updates, output shape is (G, n_scores) for all G > 0."""
         detector = GridDetector(score=score, threshold=1e10)
         state = detector.init_state()
         rng = np.random.default_rng(0)
@@ -162,7 +162,7 @@ class TestPenalizedScoresShape:
         assert out.ndim == 2, f"{name}: expected 2-D output, got shape {out.shape}"
         G, K = out.shape
         assert G == len(state.candidate_score_states), f"{name}: G mismatch"
-        assert K == expected_K, f"{name}: K={K} != n_tests={expected_K}"
+        assert K == expected_K, f"{name}: K={K} != n_scores={expected_K}"
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -170,7 +170,7 @@ class TestPenalizedScoresShape:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_detector_output_max_score_shape(self, name, score, expected_K):
-        """max_score in DetectorOutput has shape (K,) matching n_tests."""
+        """max_score in DetectorOutput has shape (K,) matching n_scores."""
         detector = GridDetector(score=score, threshold=1e10)
         state = detector.init_state()
         rng = np.random.default_rng(1)
@@ -187,7 +187,7 @@ class TestPenalizedScoresShape:
 
 
 # ---------------------------------------------------------------------------
-# 3. Detector construction fails early when threshold length != n_tests
+# 3. Detector construction fails early when threshold length != n_scores
 # ---------------------------------------------------------------------------
 
 
@@ -196,31 +196,31 @@ class TestDetectorThresholdLengthValidation:
 
     def test_threshold_length_mismatch_raises_at_construction_K1(self):
         """K=1 score with 2-element threshold must fail early at construction."""
-        score = MeanCUSUM(n_features=1)  # n_tests = 1
-        with pytest.raises(ValueError, match="n_tests|threshold"):
+        score = MeanCUSUM(n_features=1)  # n_scores = 1
+        with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0, 2.0]))
 
     def test_threshold_length_mismatch_raises_at_construction_K2(self):
         """K=2 score with 1-element threshold must fail early at construction."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_tests = 2
-        with pytest.raises(ValueError, match="n_tests|threshold"):
+        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
+        with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0]))
 
     def test_threshold_length_mismatch_raises_at_construction_K2_len3(self):
         """K=2 score with 3-element threshold must fail early at construction."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_tests = 2
-        with pytest.raises(ValueError, match="n_tests|threshold"):
+        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
+        with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0, 2.0, 3.0]))
 
     def test_matching_threshold_length_accepted_K1(self):
         """K=1 score with 1-element threshold must be accepted."""
-        score = MeanCUSUM(n_features=1)  # n_tests = 1
+        score = MeanCUSUM(n_features=1)  # n_scores = 1
         det = GridDetector(score=score, threshold=np.array([5.0]))
         assert det is not None
 
     def test_matching_threshold_length_accepted_K2(self):
         """K=2 score with 2-element threshold must be accepted."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_tests = 2
+        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
         det = GridDetector(score=score, threshold=np.array([5.0, 5.0]))
         assert det is not None
 
@@ -241,7 +241,7 @@ class TestDetectorThresholdLengthValidation:
 
 class TestCalibrationOutputWidth:
     """mc_max_scores and calibrate_threshold_false_alarm output width must
-    equal n_tests for the score being calibrated."""
+    equal n_scores for the score being calibrated."""
 
     @pytest.mark.parametrize(
         "name, score, expected_K",
@@ -249,7 +249,7 @@ class TestCalibrationOutputWidth:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_mc_max_scores_output_shape(self, name, score, expected_K):
-        """mc_max_scores returns (n_paths, K) with K == score.n_tests."""
+        """mc_max_scores returns (n_paths, K) with K == score.n_scores."""
         n_features = score.n_features
         if n_features > 1:
 
@@ -278,7 +278,7 @@ class TestCalibrationOutputWidth:
         ids=[t[0] for t in ALL_BUILTIN_SCORES],
     )
     def test_calibrate_threshold_output_shape(self, name, score, expected_K):
-        """calibrate_threshold_false_alarm returns shape (K,) == (n_tests,)."""
+        """calibrate_threshold_false_alarm returns shape (K,) == (n_scores,)."""
         n_features = score.n_features
         if n_features > 1:
 
@@ -317,7 +317,7 @@ class _MalformedScore:
     _call_count: int = 0
 
     @property
-    def n_tests(self) -> int:
+    def n_scores(self) -> int:
         return 1  # Declared K=1 but actual output will differ
 
     def init_state(self):
@@ -334,17 +334,17 @@ class _MalformedScore:
         self._call_count += 1
         G = len(grid_states)
         if self._call_count % 2 == 0:
-            return np.zeros((G, 2))  # Wrong! declared n_tests=1 but returns 2 cols
+            return np.zeros((G, 2))  # Wrong! declared n_scores=1 but returns 2 cols
         return np.zeros((G, 1))
 
 
 class _AlwaysWrongWidthScore:
-    """A broken score that always returns shape (G, 3) but declares n_tests=1."""
+    """A broken score that always returns shape (G, 3) but declares n_scores=1."""
 
     n_features: int = 1
 
     @property
-    def n_tests(self) -> int:
+    def n_scores(self) -> int:
         return 1
 
     def init_state(self):
@@ -355,13 +355,13 @@ class _AlwaysWrongWidthScore:
 
     def compute_penalized_scores(self, state, grid_states):
         G = len(grid_states)
-        return np.zeros((G, 3))  # Wrong! declared n_tests=1 but returns 3 cols
+        return np.zeros((G, 3))  # Wrong! declared n_scores=1 but returns 3 cols
 
 
 class _NTestsDriftScore:
-    """A broken score whose n_tests property changes at runtime.
+    """A broken score whose n_scores property changes at runtime.
 
-    Declares n_tests=1 at construction (call_count=0) but switches to 2 after
+    Declares n_scores=1 at construction (call_count=0) but switches to 2 after
     the second call to update(), simulating a score that violates the contract.
     """
 
@@ -369,7 +369,7 @@ class _NTestsDriftScore:
     _call_count: int = 0
 
     @property
-    def n_tests(self) -> int:
+    def n_scores(self) -> int:
         return 2 if self._call_count >= 2 else 1
 
     def init_state(self):
@@ -388,7 +388,7 @@ class TestMalformedScoreEnforcement:
     """Detector must catch malformed scores that return wrong output width."""
 
     def test_wrong_output_width_raises_in_detector_update(self):
-        """A score returning K != n_tests must be caught during detector update."""
+        """A score returning K != n_scores must be caught during detector update."""
         score = _AlwaysWrongWidthScore()
         detector = GridDetector(score=score, threshold=1.0)
         state = detector.init_state()
@@ -412,15 +412,15 @@ class TestMalformedScoreEnforcement:
             detector.update(state, 0.0)
 
     def test_n_tests_drift_raises_in_detector_update(self):
-        """A score whose n_tests changes at runtime must be caught by update()."""
+        """A score whose n_scores changes at runtime must be caught by update()."""
         score = _NTestsDriftScore()
-        # Construction reads n_tests=1 (call_count=0), threshold stored as shape (1,)
+        # Construction reads n_scores=1 (call_count=0), threshold stored as shape (1,)
         detector = GridDetector(score=score, threshold=1.0)
         state = detector.init_state()
 
-        # First update: score.update() bumps call_count to 1, n_tests still 1 → OK
+        # First update: score.update() bumps call_count to 1, n_scores still 1 → OK
         state, _ = detector.update(state, 0.0)
-        # Second update: score.update() bumps call_count to 2, n_tests becomes 2
-        # The runtime check detects n_tests != threshold.shape[0] and must raise.
-        with pytest.raises(ValueError, match="n_tests has changed"):
+        # Second update: score.update() bumps call_count to 2, n_scores becomes 2
+        # The runtime check detects n_scores != threshold.shape[0] and must raise.
+        with pytest.raises(ValueError, match="n_scores has changed"):
             detector.update(state, 0.0)

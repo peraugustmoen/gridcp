@@ -89,7 +89,7 @@ pre-commit run --all-files
 
 - `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
 - Calibration threshold APIs return 1-D NumPy arrays of shape `(K,)`.
-    For single-test scores, this is shape `(1,)`.
+    For single-score models, this is shape `(1,)`.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
 - Indexing convention in calibration internals:
     - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
@@ -114,18 +114,18 @@ pre-commit run --all-files
 ### Threshold shape behavior in `GridDetector`
 
 - Threshold values must be strictly positive.
-- `ScoreModel.n_tests` declares the number of tests `K`. This is the authoritative
+- `ScoreModel.n_scores` declares the number of scores `K`. This is the authoritative
     value for the score output dimension.
-- `ScoreModel.compute_penalized_scores` must return shape `(G, K)` where `K == n_tests`.
-    Single-test scores must return `(G, 1)`.
-- A vector threshold must have length `K == n_tests`. **Mismatch is caught at
+- `ScoreModel.compute_penalized_scores` must return shape `(G, K)` where `K == n_scores`.
+    Single-score models must return `(G, 1)`.
+- A vector threshold must have length `K == n_scores`. **Mismatch is caught at
     construction time**, not deferred to the first `update()` call.
 - `GridDetector.threshold` is always stored as a 1-D `float64` NumPy array of
     shape `(K,)`. Scalar inputs are broadcast once at construction time to a
     length-`K` vector.
 - When penalized scores are available, `DetectorOutput.max_score` and
     `DetectorOutput.max_split_point` are vectors of shape `(K,)` (including `(1,)`
-    for single-test scores).
+    for single-score models).
 - Each `max_split_point` entry is the maximizing split point `n1 = state.grid[argmax]`.
     For valid scored candidates (`n_samples >= 2`), these split points are in
     `{1, ..., n_samples-1}` (1-indexed pre-change counts), and the post-change
@@ -133,7 +133,7 @@ pre-commit run --all-files
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
     `max_split_point` are zero vectors of shape `(K,)`.
 - At runtime, if `compute_penalized_scores` returns an output width that does not
-    match `n_tests`, the detector raises `ValueError` immediately.
+    match `n_scores`, the detector raises `ValueError` immediately.
 
 
 ### Reset semantics in `GridDetector`

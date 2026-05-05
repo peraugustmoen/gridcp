@@ -112,13 +112,13 @@ class GridDetector:
     Threshold semantics
     -------------------
     ``threshold`` is always stored as a 1-D ``float64`` numpy array of shape
-    ``(K,)`` where ``K = score.n_tests``.  At construction time you may pass
+    ``(K,)`` where ``K = score.n_scores``.  At construction time you may pass
     either:
 
     - a scalar (``float`` or 0-D array): broadcast to ``np.full(K, value)``.
     - a 1-D array of length ``K``: used as-is after casting to ``float64``.
 
-    A mismatch between the array length and ``score.n_tests`` raises
+    A mismatch between the array length and ``score.n_scores`` raises
     ``ValueError`` at construction time.
     """
 
@@ -129,19 +129,19 @@ class GridDetector:
         """Validate inputs and normalise threshold to a 1-D float64 array."""
         if not isinstance(self.score, ScoreModel):
             raise TypeError("score must implement the ScoreModel protocol.")
-        n_tests = self.score.n_tests
+        n_scores = self.score.n_scores
         th = np.asarray(self.threshold, dtype=np.float64)
         if th.ndim == 0:
-            th = np.full(n_tests, float(th), dtype=np.float64)
+            th = np.full(n_scores, float(th), dtype=np.float64)
         elif th.ndim == 1:
             pass  # shape will be validated below
         else:
             raise ValueError("threshold must be a scalar or 1-D array.")
-        if th.shape[0] != n_tests:
+        if th.shape[0] != n_scores:
             raise ValueError(
                 f"threshold length {th.shape[0]} does not match "
-                f"score.n_tests={n_tests}. "
-                "Use a scalar threshold (broadcast) or a vector of length n_tests."
+                f"score.n_scores={n_scores}. "
+                "Use a scalar threshold (broadcast) or a vector of length n_scores."
             )
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
@@ -186,12 +186,12 @@ class GridDetector:
         )
 
         threshold = cast(np.ndarray, self.threshold)
-        current_n_tests = self.score.n_tests
-        if current_n_tests != threshold.shape[0]:
+        current_n_scores = self.score.n_scores
+        if current_n_scores != threshold.shape[0]:
             raise ValueError(
-                f"score.n_tests has changed since construction: expected "
-                f"{threshold.shape[0]} but got {current_n_tests}. "
-                "score.n_tests must remain constant across calls."
+                f"score.n_scores has changed since construction: expected "
+                f"{threshold.shape[0]} but got {current_n_scores}. "
+                "score.n_scores must remain constant across calls."
             )
 
         if new_n_samples >= 2:
@@ -205,13 +205,13 @@ class GridDetector:
                     "with shape (G, K); "
                     f"got shape {penalized_scores.shape}."
                 )
-            declared_k = current_n_tests
+            declared_k = current_n_scores
             actual_k = penalized_scores.shape[1]
             if actual_k != declared_k:
                 raise ValueError(
                     f"score.compute_penalized_scores returned K={actual_k} columns "
-                    f"but score.n_tests declares K={declared_k}. "
-                    "The declared n_tests must match the actual output width."
+                    f"but score.n_scores declares K={declared_k}. "
+                    "The declared n_scores must match the actual output width."
                 )
             comparison_threshold = threshold
 

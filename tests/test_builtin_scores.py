@@ -289,7 +289,7 @@ def test_multivariate_identity_cov_rejects_wrong_threshold_length():
     time (not deferred to update), so GridDetector.__post_init__ should raise.
     """
     p = 4
-    with pytest.raises(ValueError, match="n_tests|threshold"):
+    with pytest.raises(ValueError, match="n_scores|threshold"):
         GridDetector(
             score=MultivariateMeanIdentityCov(n_features=p),
             threshold=np.array([1.0], dtype=np.float64),

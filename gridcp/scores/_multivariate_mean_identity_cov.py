@@ -99,7 +99,7 @@ class MultivariateMeanIdentityCov:
     which under the null is chi-squared(1) for each j.
 
     **Aggregation.**  The p coordinate statistics are aggregated in two ways,
-    both returned simultaneously as two test columns (``n_tests = 2``):
+    both returned simultaneously as two score columns (``n_scores = 2``):
 
     - **Sparse** (column 0): ``max_j C_j - 1``, sensitive to changes
       confined to a small number of coordinates.  Centered by 1 (the
@@ -133,8 +133,8 @@ class MultivariateMeanIdentityCov:
     enable_penalty: bool = True
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 2
 
     def init_state(self) -> MultivariateMeanIdentityCovState:

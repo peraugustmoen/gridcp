@@ -63,8 +63,8 @@ class ScoreModel(Protocol[TScoreState]):
         ...
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests ``K`` returned by ``compute_penalized_scores``.
+    def n_scores(self) -> int:
+        """Number of scores ``K`` returned by ``compute_penalized_scores``.
 
         This determines the second dimension of the ``(G, K)`` score matrix
         and the length of ``DetectorOutput.max_score`` / ``max_split_point``.
@@ -112,10 +112,10 @@ class ScoreModel(Protocol[TScoreState]):
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states), n_tests)
+        np.ndarray, shape (len(grid_states), n_scores)
             Penalized score matrix for active candidates. The first dimension is
             the number of candidates ``G`` and the second dimension is the
-            number of tests ``K``. Single-test scores must return ``(G, 1)``.
+            number of scores ``K``. Single-score models must return ``(G, 1)``.
 
         """
         ...

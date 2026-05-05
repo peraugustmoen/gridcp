@@ -147,8 +147,8 @@ class MeanCUSUM:
     enable_penalty: bool = True
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def init_state(self) -> MeanCUSUMState:

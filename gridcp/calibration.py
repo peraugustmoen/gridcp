@@ -357,7 +357,7 @@ def _mc_worker_chunk(
         raise RuntimeError("Monte Carlo worker sampler callables are missing.")
 
     n_local_paths = end - start
-    declared_k = _WORKER_DETECTOR.score.n_tests
+    declared_k = _WORKER_DETECTOR.score.n_scores
     out: np.ndarray
     if task == "alarm":
         out = np.empty(n_local_paths, dtype=np.int64)
@@ -427,7 +427,7 @@ def _mc_max_scores_chunk_from_samples(
     """Compute max scores for a pre-generated sample chunk."""
     n_local = X_chunk.shape[0]
     stream_len = X_chunk.shape[1]
-    declared_k = detector.score.n_tests
+    declared_k = detector.score.n_scores
     out = np.empty((n_local, declared_k), dtype=np.float64)
 
     for i in range(n_local):
@@ -961,7 +961,7 @@ def mc_max_scores(
             ]
 
             results = [fut.result() for (_, _), fut in zip(chunks, futures)]
-            max_scores = np.empty((n_paths, detector.score.n_tests), dtype=np.float64)
+            max_scores = np.empty((n_paths, detector.score.n_scores), dtype=np.float64)
             for (start, end), res in zip(chunks, results):
                 max_scores[start:end] = res
         return max_scores
@@ -1005,7 +1005,7 @@ def mc_max_scores(
     base_seed = _derive_base_seed(rng)
     chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
     chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
-    max_scores = np.empty((n_paths, detector.score.n_tests), dtype=np.float64)
+    max_scores = np.empty((n_paths, detector.score.n_scores), dtype=np.float64)
 
     initargs = (
         _serialize_for_worker(detector),
@@ -1356,7 +1356,7 @@ def calibrate_threshold_false_alarm(
         Additional arguments passed to ``pre_sampler``.
     apply_bonferroni : bool, optional
         Whether to apply Bonferroni correction across tests when ``K > 1``.
-        Here ``K = score.n_tests`` is the number of score components returned
+        Here ``K = score.n_scores`` is the number of score components returned
         by the score model.
         If ``True`` (default), each test uses quantile level
         ``1 - false_alarm_probability / K``. If ``False``, each test uses
@@ -1524,14 +1524,14 @@ def _compute_false_alarm_threshold_from_max_scores(
             f"max_scores must have shape (n_paths, K); got shape {max_scores.shape}."
         )
 
-    n_tests = max_scores.shape[1]
+    n_scores = max_scores.shape[1]
     if apply_bonferroni:
-        alpha_corrected = false_alarm_probability / n_tests
+        alpha_corrected = false_alarm_probability / n_scores
     else:
         alpha_corrected = false_alarm_probability
     quantile_level = 1.0 - alpha_corrected
     return np.array(
-        [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_tests)],
+        [float(np.quantile(max_scores[:, k], quantile_level)) for k in range(n_scores)],
         dtype=np.float64,
     )
 
@@ -1563,12 +1563,12 @@ def _compute_arl_threshold_from_max_scores(
 
     # K > 1 — two-step procedure.
     # Step 1: per-test (1/e)-quantiles.
-    n_tests = max_scores.shape[1]
-    if n_tests == 1:
+    n_scores = max_scores.shape[1]
+    if n_scores == 1:
         return np.array([float(np.quantile(max_scores[:, 0], 1.0 / np.e))])
 
     individual_thresholds = np.array(
-        [float(np.quantile(max_scores[:, k], 1.0 / np.e)) for k in range(n_tests)],
+        [float(np.quantile(max_scores[:, k], 1.0 / np.e)) for k in range(n_scores)],
         dtype=np.float64,
     )
     if not np.all(np.isfinite(individual_thresholds)) or np.any(

@@ -584,7 +584,7 @@ class ExponentialFamilyGLR:
         score(n_1, t) = (2 GLR(n_1, t) - v) / pen(t).
 
     **Aggregation.**  The score produces a single test statistic per candidate
-    (``n_tests = 1``).  No per-feature aggregation is performed; the GLR
+    (``n_scores = 1``).  No per-feature aggregation is performed; the GLR
     operates on the full sufficient-statistic vector.
 
     **Centering and penalty.**  The centered statistic is ``2 * GLR - v``
@@ -840,8 +840,8 @@ class ExponentialFamilyGLR:
         return cls(**kwargs)
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def _get_penalty(self, n_samples: int) -> float:
