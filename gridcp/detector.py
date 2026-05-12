@@ -82,11 +82,11 @@ class DetectorState(Generic[TScoreState]):
     grid : list[int]
         Candidate changepoint locations for the active epoch.
 
-        For scored candidates (``n_samples >= 2``), entries are split points
-        ``n1`` in ``{1, ..., n_samples - 1}`` (equivalently the first
-        post-change index in 0-based slicing, so the post-change segment is
-        ``x[n1:]``). At warmup ``n_samples = 1``, the grid contains placeholder
-        ``0``.
+        For scored candidates (``n_samples >= 2``), entries are first
+        post-change indices (0-based) ``n1`` in ``{1, ..., n_samples - 1}``:
+        ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
+        post-change segment.  At warmup ``n_samples = 1``, the grid contains
+        placeholder ``0``.
     """
 
     running_score_state: TScoreState

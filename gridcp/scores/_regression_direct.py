@@ -34,7 +34,8 @@ def regression_direct_score(
     total_samples : int
         Total number of observations.
     before_samples : np.ndarray
-        Number of observations before each candidate, shape ``(G,)``.
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
     n_regressors : int
         Number of regressors ``q``.
 

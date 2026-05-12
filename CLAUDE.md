@@ -52,7 +52,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 
 - **Intervals:** always left-closed, right-open `[a, b)` — matches Python slicing
 - **Indices:** 0-indexed by default
-- **Changepoint definition:** first index of the new segment (not last), so `data[cp[i]:cp[i+1]]` is the i-th segment
+- **Changepoint definition:** first post-change index (0-based), so `data[0:cp]` is pre-change and `data[cp:]` is post-change. Detection delay = `alarm_time - cp`, where alarm_time is 0-based. 
 - **Private API:** leading underscore `_` in filename/class/function = internal detail, may change without warning
 
 ## Calibration conventions
