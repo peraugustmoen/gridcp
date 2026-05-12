@@ -765,7 +765,7 @@ def test_multivariate_unknown_variance_matches_independent_streams():
 
 
 def test_max_split_point_is_first_post_change_index():
-    """max_split_point is the first post-change index (Convention B).
+    """max_split_point is the first post-change index (0-based).
 
     For x = [0,0,0,1,1,1], the changepoint is at index 3:
       - x[:3] == [0,0,0]  (pre-change)
