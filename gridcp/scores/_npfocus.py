@@ -46,6 +46,24 @@ def npfocus_score(
     For each feature, NPFOCuS forms the sum and maximum of the Bernoulli LR
     statistics across the user grid. The returned score is then the maximum of
     these per-feature statistics across channels.
+
+    Parameters
+    ----------
+    total_sum : np.ndarray
+        Sum of all observations, shape ``(n_features,)``.
+    before_sums : np.ndarray
+        Per-candidate sums, shape ``(G, n_features)``.
+    total_samples : int
+        Total number of observations seen so far.
+    before_samples : np.ndarray
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
+
+    Returns
+    -------
+    np.ndarray
+        Score matrix of shape ``(G, 2)``.  Column 0: sum score.
+        Column 1: max score.
     """
     n_candidates = before_sums.shape[0]
     scores = np.zeros((n_candidates, 2), dtype=np.float64)

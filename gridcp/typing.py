@@ -22,9 +22,12 @@ class DetectorOutput(TypedDict):
         Maximum penalized score across grid candidates, shape ``(K,)``.
         Single-test scores use ``K=1``.
     max_split_point : np.ndarray
-        Split location (pre-change sample count) achieving the max score,
-        computed as ``state.grid[argmax]`` for each test, shape ``(K,)``.
+        First post-change index (0-based) achieving the max score, computed as
+        ``state.grid[argmax]`` for each test, shape ``(K,)``.
         Single-test scores use ``K=1``.
+
+        For a value ``n1``, ``data[0:n1]`` is the pre-change segment and
+        ``data[n1:]`` is the post-change segment.
 
         For ``n_samples < 2``, no candidate scores are available yet and this
         field is a placeholder zero vector of shape ``(K,)``.

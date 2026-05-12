@@ -80,10 +80,11 @@ def get_changeloc_grid(t):
     It is provided for testing and debugging purposes, to verify that the grid
     is being updated correctly by `update_grid_numba`.
 
-    Grid values represent split points ``n1`` (number of pre-change samples).
+    Grid values are first post-change indices (0-based). For a value ``n1``,
+    ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
+    post-change segment.
     For ``t >= 2``, returned values are valid split points in
-    ``{1, ..., t - 1}`` and the post-change segment in 0-based slicing is
-    ``x[n1:]``. For warmup ``t = 1``, this function returns placeholder ``0``.
+    ``{1, ..., t - 1}``. For warmup ``t = 1``, this function returns placeholder ``0``.
     """
     if t < 1:
         raise ValueError("t must be a positive integer (>= 1)")

@@ -47,10 +47,13 @@ uv pip install -e .[dev]
     convention for intervals and slicing. Following this drastically reduce strange bugs
     and indexing errors.
 - Indices are 0-indexed by default unless explicitly stated otherwise.
-- A "changepoint" is the first index of a segment, not last as in the literature. Reasons:
+- A "changepoint" is the **first post-change index (0-based)**: the first index
+    of the new distribution's segment, not the last pre-change index as in some
+    literature. Specifically, for a changepoint `cp`:
 
-    * Semantically the most correct: A change has only occured after an observation from a new distribution has been observed, not before.
-    * Follows python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
+    * `data[0:cp]` is the pre-change segment; `data[cp:]` is the post-change segment.
+    * Follows Python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
+    * Detection delay = `alarm_time - cp` (delay=0 means alarm fires exactly at the first post-change observation).
 - A leading underscore "_" in a file name, class name of function name indicates that it
   is a "private" implementation detail, and not part of the public API. This is a common
   python convention, and is used to indicate that the implementation may change without
@@ -126,10 +129,10 @@ pre-commit run --all-files
 - When penalized scores are available, `DetectorOutput.max_score` and
     `DetectorOutput.max_split_point` are vectors of shape `(K,)` (including `(1,)`
     for single-score models).
-- Each `max_split_point` entry is the maximizing split point `n1 = state.grid[argmax]`.
-    For valid scored candidates (`n_samples >= 2`), these split points are in
-    `{1, ..., n_samples-1}` (1-indexed pre-change counts), and the post-change
-    segment is `x[n1:]` in 0-based slicing.
+- Each `max_split_point` entry is the first post-change index (0-based)
+    `n1 = state.grid[argmax]`. For valid scored candidates (`n_samples >= 2`),
+    `n1` is in `{1, ..., n_samples-1}`: `data[0:n1]` is pre-change and
+    `data[n1:]` is post-change.
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
     `max_split_point` are zero vectors of shape `(K,)`.
 - At runtime, if `compute_penalized_scores` returns an output width that does not

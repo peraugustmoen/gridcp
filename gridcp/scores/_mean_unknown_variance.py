@@ -31,7 +31,8 @@ def mean_unknown_variance_score(
     total_samples : int
         Total number of samples seen.
     before_samples : np.ndarray, shape (n_candidates,)
-        Pre-change candidate sample counts.
+        First post-change index (0-based) for each candidate. Equals the
+        pre-change sample count: ``data[0:n1]`` is pre-change.
 
     Returns
     -------

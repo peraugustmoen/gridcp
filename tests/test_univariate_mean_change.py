@@ -762,3 +762,29 @@ def test_multivariate_unknown_variance_matches_independent_streams():
             single_penalty / multi_penalty
         )
         assert np.isclose(multi_out["max_score"][0], expected_max_score)
+
+
+def test_max_split_point_is_first_post_change_index():
+    """max_split_point is the first post-change index (0-based).
+
+    For x = [0,0,0,1,1,1], the changepoint is at index 3:
+      - x[:3] == [0,0,0]  (pre-change)
+      - x[3:] == [1,1,1]  (post-change)
+    max_split_point=3 is the first post-change index, i.e. x[max_split_point:] is post-change.
+    """
+    x = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0], dtype=float)
+
+    score = MeanCUSUM(n_features=1, enable_penalty=False)
+    detector = GridDetector(score=score, threshold=1e6)
+    state = detector.init_state()
+
+    for val in x:
+        state, out = detector.update(state, np.asarray([val]))
+
+    max_split_point = int(out["max_split_point"][0])
+    assert max_split_point == 3, (
+        f"Expected max_split_point=3 (first post-change index), got {max_split_point}"
+    )
+    # Verify semantics: pre-change is x[:cp], post-change is x[cp:]
+    assert list(x[:max_split_point]) == [0.0, 0.0, 0.0], "x[:cp] should be pre-change"
+    assert list(x[max_split_point:]) == [1.0, 1.0, 1.0], "x[cp:] should be post-change"
