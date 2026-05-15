@@ -111,8 +111,8 @@ class RegressionMcScan:
         T = sqrt(n_1 n_2 / t) * max_{j=1,...,q} |ȳx_j^1 - ȳx_j^2|,
 
     where ȳx_j^k is the empirical cross-product mean of y with regressor j
-    in segment k. 
-    
+    in segment k.
+
     **Aggregation.**  The score is the max over q regressors of the
     per-regressor absolute CUSUM increment, analogous to the max-coordinate
     CUSUM of :class:`MeanCUSUM` but operating on cross-product statistics
