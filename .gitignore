@@ -238,3 +238,8 @@ software_paper.aux
 .gitignore
 software_paper.fdb_latexmk
 software_paper.fls
+paperfigure.tex
+Plan møte 9 juni 2026 (softwarepaper)
+code_for_paper/generate_paperfigure.py
+code_for_paper/highd_mean_delay.pdf
+code_for_paper/highd_runtime.pdf
