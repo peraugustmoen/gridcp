@@ -20,7 +20,8 @@ def _update_grid(
     per-candidate score state snapshots. The grid holds candidate changepoint
     positions in the detector's local time scale.
 
-    Each grid value is a valid split point ``n1`` in ``{1, ..., n_samples - 1}``, which
+    When the sample size is at least 2, each grid value is a valid split point
+    ``n1`` in ``{1, ..., n_samples - 1}``, which
     is also the first post-change index in 0-based slicing (``x[n1:]``).
     During warmup (local time ``n_samples = 1``), the grid temporarily contains
     placeholder ``0`` before any valid split exists.
@@ -72,7 +73,7 @@ class DetectorState(Generic[TScoreState]):
     running_score_state : TScoreState
         Current running score state.
     n_samples : int, default=0
-        Number of observations processed since initialization.
+        Number of observations processed since initialization or reset.
     candidate_score_states : list[TScoreState]
         Score-state snapshots for the grid of candidate changepoints.
     grid : list[int]

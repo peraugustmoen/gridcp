@@ -848,7 +848,7 @@ def mc_max_scores(
         Randomness control.
 
         - ``Generator``: workers are seeded from the generator's original
-          ``SeedSequence``; the caller's generator state is not advanced.
+          ``SeedSequence``.
         - ``int``: deterministic run from that seed.
         - ``None``: deterministic run from a fixed internal default seed.
     pre_args, pre_kwargs : optional

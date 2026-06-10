@@ -104,7 +104,7 @@ pre-commit run --all-files
 - For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
 - Reproducibility policy:
     - `rng=<Generator>`: workers are seeded from the generator's original
-      `SeedSequence`; the caller's generator state is not advanced.
+      `SeedSequence`.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
 - Sampler signature contract in calibration helpers:
