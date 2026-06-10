@@ -847,8 +847,10 @@ def mc_max_scores(
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
 
-        - ``Generator``: workers are seeded from the generator's original
-          ``SeedSequence``.
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
         - ``int``: deterministic run from that seed.
         - ``None``: deterministic run from a fixed internal default seed.
     pre_args, pre_kwargs : optional
@@ -1086,8 +1088,10 @@ def mc_alarm_times(
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
 
-        - ``Generator``: workers are seeded from the generator's original
-          ``SeedSequence``; the caller's generator state is not advanced.
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
         - ``int``: deterministic run from that seed.
         - ``None``: deterministic run from a fixed internal default seed.
     pre_args, pre_kwargs : optional
@@ -1316,8 +1320,10 @@ def calibrate_threshold_false_alarm(
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
 
-        - ``Generator``: workers are seeded from the generator's original
-          ``SeedSequence``; the caller's generator state is not advanced.
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
         - ``int``: deterministic run from that seed.
         - ``None``: deterministic run from a fixed internal default seed.
     pre_args, pre_kwargs : optional
