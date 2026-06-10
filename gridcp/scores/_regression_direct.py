@@ -221,6 +221,8 @@ class RegressionDirect:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.enable_penalty:
+            # p = n_regressors + 1, so p - 1 = n_regressors = q.
+            # The formula sqrt(q log t) + log t uses q, not p.
             p = self.n_features
             return np.sqrt((p - 1) * np.log(n_samples)) + np.log(n_samples)
         return 1.0

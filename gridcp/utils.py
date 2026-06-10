@@ -9,7 +9,10 @@ LOG2 = math.log(2.0)
 
 @nb.njit(fastmath=True, cache=True)
 def numba_log(x):
-    """Compute a fast approximation to log(x).
+    """Compute log(x) via a Numba JIT-compiled path.
+
+    This function is not used by the main detection algorithm.  It is
+    retained for potential use in custom Numba-compiled score functions.
 
     Parameters
     ----------
@@ -19,7 +22,7 @@ def numba_log(x):
     Returns
     -------
     float
-        Approximation to log(x).
+        ``math.log(x)`` compiled to a native instruction by Numba.
     """
     return math.log(x)
 

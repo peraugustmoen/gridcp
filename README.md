@@ -3,9 +3,13 @@ General CHAD implementation
 
 ## Quick start
 
+Score classes (e.g. `MeanCUSUM`) are imported from `gridcp.scores`.  The
+detector and calibration helpers are available from the top-level `gridcp`
+package.
+
 ```python
 import numpy as np
-from gridcp.detector import GridDetector
+from gridcp import GridDetector
 from gridcp.scores import MeanCUSUM
 
 # Create a detector for univariate mean changes
@@ -86,12 +90,12 @@ pre-commit run --all-files
 - `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
     compatible with `gridcp.detector.GridDetector`.
 - `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
-- `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
+- The `notebooks/` directory contains demonstration notebooks for the API.
 
 ### Calibration notes
 
 - `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
-- Calibration threshold APIs return 1-D NumPy arrays of shape `(K,)`.
+- Calibration threshold APIs return 1-D NumPy arrays of shape `(n_scores,)`.
     For single-score models, this is shape `(1,)`.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
 - Indexing convention in calibration internals:
@@ -99,7 +103,8 @@ pre-commit run --all-files
     - Returned alarm times are 0-indexed array indices (Python convention).
 - For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
 - Reproducibility policy:
-    - `rng=<Generator>`: uses that generator's current state.
+    - `rng=<Generator>`: workers are seeded from the generator's original
+      `SeedSequence`; the caller's generator state is not advanced.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
 - Sampler signature contract in calibration helpers:
@@ -117,24 +122,25 @@ pre-commit run --all-files
 ### Threshold shape behavior in `GridDetector`
 
 - Threshold values must be strictly positive.
-- `ScoreModel.n_scores` declares the number of scores `K`. This is the authoritative
+- `ScoreModel.n_scores` is the number of penalized scores and is the authoritative
     value for the score output dimension.
-- `ScoreModel.compute_penalized_scores` must return shape `(G, K)` where `K == n_scores`.
-    Single-score models must return `(G, 1)`.
-- A vector threshold must have length `K == n_scores`. **Mismatch is caught at
+- `ScoreModel.compute_penalized_scores` must return shape `(G, n_scores)`.
+    Single-score models must return `(G, 1)`. Here, `G` is the number of elements of
+    the current grid of candidate changepoints. 
+- A vector threshold must have length `n_scores`. **Mismatch is caught at
     construction time**, not deferred to the first `update()` call.
 - `GridDetector.threshold` is always stored as a 1-D `float64` NumPy array of
-    shape `(K,)`. Scalar inputs are broadcast once at construction time to a
-    length-`K` vector.
+    shape `(n_scores,)`. Scalar inputs are broadcast once at construction time
+    to a length-`n_scores` vector.
 - When penalized scores are available, `DetectorOutput.max_score` and
-    `DetectorOutput.max_split_point` are vectors of shape `(K,)` (including `(1,)`
-    for single-score models).
+    `DetectorOutput.max_split_point` are vectors of shape `(n_scores,)` (including
+    `(1,)` for single-score models).
 - Each `max_split_point` entry is the first post-change index (0-based)
     `n1 = state.grid[argmax]`. For valid scored candidates (`n_samples >= 2`),
     `n1` is in `{1, ..., n_samples-1}`: `data[0:n1]` is pre-change and
     `data[n1:]` is post-change.
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
-    `max_split_point` are zero vectors of shape `(K,)`.
+    `max_split_point` are zero vectors of shape `(n_scores,)`.
 - At runtime, if `compute_penalized_scores` returns an output width that does not
     match `n_scores`, the detector raises `ValueError` immediately.
 
