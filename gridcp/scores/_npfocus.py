@@ -50,7 +50,10 @@ def npfocus_score(
     Parameters
     ----------
     total_sum : np.ndarray
-        Sum of all observations, shape ``(n_features,)``.
+        Per-threshold cumulative counts across all observations, shape
+        ``(n_features, value_grid.size)``.  ``total_sum[f, k]`` is the
+        number of observations in feature ``f`` that are
+        ``<= value_grid[k]``.
     before_sums : np.ndarray
         Per-candidate cumulative counts, shape ``(G, n_features, value_grid.size)``.
         ``before_sums[j, f, k]`` is the number of pre-change observations in
