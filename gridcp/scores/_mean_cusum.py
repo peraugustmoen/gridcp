@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numba as nb
 import numpy as np
 
+from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike
 
 
@@ -175,12 +176,7 @@ class MeanCUSUM:
         MeanCUSUMState
             Updated state.
         """
-        x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
-        if x_arr.size != self.n_features:
-            raise ValueError(
-                "MeanCUSUM expected observation of size "
-                f"{self.n_features}, got {x_arr.size}."
-            )
+        x_arr = as_obs(x, self.n_features)
 
         next_n_samples = state.n_samples + 1
         next_sum = state.sum + x_arr

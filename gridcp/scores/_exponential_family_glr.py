@@ -603,6 +603,13 @@ class ExponentialFamilyGLR:
     callables are Numba-compiled, the solvers and kernels are JIT-compiled for
     maximum performance; otherwise they fall back to plain NumPy.
 
+    .. note::
+        Unlike the other built-in score classes, ``ExponentialFamilyGLR`` is **not**
+        a frozen dataclass.  This is intentional: the Numba JIT-compiled solver and
+        score function are built in ``__init__`` and assigned as instance attributes,
+        which is incompatible with frozen dataclass semantics.  Do not mutate
+        instances after construction.
+
     Parameters
     ----------
     v : int
@@ -758,6 +765,11 @@ class ExponentialFamilyGLR:
               variance; v=2, ``n_features=1``.
             - ``'gaussian_covariance'`` — multivariate Gaussian covariance
               (known mean = 0); v=p(p+1)/2, requires ``n_features>1``.
+              The natural parameter space requires the parameter matrix to be
+              negative definite; the Newton solver returns the current iterate
+              without further progress if the gradient becomes undefined (i.e.
+              near a singular parameter), so the score for such candidates
+              will be zero.
             - ``'poisson'`` — Poisson rate; scalar (v=1).
             - ``'exponential'`` — Exponential rate; scalar (v=1).
             - ``'bernoulli'`` — Bernoulli probability; scalar (v=1).

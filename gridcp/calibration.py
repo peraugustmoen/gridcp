@@ -1,14 +1,14 @@
-"""Calibration utilities for the new gridcp API.
-
-This module provides calibration helpers for the new API.
+"""Threshold calibration utilities for :class:`~gridcp.detector.GridDetector`.
 
 - ``draw_samples``: simulate Monte Carlo streams under a pre-change distribution,
   optionally with a post-change regime.
 - ``mc_max_scores``: run Monte Carlo simulations through a detector and collect
-  the path-wise maximum detection score.
-- ``mc_alarm_times``: return the first alarm index per Monte Carlo path.
-- ``calibrate_threshold_false_alarm``: compute an empirical threshold for a score model.
+  the path-wise maximum penalized score(s).
+- ``mc_alarm_times``: return the first alarm index for a given detector over Monte Carlo paths.
+- ``calibrate_threshold_false_alarm``: compute an empirical threshold for a score model to achieve a desired false alarm rate.
 - ``calibrate_detector_threshold_false_alarm``: convenience wrapper for detector objects.
+- ``calibrate_threshold_arl``: compute an empirical threshold for a score model to achieve a desired average run length (ARL) to false alarm.
+- ``calibrate_detector_threshold_arl``: convenience wrapper for detector objects.
 
 Observation-shape convention
 ----------------------------
@@ -69,25 +69,22 @@ from concurrent.futures.process import BrokenProcessPool
 from dataclasses import replace
 from functools import lru_cache
 import pickle
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, cast
 import inspect
 import os
 import warnings
 
+import cloudpickle
 import numpy as np
 from numpy.typing import ArrayLike
 
 from gridcp.detector import GridDetector
 from gridcp.typing import ScoreModel
 
-# Changepoint callables receive ``(rng, stream_len, path_index)`` and must
-# return an integer in ``[0, stream_len]`` representing the first post-change
-# index (0-based).
+
 ChangepointSpec = int | Callable[[np.random.Generator, int, int], int] | None
-# Public RNG input contract for Monte Carlo helpers.
 RNGInput = np.random.Generator | int | None
 
-# Deterministic default used when rng=None.
 DEFAULT_MC_SEED = 0
 
 # Worker globals initialized by ``_init_mc_worker``.
@@ -205,32 +202,13 @@ def _make_sampler_caller(
     )
 
 
-def _get_cloudpickle() -> Any:
-    """Import and return cloudpickle.
-
-    Parallel process mode relies on cloudpickle so notebook-defined callables
-    can be shipped to worker processes.
-    """
-    try:
-        import cloudpickle
-    except ImportError as exc:
-        raise ImportError(
-            "parallel process execution requires cloudpickle. "
-            "Install it with `pip install cloudpickle` or install gridcp "
-            "with updated dependencies."
-        ) from exc
-    return cloudpickle
-
-
 def _serialize_for_worker(obj: Any) -> bytes:
     """Serialize an object for process workers using cloudpickle."""
-    cloudpickle = _get_cloudpickle()
     return cloudpickle.dumps(obj)
 
 
 def _deserialize_from_worker(blob: bytes) -> Any:
     """Deserialize an object in workers using cloudpickle."""
-    cloudpickle = _get_cloudpickle()
     return cloudpickle.loads(blob)
 
 
@@ -294,7 +272,6 @@ def _init_mc_worker(
         state, _ = _WORKER_DETECTOR.update(state, x)
         _WORKER_DETECTOR.update(state, x)
     except Exception:
-        # Warmup is opportunistic; simulation remains valid without it.
         pass
 
 
@@ -322,18 +299,32 @@ def _path_index_chunks(n_paths: int, n_jobs: int) -> list[tuple[int, int]]:
     return chunks
 
 
-def _derive_base_seed(rng: RNGInput) -> int:
-    """Derive a deterministic base seed from supported rng inputs.
+def _spawn_worker_seeds(rng: RNGInput, n_chunks: int) -> list[int]:
+    """Derive ``n_chunks`` independent seeds for parallel worker processes.
 
-    ``rng`` must be a ``numpy.random.Generator``, an integer seed, or ``None``.
+    Uses :class:`numpy.random.SeedSequence` to derive independent,
+    non-overlapping child seeds.
+
+    Seed derivation rules:
+
+    - ``None``: fixed internal default ``SeedSequence``, always the same.
+    - ``int``: ``SeedSequence`` seeded from that integer.
+    - ``Generator``: ``SeedSequence`` taken from the generator's
+      ``bit_generator.seed_seq``.  This reflects the *original* seed the
+      generator was constructed from, not its current draw position.  In
+      practice this means two parallel calls with the same generator (even
+      after advancing it) will produce the same worker seeds.
     """
-    local_rng = _normalize_rng(rng)
-    return int(local_rng.integers(0, np.iinfo(np.uint64).max, dtype=np.uint64))
-
-
-def _spawn_chunk_seeds(base_seed: int, n_chunks: int) -> list[int]:
-    """Spawn one deterministic seed per worker chunk."""
-    seed_seq = np.random.SeedSequence(base_seed)
+    if rng is None:
+        seed_seq = np.random.SeedSequence(DEFAULT_MC_SEED)
+    elif isinstance(rng, (int, np.integer)):
+        seed_seq = np.random.SeedSequence(int(rng))
+    elif isinstance(rng, np.random.Generator):
+        # bit_generator.seed_seq is typed as ISeedSequence but is always a
+        # concrete SeedSequence at runtime; cast to access .spawn().
+        seed_seq = cast(np.random.SeedSequence, rng.bit_generator.seed_seq)
+    else:
+        raise TypeError("rng must be a numpy.random.Generator, int seed, or None.")
     children = seed_seq.spawn(n_chunks)
     return [int(child.generate_state(1, dtype=np.uint64)[0]) for child in children]
 
@@ -364,7 +355,6 @@ def _mc_worker_chunk(
     else:
         out = np.empty((n_local_paths, declared_k), dtype=np.float64)
 
-    # One RNG per worker chunk to minimize generator construction overhead.
     local_rng = np.random.default_rng(chunk_seed)
 
     pre_mode: str | None = None
@@ -378,7 +368,7 @@ def _mc_worker_chunk(
         state = _WORKER_DETECTOR.init_state()
         max_score = np.zeros(declared_k, dtype=np.float64)
 
-        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # Note: t below represents the SAMPLE SIZE (1-indexed; current observation count).
         # This ranges from 1 to stream_len, not 0 to stream_len-1.
         # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
@@ -655,16 +645,11 @@ def _resolve_changepoint(
     """Resolve changepoint to an integer in ``[0, n_samples]``.
 
     The changepoint is the first post-change index (0-based).
-    For example, changepoint=k means observations ``[0, k)`` are pre-change,
-    and observations ``[k, n_samples)`` are post-change.
-    - If changepoint=0, all observations are post-change.
-    - If changepoint=n_samples, all observations are pre-change.
+    ``changepoint`` may be:
 
-        ``changepoint`` may be:
-        - ``None`` (treated as n_samples, all pre-change)
-        - an integer in ``[0, n_samples]``
-        - a callable ``f(rng, n_samples, path_index) -> int`` returning
-            ``[0, n_samples]``
+    - ``None``: treated as ``n_samples`` (all pre-change).
+    - ``int`` in ``[0, n_samples]``.
+    - callable ``f(rng, n_samples, path_index) -> int``.
     """
     if changepoint is None:
         return n_samples
@@ -705,13 +690,10 @@ def draw_samples(
         Observation dimension (length of the per-time-step 1D observation
         vector used internally).
     pre_sampler : callable
-                Baseline sampler callable. Must accept ``rng`` as an argument,
-                i.e. use ``def pre_sampler(rng, ...): ...``.
-                The returned sample is normalized as follows:
-                - scalar -> broadcast to shape ``(n_features,)``
-                - non-scalar -> flattened to 1D and required to have size
-                    ``n_features``
-                In all cases, values are converted to ``float64``.
+        Pre-change sampler.  Must accept ``rng`` as described in the
+        module-level sampler contract.  Scalar outputs are broadcast to
+        ``(n_features,)``; non-scalar outputs are flattened and must have
+        total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
         - ``Generator``: used as-is.
@@ -738,8 +720,7 @@ def draw_samples(
     Returns
     -------
     np.ndarray
-        Simulated array with shape ``(n_paths, stream_len, n_features)``.
-        This reflects the vector-oriented internal representation.
+        Shape ``(n_paths, stream_len, n_features)``.
     """
     if n_paths < 1:
         raise ValueError("n_paths must be >= 1.")
@@ -846,60 +827,59 @@ def mc_max_scores(
 ) -> np.ndarray:
     """Run Monte Carlo paths and return per-path maxima of penalized scores.
 
-    For each path and each test component ``k`` (``k=1,...,K``), this function
-    records the maximum over time of ``output["max_score"][k]`` returned by
-    :meth:`GridDetector.update`. Since ``GridDetector`` compares thresholds
-    against penalized scores, the returned maxima are penalized-score maxima.
+    For each path, records the running maximum of ``output["max_score"]``
+    returned by `GridDetector.update`.  The threshold stored in
+    ``detector`` is not used; only the score model matters.
 
-    Reproducibility follows the ``rng`` argument:
-    - ``Generator``: continues from its current state.
-    - ``int``: deterministic run from that seed.
-    - ``None``: deterministic run from an internal fixed default seed.
+    Parameters
+    ----------
+    detector : GridDetector
+        Detector whose score model drives the simulation.
+    n_paths : int
+        Number of independent Monte Carlo paths.
+    stream_len : int
+        Number of observations per path.
+    pre_sampler : callable
+        Pre-change sampler.  Must accept ``rng`` as described in the
+        module-level sampler contract.  Scalar outputs are broadcast to
+        ``(n_features,)``; non-scalar outputs are flattened and must have
+        total size ``n_features``.
+    rng : numpy.random.Generator | int | None, optional
+        Randomness control.
 
-    Parallel behavior
-    -----------------
-    ``parallel=True`` uses process-based execution and serializes samplers with
-    cloudpickle so notebook-defined callables can run in worker processes.
-    ``n_jobs=None`` uses automatic core detection.
-
-    If ``strict_equivalence=True``, sample generation is run serially and only
-    detector evaluation is parallelized, which guarantees identical output to
-    ``parallel=False``.
-
-    Sampler contract
-    ----------------
-    ``pre_sampler`` and ``post_sampler`` (when provided) must accept ``rng``
-    as an argument, i.e. ``sampler(rng, *args, **kwargs)``.
-
-    Sampler output normalization
-    ----------------------------
-    Per draw, sampler output is normalized exactly as in :func:`draw_samples`:
-    scalar outputs are broadcast to length ``n_features`` and non-scalar
-    outputs are flattened and required to have total size ``n_features``.
-
-    If ``changepoint`` is provided, ``post_sampler`` must also be provided.
-
-    Input requirements
-    ------------------
-    ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
-
-    ``changepoint`` must be one of:
-    - ``None`` (all pre-change)
-    - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
-        ``0`` means all post-change and ``stream_len`` means all pre-change.
-    - callable ``f(rng, stream_len, path_index) -> int`` returning a value in
-        ``[0, stream_len]``. The callable must accept these three arguments in
-        that order.
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
+        - ``int``: deterministic run from that seed.
+        - ``None``: deterministic run from a fixed internal default seed.
+    pre_args, pre_kwargs : optional
+        Extra arguments forwarded to ``pre_sampler``.
+    post_sampler : callable, optional
+        Post-change sampler, required when ``changepoint`` is not ``None``.
+        Must accept ``rng`` as described in the module-level sampler contract.
+    post_args, post_kwargs : optional
+        Extra arguments forwarded to ``post_sampler``.
+    changepoint : int | callable | None, optional
+        First post-change index (0-based).  See module docstring for allowed
+        types and values.
+    parallel : bool, optional
+        Use process-based parallel execution (default ``True``).
+    n_jobs : int or None, optional
+        Number of worker processes used if ``parallel=True``. ``None`` (default) uses all available CPU cores.
+    strict_equivalence : bool, optional
+        If ``True``, generate samples serially before parallel evaluation,
+        guaranteeing identical results to ``parallel=False`` (default
+        ``False``).
 
     Returns
     -------
     np.ndarray
-        Array with shape ``(n_paths, K)`` containing per-path maxima of
-        penalized detection scores (including ``K=1``).
+        Shape ``(n_paths, n_scores)``.  Per-path maxima of penalized scores.
     """
     n_features: int = detector.score.n_features
 
-    # Output array allocated lazily; shape is always (n_paths, K), including K=1.
+    # Output array allocated lazily; shape is always (n_paths, n_scores).
     max_scores: np.ndarray | None = None
 
     if pre_kwargs is None:
@@ -1002,9 +982,8 @@ def mc_max_scores(
             strict_equivalence=False,
         )
 
-    base_seed = _derive_base_seed(rng)
     chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
-    chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
+    chunk_seeds = _spawn_worker_seeds(rng, n_chunks=len(chunks))
     max_scores = np.empty((n_paths, detector.score.n_scores), dtype=np.float64)
 
     initargs = (
@@ -1088,54 +1067,58 @@ def mc_alarm_times(
 ) -> np.ndarray:
     """Run Monte Carlo paths and return first alarm index for each path.
 
-    Alarm indices are 0-based. For paths with no alarm by the end of the stream,
-    the returned value is ``stream_len`` (first index past the last sample).
+    Alarm indices are 0-based.  Paths with no alarm within the stream return
+    ``stream_len``.
 
-    This function is intentionally first-alarm only: each path contributes one
-    value, the first time the detector alarms. It does not summarize performance
-    for multiple changepoints within the same path after the first detection.
-    For multi-changepoint evaluation, run a custom simulation loop that defines
-    post-alarm behavior explicitly (for example reset/refractory policies and
-    per-segment detection-delay metrics).
+    Only the first alarm per path is recorded.
 
-    Reproducibility follows the ``rng`` argument:
-    - ``Generator``: continues from its current state.
-    - ``int``: deterministic run from that seed.
-    - ``None``: deterministic run from an internal fixed default seed.
+    Parameters
+    ----------
+    detector : GridDetector
+        Detector to simulate.
+    n_paths : int
+        Number of independent Monte Carlo paths.
+    stream_len : int
+        Number of observations per path.
+    pre_sampler : callable
+        Pre-change sampler.  Must accept ``rng`` as described in the
+        module-level sampler contract.  Scalar outputs are broadcast to
+        ``(n_features,)``; non-scalar outputs are flattened and must have
+        total size ``n_features``.
+    rng : numpy.random.Generator | int | None, optional
+        Randomness control.
 
-    Parallel behavior
-    -----------------
-    ``parallel=True`` uses process-based execution and serializes samplers with
-    cloudpickle so notebook-defined callables can run in worker processes.
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
+        - ``int``: deterministic run from that seed.
+        - ``None``: deterministic run from a fixed internal default seed.
+    pre_args, pre_kwargs : optional
+        Extra arguments forwarded to ``pre_sampler``.
+    post_sampler : callable, optional
+        Post-change sampler, required when ``changepoint`` is not ``None``.
+        Must accept ``rng`` as described in the module-level sampler contract.
+    post_args, post_kwargs : optional
+        Extra arguments forwarded to ``post_sampler``.
+    changepoint : int | callable | None, optional
+        First post-change index (0-based).  See module docstring for allowed
+        types and values.
+    parallel : bool, optional
+        Use process-based parallel execution (default ``True``).
+    n_jobs : int or None, optional
+        Number of worker processes.  ``None`` (default) uses all available
+        CPU cores.
+    strict_equivalence : bool, optional
+        If ``True``, generate samples serially before parallel evaluation,
+        guaranteeing identical results to ``parallel=False`` (default
+        ``False``).
 
-    If ``strict_equivalence=True``, sample generation is run serially and only
-    detector evaluation is parallelized, which guarantees identical output to
-    ``parallel=False``.
-
-    Sampler contract
-    ----------------
-    ``pre_sampler`` and ``post_sampler`` (when provided) must accept ``rng``
-    as an argument, i.e. ``sampler(rng, *args, **kwargs)``.
-
-    Sampler output normalization
-    ----------------------------
-    Per draw, sampler output is normalized exactly as in :func:`draw_samples`:
-    scalar outputs are broadcast to length ``n_features`` and non-scalar
-    outputs are flattened and required to have total size ``n_features``.
-
-        If ``changepoint`` is provided, ``post_sampler`` must also be provided.
-
-        Input requirements
-        ------------------
-        ``rng`` must be one of ``numpy.random.Generator``, ``int``, or ``None``.
-
-        ``changepoint`` must be one of:
-        - ``None`` (all pre-change)
-        - ``int`` in ``[0, stream_len]`` (first post-change index, 0-based);
-            ``0`` means all post-change and ``stream_len`` means all pre-change.
-        - callable ``f(rng, stream_len, path_index) -> int`` returning a value in
-            ``[0, stream_len]``. The callable must accept these three arguments in
-            that order.
+    Returns
+    -------
+    np.ndarray
+        Shape ``(n_paths,)``.  First alarm index per path (0-based), or
+        ``stream_len`` if no alarm occurred.
     """
     n_features: int = detector.score.n_features
 
@@ -1217,15 +1200,7 @@ def mc_alarm_times(
             post_kwargs=post_kwargs,
             changepoint=changepoint,
         )
-
-        for path_idx in range(n_paths):
-            state = detector.init_state()
-            for t in range(stream_len):
-                state, output = detector.update(state, X[path_idx, t, :])
-                if bool(output["alarm"]):
-                    alarm_times[path_idx] = t
-                    break
-        return alarm_times
+        return _mc_alarm_times_chunk_from_samples(detector, X)
 
     n_workers = _resolve_n_jobs(n_jobs=n_jobs, n_paths=n_paths)
     if n_workers == 1:
@@ -1246,9 +1221,8 @@ def mc_alarm_times(
             strict_equivalence=False,
         )
 
-    base_seed = _derive_base_seed(rng)
     chunks = _path_index_chunks(n_paths=n_paths, n_jobs=n_workers)
-    chunk_seeds = _spawn_chunk_seeds(base_seed, n_chunks=len(chunks))
+    chunk_seeds = _spawn_worker_seeds(rng, n_chunks=len(chunks))
 
     initargs = (
         _serialize_for_worker(detector),
@@ -1326,12 +1300,7 @@ def calibrate_threshold_false_alarm(
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
 ) -> np.ndarray:
-    """Estimate score threshold(s) from null Monte Carlo max penalized scores.
-
-    Applies a Bonferroni correction by default: each per-test threshold is set
-    at the ``(1 - alpha/K)`` quantile, and the result is a 1-D array of shape
-    ``(K,)`` (including ``K=1``). This can be disabled by setting
-    ``apply_bonferroni=False``.
+    """Estimate a detection threshold by simulating null Monte Carlo paths.
 
     Parameters
     ----------
@@ -1342,31 +1311,46 @@ def calibrate_threshold_false_alarm(
     n_paths : int
         Number of Monte Carlo paths.
     stream_len : int
-        Number of samples per path.
+        Number of observations per path.
     pre_sampler : callable
-        Null sampler with signature ``pre_sampler(rng, *args, **kwargs)``.
-        Returned values follow :func:`draw_samples` normalization:
-        scalar outputs are broadcast to ``(n_features,)`` and non-scalar
-        outputs are flattened and must have total size ``n_features``.
+        Pre-change sampler.  Must accept ``rng`` as described in the
+        module-level sampler contract.  Scalar outputs are broadcast to
+        ``(n_features,)``; non-scalar outputs are flattened and must have
+        total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
-        Randomness control passed to Monte Carlo simulation. Must be one of:
-        ``numpy.random.Generator``, ``int`` seed, or ``None``.
-        ``None`` uses a fixed default seed for deterministic behavior.
+        Randomness control.
+
+        - ``Generator``: if ``parallel=True`` (and ``strict_equivalence=False``),
+           workers are seeded from the generator's original ``SeedSequence`` and the
+           caller's generator state is not advanced; otherwise the generator is used
+           as-is and will be advanced.
+        - ``int``: deterministic run from that seed.
+        - ``None``: deterministic run from a fixed internal default seed.
     pre_args, pre_kwargs : optional
         Additional arguments passed to ``pre_sampler``.
     apply_bonferroni : bool, optional
-        Whether to apply Bonferroni correction across tests when ``K > 1``.
-        Here ``K = score.n_scores`` is the number of score components returned
-        by the score model.
-        If ``True`` (default), each test uses quantile level
-        ``1 - false_alarm_probability / K``. If ``False``, each test uses
+        Whether to apply Bonferroni correction when ``score.n_scores > 1``.
+        If ``True`` (default), each score uses quantile level
+        ``1 - false_alarm_probability / n_scores``; if ``False``, each uses
         ``1 - false_alarm_probability``.
+    parallel : bool, optional
+        Use process-based parallel execution (default ``True``).
+    n_jobs : int or None, optional
+        Number of worker processes.  ``None`` (default) uses all available
+        CPU cores.
+    strict_equivalence : bool, optional
+        If ``True``, generate samples serially before parallel evaluation,
+        guaranteeing identical results to ``parallel=False`` (default
+        ``False``).
+
+    Returns
+    -------
+    np.ndarray
+        Threshold vector of shape ``(n_scores,)``.
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
 
-    # Threshold calibration must use a non-resetting detector so Monte Carlo
-    # paths estimate the intended long-run false-alarm behavior.
     detector = GridDetector(
         score=score,
         threshold=1.0,
@@ -1405,17 +1389,14 @@ def calibrate_detector_threshold_false_alarm(
     strict_equivalence: bool = False,
     apply_bonferroni: bool = True,
 ) -> np.ndarray:
-    """Estimate threshold(s) for an existing detector from null max penalized scores.
+    """Estimate a detection threshold for an existing detector from null Monte Carlo paths.
 
-    This is a convenience wrapper around :func:`calibrate_threshold_false_alarm`.
-    In particular, ``pre_sampler`` must satisfy the same sampler contract:
-    ``pre_sampler(rng, *args, **kwargs)`` with output normalization identical
-    to :func:`draw_samples`.
+    Convenience wrapper around :func:`calibrate_threshold_false_alarm`.
 
     Notes
     -----
-    Calibration always uses an internal non-resetting detector constructed from
-    ``detector.score`` and therefore never depends on external reset policy.
+    Calibration uses an internal non-resetting detector constructed from
+    ``detector.score``; the threshold stored in ``detector`` is ignored.
     """
     return calibrate_threshold_false_alarm(
         score=detector.score,
@@ -1508,7 +1489,7 @@ def _compute_false_alarm_threshold_from_max_scores(
     Parameters
     ----------
     max_scores : np.ndarray
-        Shape ``(n_paths, K)``, including ``K=1``.
+        Shape ``(n_paths, n_scores)``.
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
     apply_bonferroni : bool
@@ -1517,11 +1498,11 @@ def _compute_false_alarm_threshold_from_max_scores(
     Returns
     -------
     np.ndarray
-        Threshold vector of shape ``(K,)``.
+        Threshold vector of shape ``(n_scores,)``.
     """
     if max_scores.ndim != 2:
         raise ValueError(
-            f"max_scores must have shape (n_paths, K); got shape {max_scores.shape}."
+            f"max_scores must have shape (n_paths, n_scores); got shape {max_scores.shape}."
         )
 
     n_scores = max_scores.shape[1]
@@ -1545,8 +1526,8 @@ def _compute_arl_threshold_from_max_scores(
     Parameters
     ----------
     max_scores : np.ndarray
-        Shape ``(n_paths, K)``, including ``K=1``. Always used for step 1
-        (per-test quantiles).
+        Shape ``(n_paths, n_scores)``. Always used for step 1
+        (per-score quantiles).
     max_scores_step2 : np.ndarray or None, optional
         If provided (multivariate only), used for step 2 (joint scaling) in
         place of ``max_scores``.  Ignored for scalar scores.
@@ -1554,15 +1535,15 @@ def _compute_arl_threshold_from_max_scores(
     Returns
     -------
     np.ndarray
-        Threshold vector of shape ``(K,)``.
+        Threshold vector of shape ``(n_scores,)``.
     """
     if max_scores.ndim != 2:
         raise ValueError(
-            f"max_scores must have shape (n_paths, K); got shape {max_scores.shape}."
+            f"max_scores must have shape (n_paths, n_scores); got shape {max_scores.shape}."
         )
 
-    # K > 1 — two-step procedure.
-    # Step 1: per-test (1/e)-quantiles.
+    # n_scores > 1 — two-step procedure.
+    # Step 1: per-score (1/e)-quantiles.
     n_scores = max_scores.shape[1]
     if n_scores == 1:
         return np.array([float(np.quantile(max_scores[:, 0], 1.0 / np.e))])
@@ -1576,7 +1557,7 @@ def _compute_arl_threshold_from_max_scores(
     ):
         raise ValueError(
             "Multivariate ARL calibration requires strictly positive finite "
-            "per-test thresholds; got non-finite or non-positive values in "
+            "per-score thresholds; got non-finite or non-positive values in "
             "`individual_thresholds`. This can happen when score maxima are "
             "often zero or the calibration sample is too small."
         )
@@ -1586,7 +1567,7 @@ def _compute_arl_threshold_from_max_scores(
     scores_for_scaling = (
         max_scores_step2 if max_scores_step2 is not None else max_scores
     )
-    standardized = scores_for_scaling / individual_thresholds  # (n_paths, K)
+    standardized = scores_for_scaling / individual_thresholds  # (n_paths, n_scores)
     combined_max = np.max(standardized, axis=1)  # (n_paths,)
     c = float(np.quantile(combined_max, 1.0 / np.e))
     return c * individual_thresholds
@@ -1631,7 +1612,7 @@ def _eval_max_scores(
     Returns
     -------
     np.ndarray
-        Shape ``(n_paths, K)``, including ``K=1``.
+        Shape ``(n_paths, n_scores)``.
     """
     n_paths = samples.shape[0]
     detector = GridDetector(score=score, threshold=1.0)
@@ -1691,8 +1672,8 @@ def calibrate_threshold_false_alarm_from_samples(
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
     apply_bonferroni : bool, optional
-        For scores with ``K > 1`` tests, apply Bonferroni correction so
-        each per-test threshold uses the ``(1 - alpha/K)`` quantile
+        For scores with ``score.n_scores > 1``, apply Bonferroni correction
+        so each per-score threshold uses the ``(1 - alpha/n_scores)`` quantile
         (default ``True``).
     parallel : bool, optional
         If ``True`` (default), evaluate sample paths across multiple
@@ -1704,7 +1685,7 @@ def calibrate_threshold_false_alarm_from_samples(
     Returns
     -------
     np.ndarray
-        Estimated threshold vector of shape ``(K,)`` (including ``K=1``).
+        Estimated threshold vector of shape ``(n_scores,)``.
 
     Examples
     --------
@@ -1802,7 +1783,7 @@ def calibrate_threshold_false_alarm_from_data(
         Romano, 1992).
     2.  Running each stream through the detector and recording the path-wise
         maximum penalized score.
-    3.  Setting per-test thresholds from path-wise maxima using
+    3.  Setting per-score thresholds from path-wise maxima using
         :func:`_compute_false_alarm_threshold_from_max_scores` (Bonferroni
         corrected when ``apply_bonferroni=True``).
 
@@ -1817,7 +1798,7 @@ def calibrate_threshold_false_alarm_from_data(
     - ``block_length=None`` (default): automatic selection via
       ``max(1, int(N ** (1/3)))``, following the asymptotic-optimal rate
       for block bootstraps under weak dependence (Hall, Horowitz & Jing,
-      1995; Lahiri, 2003).
+      1995).
 
     Parameters
     ----------
@@ -1839,7 +1820,7 @@ def calibrate_threshold_false_alarm_from_data(
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
     apply_bonferroni : bool, optional
-        For scores with ``K > 1`` tests, apply Bonferroni correction
+        For scores with ``score.n_scores > 1``, apply Bonferroni correction
         (default ``True``).
     parallel : bool, optional
         If ``True`` (default), evaluate sample paths across multiple
@@ -1851,7 +1832,7 @@ def calibrate_threshold_false_alarm_from_data(
     Returns
     -------
     np.ndarray
-        Estimated threshold vector of shape ``(K,)`` (including ``K=1``).
+        Estimated threshold vector of shape ``(n_scores,)``.
     """
     if not (0.0 < false_alarm_probability < 1.0):
         raise ValueError("false_alarm_probability must be in (0, 1).")
@@ -1901,8 +1882,6 @@ def calibrate_threshold_false_alarm_from_data(
         rng=local_rng,
     )
 
-    # Threshold calibration must use a non-resetting detector so Monte Carlo
-    # paths estimate the intended long-run false-alarm behavior.
     detector = GridDetector(
         score=score,
         threshold=1.0,
@@ -2021,20 +2000,20 @@ def calibrate_threshold_arl(
         If ``True``, sample generation is serial (only evaluation is
         parallel), guaranteeing identical output to ``parallel=False``.
     resimulate_combined_threshold : bool, default False
-        For multivariate scores (K>1) only.  If ``True``, runs a second
-        independent Monte Carlo simulation for step 2 of the calibration
-        procedure (the joint scaling of per-test thresholds).  The second
-        simulation continues from the same ``rng`` (whose state has been
-        advanced by the first simulation), so step-2 samples are independent
-        of step-1 samples.  This removes the sample-reuse bias between the
-        two estimation steps at the cost of twice the computation.  Has no
-        effect for ``K=1``.
+        For scores with ``score.n_scores > 1`` only.  If ``True``, runs a
+        second independent Monte Carlo simulation for step 2 of the
+        calibration procedure (the joint scaling of per-score thresholds).  The
+        second simulation continues from the same ``rng`` (whose state has been
+        advanced by the first simulation), so step-2 samples are independent of
+        step-1 samples.  This removes the sample-reuse bias between the two
+        estimation steps at the cost of twice the computation.  Has no effect
+        when ``score.n_scores == 1``.
 
     Returns
     -------
     np.ndarray
-        ARL threshold vector of shape ``(K,)`` (including ``K=1``), with
-        combined thresholds that control the joint ARL.
+        ARL threshold vector of shape ``(n_scores,)``, with combined
+        thresholds that control the joint ARL.
 
     Notes
     -----
@@ -2137,11 +2116,10 @@ def calibrate_threshold_arl_from_samples(
     each stream through the detector to build the null distribution of maximum
     scores, then returns the ``(1/e)``-quantile as the threshold.
 
-    Both steps of the multivariate two-step procedure reuse the same
-    ``max_scores`` derived from ``samples``.  If independent step-2 samples
-    are needed, use :func:`calibrate_threshold_arl_from_data` with
-    ``resimulate_combined_threshold=True``, or call this function twice and
-    pass results to :func:`_compute_arl_threshold_from_max_scores` directly.
+    Both steps of the multivariate two-step procedure reuse the same sample
+    array.  If independent step-2 samples are needed, use
+    :func:`calibrate_threshold_arl_from_data` with
+    ``resimulate_combined_threshold=True``.
 
     Parameters
     ----------
@@ -2159,7 +2137,7 @@ def calibrate_threshold_arl_from_samples(
     Returns
     -------
     np.ndarray
-        Estimated ARL threshold vector of shape ``(K,)``.
+        Estimated ARL threshold vector of shape ``(n_scores,)``.
 
     Notes
     -----
@@ -2253,18 +2231,19 @@ def calibrate_threshold_arl_from_data(
     n_jobs : int or None, optional
         Number of worker processes.  ``None`` uses all available CPU cores.
     resimulate_combined_threshold : bool, default False
-        For multivariate scores (K>1) only.  If ``True``, generates a second
-        independent bootstrap sample for step 2 of the calibration procedure
-        (the joint scaling of per-test thresholds).  The second bootstrap
-        continues from the same ``rng`` (advanced by the first draw), so
-        step-2 samples are independent of step-1 samples.  This removes the
-        sample-reuse bias between the two estimation steps at the cost of
-        twice the bootstrap computation.  Has no effect for ``K=1``.
+        For scores with ``score.n_scores > 1`` only.  If ``True``, generates
+        a second independent bootstrap sample for step 2 of the calibration
+        procedure (the joint scaling of per-score thresholds).  The second
+        bootstrap continues from the same ``rng`` (advanced by the first
+        draw), so step-2 samples are independent of step-1 samples.  This
+        removes the sample-reuse bias between the two estimation steps at the
+        cost of twice the bootstrap computation.  Has no effect when
+        ``score.n_scores == 1``.
 
     Returns
     -------
     np.ndarray
-        Estimated ARL threshold vector of shape ``(K,)``.
+        Estimated ARL threshold vector of shape ``(n_scores,)``.
 
     Notes
     -----

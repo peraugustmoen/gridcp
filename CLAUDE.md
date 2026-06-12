@@ -60,7 +60,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 ## Calibration conventions
 
 - Internal loop variable `t` is 1-indexed (sample size); returned alarm times are 0-indexed
-- `rng=None` → deterministic (fixed internal seed); `rng=int` → deterministic from that seed; `rng=Generator` → uses generator's current state
+- `rng=None` → deterministic (fixed internal seed); `rng=int` → deterministic from that seed; `rng=Generator` → if running in parallell, seeded from generator's original `SeedSequence`
 - Sampler outputs per step have shape `(n_features,)`; scalars are broadcast
 - `n_features` inferred from `score.n_features` when present; pass explicitly for custom scores
 

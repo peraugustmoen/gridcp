@@ -196,7 +196,8 @@ class MeanCUSUMUnknownVariance:
         x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
         if x_arr.size != self.n_features:
             raise ValueError(
-                f"MeanCUSUMUnknownVariance expected observation of size {self.n_features}, got {x_arr.size}."
+                "MeanCUSUMUnknownVariance expected observation of size "
+                f"{self.n_features}, got {x_arr.size}."
             )
 
         next_n_samples = state.n_samples + 1

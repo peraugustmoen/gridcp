@@ -385,3 +385,79 @@ def test_gaussian_covariance_min_seg_is_p_plus_1():
         state, out = detector.update(state, x)
         max_scores.append(out["max_score"])
     assert max(max_scores) > 0.0, "All scores were 0 — min_seg is likely too large"
+
+
+# ---------------------------------------------------------------------------
+# 10. gaussian_covariance numerical score formula
+# ---------------------------------------------------------------------------
+
+
+def test_gaussian_covariance_score_matches_closed_form():
+    """2*GLR for gaussian_covariance matches the closed-form Wilks statistic.
+
+    For known-mean-zero Gaussian covariance change, the LR statistic comparing
+    Sigma_1 (pre) vs Sigma_2 (post) vs Sigma_null (full window) is:
+
+        2*GLR = n * log det(Sigma_null)
+              - n1 * log det(Sigma_1)
+              - n2 * log det(Sigma_2)
+
+    where Sigma_k = (1/n_k) * sum_i x_i x_i^T is the biased sample covariance.
+    The centered score returned by the GLR is 2*GLR - v.
+    """
+    p = 2
+    n1 = 20
+    n2 = 15
+    n = n1 + n2
+
+    rng = np.random.default_rng(1234)
+    x_pre = rng.multivariate_normal(np.zeros(p), np.eye(p), n1)
+    x_post = rng.multivariate_normal(np.zeros(p), np.diag([1.0, 4.0]), n2)
+    x = np.vstack([x_pre, x_post])
+
+    score = ExponentialFamilyGLR.from_family("gaussian_covariance", n_features=p)
+
+    # Build states manually.
+    total_state = score.init_state()
+    for xi in x:
+        total_state = score.update(total_state, xi)
+
+    grid_state = score.init_state()
+    for xi in x_pre:
+        grid_state = score.update(grid_state, xi)
+
+    result = score.compute_penalized_scores(total_state, [grid_state])
+    # Undo penalty to get centered score.
+    import math
+
+    v = p * (p + 1) // 2
+    penalty = math.sqrt(v * math.log(n)) + math.log(n)
+    centered_glr = float(result[0, 0]) * penalty
+
+    # Closed-form: biased sample covariances (mean assumed 0).
+    Sigma_null = (x.T @ x) / n
+    Sigma_pre = (x_pre.T @ x_pre) / n1
+    Sigma_post = (x_post.T @ x_post) / n2
+
+    _, ld_null = np.linalg.slogdet(Sigma_null)
+    _, ld_pre = np.linalg.slogdet(Sigma_pre)
+    _, ld_post = np.linalg.slogdet(Sigma_post)
+
+    two_glr = n * ld_null - n1 * ld_pre - n2 * ld_post
+    expected_centered = two_glr - v
+
+    assert np.isclose(centered_glr, expected_centered, atol=1e-6), (
+        f"centered GLR {centered_glr:.6f} != expected {expected_centered:.6f}"
+    )
+
+
+def test_from_family_gamma_rate_nondefault_shape_detects():
+    """gamma_rate with a non-default shape parameter detects a rate change."""
+    k = 5.0
+    rng = np.random.default_rng(999)
+    # Rate 1 (scale=1) -> rate 10 (scale=0.1), with shape k
+    pre = rng.gamma(shape=k, scale=1.0, size=50)
+    post = rng.gamma(shape=k, scale=0.1, size=50)
+    data = np.concatenate([pre, post])
+    score = ExponentialFamilyGLR.from_family("gamma_rate", shape=k)
+    assert _detect(score, data, threshold=5.0)
