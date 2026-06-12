@@ -233,3 +233,6 @@ software_paper.tex
 methodology_paper.tex
 main.tex
 npfocus_concentration_bound.md
+
+# Local simulation outputs (keep on disk, never commit)
+*.npz
