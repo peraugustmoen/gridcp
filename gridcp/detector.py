@@ -18,12 +18,18 @@ def _update_grid(
 
     Update the grid from one sample to the next and the corresponding list of
     per-candidate score state snapshots. The grid holds candidate changepoint
-    positions relative to the beginning of the time series.
+    positions in the detector's local time scale.
+
+    When the sample size is at least 2, each grid value is a valid split point
+    ``n1`` in ``{1, ..., n_samples - 1}``, which
+    is also the first post-change index in 0-based slicing (``x[n1:]``).
+    During warmup (local time ``n_samples = 1``), the grid temporarily contains
+    placeholder ``0`` before any valid split exists.
 
     Parameters
     ----------
     grid : list[int]
-        Current grid (candidate insertion times).
+        Current local-time grid (candidate changepoint locations).
     candidate_score_states : list[TScoreState]
         Per-candidate score state snapshots, parallel to `grid`.
     prev_running_score_state : TScoreState
@@ -37,12 +43,9 @@ def _update_grid(
     candidate_score_states : list[TScoreState]
         Updated per-candidate score state snapshots.
     """
-    # list() makes a shallow copy, which is sufficient since both the grid and the
-    # score states are immutable snapshots.
     new_grid = list(grid)
     new_candidate_score_states = list(candidate_score_states)
 
-    # The last element of the grid is always n_samples - 1.
     prev_n_samples = new_grid[-1] + 1 if len(new_grid) > 0 else 0
     if prev_n_samples == 1 or prev_n_samples == 2:
         new_grid.pop(0)
@@ -68,14 +71,19 @@ class DetectorState(Generic[TScoreState]):
     Parameters
     ----------
     running_score_state : TScoreState
-        Current running score state for the active post-reset epoch.
+        Current running score state.
     n_samples : int, default=0
-        Number of observations processed since the most recent reset.
+        Number of observations processed since initialization or reset.
     candidate_score_states : list[TScoreState]
-        Score-state snapshots for the active logarithmic grid.
+        Score-state snapshots for the grid of candidate changepoints.
     grid : list[int]
-        Candidate changepoint locations for the active epoch, expressed in the
-        local time scale ``[0, n_samples)``.
+        Current candidate changepoint locations.
+
+        For scored candidates (``n_samples >= 2``), entries are first
+        post-change indices (0-based) ``n1`` in ``{1, ..., n_samples - 1}``:
+        ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
+        post-change segment.  At warmup ``n_samples = 1``, the grid contains
+        placeholder ``0``.
     """
 
     running_score_state: TScoreState
@@ -88,26 +96,25 @@ class DetectorState(Generic[TScoreState]):
 class GridDetector:
     """The online grid detector.
 
-    The detector owns the active score model, the alarm threshold, and the
-    logarithmic grid of candidate changepoints.
+    The detector owns the score model and the alarm threshold.
 
     Reset semantics
     ---------------
     Resetting is handled by the module-level function
-    ``reset_detector_state(state, detector)``. Keeping reset external
-    preserves the detector's functional update style and avoids hidden state
-    transitions in ``update()``.
+    ``reset_detector_state(state, detector)``.
 
     Threshold semantics
     -------------------
     ``threshold`` is always stored as a 1-D ``float64`` numpy array of shape
-    ``(K,)`` where ``K = score.n_tests``.  At construction time you may pass
-    either:
+    ``(n_scores,)`` where ``n_scores = score.n_scores``.  At construction time
+    you may pass either:
 
-    - a scalar (``float`` or 0-D array): broadcast to ``np.full(K, value)``.
-    - a 1-D array of length ``K``: used as-is after casting to ``float64``.
+    - a scalar (``float`` or 0-D array): broadcast to
+      ``np.full(n_scores, value)``.
+    - a 1-D array of length ``n_scores``: used as-is after casting to
+      ``float64``.
 
-    A mismatch between the array length and ``score.n_tests`` raises
+    A mismatch between the array length and ``score.n_scores`` raises
     ``ValueError`` at construction time.
     """
 
@@ -118,19 +125,19 @@ class GridDetector:
         """Validate inputs and normalise threshold to a 1-D float64 array."""
         if not isinstance(self.score, ScoreModel):
             raise TypeError("score must implement the ScoreModel protocol.")
-        n_tests = self.score.n_tests
+        n_scores = self.score.n_scores
         th = np.asarray(self.threshold, dtype=np.float64)
         if th.ndim == 0:
-            th = np.full(n_tests, float(th), dtype=np.float64)
+            th = np.full(n_scores, float(th), dtype=np.float64)
         elif th.ndim == 1:
             pass  # shape will be validated below
         else:
             raise ValueError("threshold must be a scalar or 1-D array.")
-        if th.shape[0] != n_tests:
+        if th.shape[0] != n_scores:
             raise ValueError(
                 f"threshold length {th.shape[0]} does not match "
-                f"score.n_tests={n_tests}. "
-                "Use a scalar threshold (broadcast) or a vector of length n_tests."
+                f"score.n_scores={n_scores}. "
+                "Use a scalar threshold (broadcast) or a vector of length n_scores."
             )
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
@@ -175,12 +182,12 @@ class GridDetector:
         )
 
         threshold = cast(np.ndarray, self.threshold)
-        current_n_tests = self.score.n_tests
-        if current_n_tests != threshold.shape[0]:
+        current_n_scores = self.score.n_scores
+        if current_n_scores != threshold.shape[0]:
             raise ValueError(
-                f"score.n_tests has changed since construction: expected "
-                f"{threshold.shape[0]} but got {current_n_tests}. "
-                "score.n_tests must remain constant across calls."
+                f"score.n_scores has changed since construction: expected "
+                f"{threshold.shape[0]} but got {current_n_scores}. "
+                "score.n_scores must remain constant across calls."
             )
 
         if new_n_samples >= 2:
@@ -191,27 +198,28 @@ class GridDetector:
             if penalized_scores.ndim != 2:
                 raise ValueError(
                     "score.compute_penalized_scores must return a 2-D array "
-                    "with shape (G, K); "
+                    "with shape (G, n_scores); "
                     f"got shape {penalized_scores.shape}."
                 )
-            declared_k = current_n_tests
+            declared_k = current_n_scores
             actual_k = penalized_scores.shape[1]
             if actual_k != declared_k:
                 raise ValueError(
-                    f"score.compute_penalized_scores returned K={actual_k} columns "
-                    f"but score.n_tests declares K={declared_k}. "
-                    "The declared n_tests must match the actual output width."
+                    f"score.compute_penalized_scores returned {actual_k} columns "
+                    f"but score.n_scores declares {declared_k}. "
+                    "The declared n_scores must match the actual output width."
                 )
             comparison_threshold = threshold
 
-            # Per-test max over grid candidates.
+            # Per-score max over grid candidates.
             max_score = np.max(penalized_scores, axis=0)
-            argmax_per_test = np.argmax(penalized_scores, axis=0)
-            max_score_index = argmax_per_test.astype(np.int64, copy=False)
+            argmax_per_score = np.argmax(penalized_scores, axis=0)
+            grid_arr = np.asarray(new_state.grid, dtype=np.int64)
+            max_split_point = grid_arr[argmax_per_score].astype(np.int64, copy=False)
         else:
             comparison_threshold = threshold
             max_score = np.zeros(threshold.shape[0], dtype=np.float64)
-            max_score_index = np.zeros(threshold.shape[0], dtype=np.int64)
+            max_split_point = np.zeros(threshold.shape[0], dtype=np.int64)
 
         alarm = bool(np.any(np.asarray(max_score) > comparison_threshold))
 
@@ -219,7 +227,7 @@ class GridDetector:
             "n_samples": new_state.n_samples,
             "alarm": alarm,
             "max_score": max_score,
-            "max_score_index": max_score_index,
+            "max_split_point": max_split_point,
         }
         return new_state, output
 
@@ -238,6 +246,8 @@ def reset_detector_state(
     ----------
     state : DetectorState
         Current detector state.
+        Included for API symmetry with ``update`` and for call sites that
+        carry state explicitly; not used by the reset operation.
     detector : GridDetector
         Detector instance used to initialize a fresh score state.
 
@@ -249,7 +259,4 @@ def reset_detector_state(
     """
     return DetectorState(
         running_score_state=detector.score.init_state(),
-        n_samples=0,
-        candidate_score_states=[],
-        grid=[],
     )

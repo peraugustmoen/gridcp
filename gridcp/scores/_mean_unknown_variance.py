@@ -31,7 +31,8 @@ def mean_unknown_variance_score(
     total_samples : int
         Total number of samples seen.
     before_samples : np.ndarray, shape (n_candidates,)
-        Pre-change candidate sample counts.
+        First post-change index (0-based) for each candidate. Equals the
+        pre-change sample count: ``data[0:n1]`` is pre-change.
 
     Returns
     -------
@@ -157,8 +158,8 @@ class MeanCUSUMUnknownVariance:
     enable_penalty: bool = True
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def init_state(self) -> MeanCUSUMUnknownVarianceState:
@@ -195,7 +196,8 @@ class MeanCUSUMUnknownVariance:
         x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
         if x_arr.size != self.n_features:
             raise ValueError(
-                f"MeanCUSUMUnknownVariance expected observation of size {self.n_features}, got {x_arr.size}."
+                "MeanCUSUMUnknownVariance expected observation of size "
+                f"{self.n_features}, got {x_arr.size}."
             )
 
         next_n_samples = state.n_samples + 1

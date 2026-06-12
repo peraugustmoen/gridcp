@@ -3,9 +3,13 @@ General CHAD implementation
 
 ## Quick start
 
+Score classes (e.g. `MeanCUSUM`) are imported from `gridcp.scores`.  The
+detector and calibration helpers are available from the top-level `gridcp`
+package.
+
 ```python
 import numpy as np
-from gridcp.detector import GridDetector
+from gridcp import GridDetector
 from gridcp.scores import MeanCUSUM
 
 # Create a detector for univariate mean changes
@@ -47,10 +51,13 @@ uv pip install -e .[dev]
     convention for intervals and slicing. Following this drastically reduce strange bugs
     and indexing errors.
 - Indices are 0-indexed by default unless explicitly stated otherwise.
-- A "changepoint" is the first index of a segment, not last as in the literature. Reasons:
+- A "changepoint" is the **first post-change index (0-based)**: the first index
+    of the new distribution's segment, not the last pre-change index as in some
+    literature. Specifically, for a changepoint `cp`:
 
-    * Semantically the most correct: A change has only occured after an observation from a new distribution has been observed, not before.
-    * Follows python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
+    * `data[0:cp]` is the pre-change segment; `data[cp:]` is the post-change segment.
+    * Follows Python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
+    * Detection delay = `alarm_time - cp` (delay=0 means alarm fires exactly at the first post-change observation).
 - A leading underscore "_" in a file name, class name of function name indicates that it
   is a "private" implementation detail, and not part of the public API. This is a common
   python convention, and is used to indicate that the implementation may change without
@@ -83,20 +90,21 @@ pre-commit run --all-files
 - `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
     compatible with `gridcp.detector.GridDetector`.
 - `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
-- `notebooks.new_api_test_martin.ipynb` is a notebook that demonstrates how to use the GridDetector with the MeanCUSUM score.
+- The `notebooks/` directory contains demonstration notebooks for the API.
 
 ### Calibration notes
 
 - `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
-- Calibration threshold APIs return 1-D NumPy arrays of shape `(K,)`.
-    For single-test scores, this is shape `(1,)`.
+- Calibration threshold APIs return 1-D NumPy arrays of shape `(n_scores,)`.
+    For single-score models, this is shape `(1,)`.
 - `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
 - Indexing convention in calibration internals:
     - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
     - Returned alarm times are 0-indexed array indices (Python convention).
 - For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
 - Reproducibility policy:
-    - `rng=<Generator>`: uses that generator's current state.
+    - `rng=<Generator>`: workers are seeded from the generator's original
+      `SeedSequence`.
     - `rng=<int>`: deterministic run from that seed.
     - `rng=None`: deterministic run from a fixed internal default seed.
 - Sampler signature contract in calibration helpers:
@@ -114,22 +122,27 @@ pre-commit run --all-files
 ### Threshold shape behavior in `GridDetector`
 
 - Threshold values must be strictly positive.
-- `ScoreModel.n_tests` declares the number of tests `K`. This is the authoritative
+- `ScoreModel.n_scores` is the number of penalized scores and is the authoritative
     value for the score output dimension.
-- `ScoreModel.compute_penalized_scores` must return shape `(G, K)` where `K == n_tests`.
-    Single-test scores must return `(G, 1)`.
-- A vector threshold must have length `K == n_tests`. **Mismatch is caught at
+- `ScoreModel.compute_penalized_scores` must return shape `(G, n_scores)`.
+    Single-score models must return `(G, 1)`. Here, `G` is the number of elements of
+    the current grid of candidate changepoints. 
+- A vector threshold must have length `n_scores`. **Mismatch is caught at
     construction time**, not deferred to the first `update()` call.
 - `GridDetector.threshold` is always stored as a 1-D `float64` NumPy array of
-    shape `(K,)`. Scalar inputs are broadcast once at construction time to a
-    length-`K` vector.
+    shape `(n_scores,)`. Scalar inputs are broadcast once at construction time
+    to a length-`n_scores` vector.
 - When penalized scores are available, `DetectorOutput.max_score` and
-    `DetectorOutput.max_score_index` are vectors of shape `(K,)` (including `(1,)`
-    for single-test scores).
+    `DetectorOutput.max_split_point` are vectors of shape `(n_scores,)` (including
+    `(1,)` for single-score models).
+- Each `max_split_point` entry is the first post-change index (0-based)
+    `n1 = state.grid[argmax]`. For valid scored candidates (`n_samples >= 2`),
+    `n1` is in `{1, ..., n_samples-1}`: `data[0:n1]` is pre-change and
+    `data[n1:]` is post-change.
 - For `n_samples < 2`, no candidate score exists yet. `max_score` and
-    `max_score_index` are zero vectors of shape `(K,)`.
+    `max_split_point` are zero vectors of shape `(n_scores,)`.
 - At runtime, if `compute_penalized_scores` returns an output width that does not
-    match `n_tests`, the detector raises `ValueError` immediately.
+    match `n_scores`, the detector raises `ValueError` immediately.
 
 
 ### Reset semantics in `GridDetector`

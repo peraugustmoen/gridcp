@@ -15,30 +15,33 @@ class DetectorOutput(TypedDict):
     n_samples : int
         Number of observations seen since the most recent reset.
         This is the detector's local time and is the value that returns to 0
-        after a reset.
+        after initialization or reset.
     alarm : bool
-        Whether any score exceeded the threshold at this time step.
+        Whether any score exceeds the threshold at the current time step.
     max_score : np.ndarray
-        Maximum penalized score across grid candidates, shape ``(K,)``.
-        Single-test scores use ``K=1``.
-    max_score_index : np.ndarray
-        0-based index into the active candidate list (``state.grid``)
-        that achieved the max score, shape ``(K,)``. Single-test scores use
-        ``K=1``.
+        Maximum penalized score across grid candidates, shape ``(n_scores,)``.
+        ``n_scores`` is the number of penalized scores returned by
+        ``compute_penalized_scores``.  Single-score models use ``n_scores=1``.
+    max_split_point : np.ndarray
+        First post-change index (0-based) achieving the max score, computed as
+        ``state.grid[argmax]`` for each score, shape ``(n_scores,)``.
 
-        For ``n_samples < 2``, no candidate scores are available yet and this
-        field is a placeholder zero vector of shape ``(K,)``.
+        For a value ``n1``, ``data[0:n1]`` is the pre-change segment and
+        ``data[n1:]`` is the post-change segment.
+
+        For ``n_samples == 1``, no candidate scores are available yet and this
+        field is a placeholder zero vector of shape ``(n_scores,)``.
     """
 
     n_samples: int
     alarm: bool
     max_score: np.ndarray
-    max_score_index: np.ndarray
+    max_split_point: np.ndarray
 
 
 @runtime_checkable
 class ScoreModel(Protocol[TScoreState]):
-    """Protocol for score computers used within the grid detector.
+    """Protocol for score models used within the grid detector.
 
     A compliant class maintains per-candidate sufficient statistics and computes
     scores for all active candidates after each new observation.
@@ -51,10 +54,7 @@ class ScoreModel(Protocol[TScoreState]):
     and score implementations should derive any time-dependent penalty scaling
     from the provided state.  Accordingly, ``TScoreState`` must carry whatever
     time information the score needs (typically an ``n_samples`` counter updated
-    by ``update``).  No separate ``n_samples_for_penalty`` argument is passed.
-
-    The grid detector calls these methods; the implementation is free to choose
-    any backend (NumPy, Numba, pandas, PyTorch, JAX, etc.).
+    by ``update``).
     """
 
     @property
@@ -63,11 +63,12 @@ class ScoreModel(Protocol[TScoreState]):
         ...
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests ``K`` returned by ``compute_penalized_scores``.
+    def n_scores(self) -> int:
+        """Number of penalized scores returned by ``compute_penalized_scores``.
 
-        This determines the second dimension of the ``(G, K)`` score matrix
-        and the length of ``DetectorOutput.max_score`` / ``max_score_index``.
+        This determines the second dimension of the ``(G, n_scores)`` score
+        matrix and the length of ``DetectorOutput.max_score`` /
+        ``max_split_point``.
         """
         ...
 
@@ -112,10 +113,11 @@ class ScoreModel(Protocol[TScoreState]):
 
         Returns
         -------
-        np.ndarray, shape (len(grid_states), n_tests)
-            Penalized score matrix for active candidates. The first dimension is
-            the number of candidates ``G`` and the second dimension is the
-            number of tests ``K``. Single-test scores must return ``(G, 1)``.
+        np.ndarray, shape ``(G, n_scores)``
+            Penalized score matrix for active candidates, where ``G =
+            len(grid_states)`` is the number of active candidates and
+            ``n_scores`` is the number of penalized scores.  Single-score
+            models must return ``(G, 1)``.
 
         """
         ...

@@ -12,11 +12,11 @@ def test_output_only_uses_local_n_samples():
 
     state, out1 = detector.update(state, np.array([0.0]))
     assert out1["n_samples"] == 1
-    assert set(out1.keys()) == {"n_samples", "alarm", "max_score", "max_score_index"}
+    assert set(out1.keys()) == {"n_samples", "alarm", "max_score", "max_split_point"}
 
     state, out2 = detector.update(state, np.array([0.0]))
     assert out2["n_samples"] == 2
-    assert set(out2.keys()) == {"n_samples", "alarm", "max_score", "max_score_index"}
+    assert set(out2.keys()) == {"n_samples", "alarm", "max_score", "max_split_point"}
 
 
 def test_reset_detector_state_is_full_reset():

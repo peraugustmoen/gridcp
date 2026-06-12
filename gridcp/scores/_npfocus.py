@@ -46,6 +46,29 @@ def npfocus_score(
     For each feature, NPFOCuS forms the sum and maximum of the Bernoulli LR
     statistics across the user grid. The returned score is then the maximum of
     these per-feature statistics across channels.
+
+    Parameters
+    ----------
+    total_sum : np.ndarray
+        Per-threshold cumulative counts across all observations, shape
+        ``(n_features, value_grid.size)``.  ``total_sum[f, k]`` is the
+        number of observations in feature ``f`` that are
+        ``<= value_grid[k]``.
+    before_sums : np.ndarray
+        Per-candidate cumulative counts, shape ``(G, n_features, value_grid.size)``.
+        ``before_sums[j, f, k]`` is the number of pre-change observations in
+        candidate ``j``, feature ``f``, that are ``<= value_grid[k]``.
+    total_samples : int
+        Total number of observations seen so far.
+    before_samples : np.ndarray
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
+
+    Returns
+    -------
+    np.ndarray
+        Score matrix of shape ``(G, 2)``.  Column 0: sum score.
+        Column 1: max score.
     """
     n_candidates = before_sums.shape[0]
     scores = np.zeros((n_candidates, 2), dtype=np.float64)
@@ -110,7 +133,7 @@ class NPFOCuS:
     changepoint.
 
     **Aggregation.**  The grid LR values are combined into two test statistics
-    per candidate (``n_tests = 2``):
+    per candidate (``n_scores = 2``):
 
     - **Column 0 (sum):** Σₖ 2 * LR_k(b), summing Bernoulli LR values across
       all grid points.
@@ -150,8 +173,8 @@ class NPFOCuS:
     enable_penalty: bool = False
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 2
 
     @property

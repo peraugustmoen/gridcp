@@ -52,13 +52,15 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 
 - **Intervals:** always left-closed, right-open `[a, b)` — matches Python slicing
 - **Indices:** 0-indexed by default
-- **Changepoint definition:** first index of the new segment (not last), so `data[cp[i]:cp[i+1]]` is the i-th segment
+- **Changepoint definition:** first post-change index (0-based), so
+  `data[0:cp]` is pre-change and `data[cp:]` is post-change. Detection
+  delay = `alarm_time - cp`, where alarm_time is 0-based.
 - **Private API:** leading underscore `_` in filename/class/function = internal detail, may change without warning
 
 ## Calibration conventions
 
 - Internal loop variable `t` is 1-indexed (sample size); returned alarm times are 0-indexed
-- `rng=None` → deterministic (fixed internal seed); `rng=int` → deterministic from that seed; `rng=Generator` → uses generator's current state
+- `rng=None` → deterministic (fixed internal seed); `rng=int` → deterministic from that seed; `rng=Generator` → if running in parallell, seeded from generator's original `SeedSequence`
 - Sampler outputs per step have shape `(n_features,)`; scalars are broadcast
 - `n_features` inferred from `score.n_features` when present; pass explicitly for custom scores
 

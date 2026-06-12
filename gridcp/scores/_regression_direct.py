@@ -34,7 +34,8 @@ def regression_direct_score(
     total_samples : int
         Total number of observations.
     before_samples : np.ndarray
-        Number of observations before each candidate, shape ``(G,)``.
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
     n_regressors : int
         Number of regressors ``q``.
 
@@ -112,7 +113,7 @@ class RegressionDirect:
     vector of y and x in segment k.
 
     **Aggregation.**  The score produces a single test statistic
-    (``n_tests = 1``).  No per-regressor aggregation is performed; the score
+    (``n_scores = 1``).  No per-regressor aggregation is performed; the score
     pools all q regressors into one Wald-type statistic.
 
     **Centering and penalty.**  The statistic is centered by subtracting q
@@ -149,8 +150,8 @@ class RegressionDirect:
         return self.n_regressors + 1
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def init_state(self) -> RegressionDirectState:
@@ -220,6 +221,8 @@ class RegressionDirect:
     def _get_penalty(self, n_samples: int) -> float:
         """Return the penalty divisor for the current sample size."""
         if self.enable_penalty:
+            # p = n_regressors + 1, so p - 1 = n_regressors = q.
+            # The formula sqrt(q log t) + log t uses q, not p.
             p = self.n_features
             return np.sqrt((p - 1) * np.log(n_samples)) + np.log(n_samples)
         return 1.0

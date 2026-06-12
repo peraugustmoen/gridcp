@@ -774,7 +774,7 @@ class TestDetectorEdgeCases:
         assert out["n_samples"] == 1
         assert not out["alarm"]
         assert out["max_score"].shape == (2,)
-        assert out["max_score_index"].shape == (2,)
+        assert out["max_split_point"].shape == (2,)
 
     def test_grid_matches_changeloc_grid(self):
         """After n updates, the detector grid must match get_changeloc_grid(n)."""

@@ -3,6 +3,7 @@ import numpy as np
 import gridcp.old_api as old_api
 from gridcp.detector import GridDetector
 from gridcp.scores import (
+    MeanCUSUMUnknownVariance,
     MeanOrVariance,
     MultivariateMeanIdentityCov,
     MultivariateMeanOrCovariance,
@@ -241,5 +242,28 @@ def test_regression_direct_parity_with_old_api():
         candidate_from_new_state=lambda st: np.concatenate(
             [st.yx_sum, st.xx_sum.reshape(-1)]
         ),
+        check_max_statistic=False,
+    )
+
+
+def test_mean_cusum_unknown_variance_parity_with_old_api():
+    """MeanCUSUMUnknownVariance running sums and grid candidates match old API."""
+    n = 24
+    rng = np.random.default_rng(2033)
+    x = rng.normal(0.0, 1.0, size=n)
+
+    old_det = old_api.make_univariate_mean_change_detector(
+        penalty_constant=1.0, mode="unknown_variance"
+    )
+    new_det = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=1.0)
+
+    # Old API stores [sum(x), sum(x^2)] as shape (2,); new API stores the
+    # same in state.stats with shape (2,) for univariate.
+    _run_parity_check(
+        X=x,
+        old_detector=old_det,
+        new_detector=new_det,
+        running_from_new_state=lambda st: st.stats,
+        candidate_from_new_state=lambda st: st.stats,
         check_max_statistic=False,
     )

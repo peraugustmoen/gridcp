@@ -27,7 +27,8 @@ def regression_mcscan_score(
     total_samples : int
         Total number of observations seen so far.
     before_samples : np.ndarray
-        Number of observations before each candidate, shape ``(G,)``.
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
 
     Returns
     -------
@@ -82,13 +83,27 @@ class RegressionMcScanState:
 class RegressionMcScan:
     """Regression-change CUSUM score following Cho, Kley, and Li (2025).
 
-    Under no change, observations (yᵢ, xᵢ) follow the linear regression model
-    y = βᵀx + ε with ε ~ N(0, 1) and regressors x ∈ ℝq with identity
-    covariance and zero mean; under a change at τ, X_1, ..., X_{τ-1} follow
-    the model with coefficient vector β₁ and X_τ, ..., X_t follow the model
-    with β₂ ≠ β₁.  Each observation is passed as a vector of length q + 1
-    with the response y in position 0 and the regressors x in positions
-    1, ..., q.
+    Under no change, observations ``(y_i, x_i)`` follow the linear model
+
+    ``yᵢ = xᵢᵀβ + εᵢ``,
+
+    where ``xᵢ ∈ ℝ^q`` has zero mean and covariance ``Σ``, and the noise
+    satisfies ``εᵢ ~ N(0, σ_ε²)``.
+
+    Under the alternative with a changepoint at ``tau``, the pre-change and
+    post-change samples follow
+
+    ``yᵢ = xᵢᵀβ₁ + εᵢ`` for ``i = 1, ..., τ - 1``,
+
+    and
+
+    ``yᵢ = xᵢᵀβ₂ + εᵢ`` for ``i = τ, ..., t``,
+
+    with ``β₁ ≠ β₂``.
+
+    Each observation is passed as a vector of length ``q + 1`` with the
+    response ``y`` in position 0 and the regressors ``x`` in positions
+    ``1, ..., q``.
 
     **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the score is
@@ -96,9 +111,7 @@ class RegressionMcScan:
         T = sqrt(n_1 n_2 / t) * max_{j=1,...,q} |ȳx_j^1 - ȳx_j^2|,
 
     where ȳx_j^k is the empirical cross-product mean of y with regressor j
-    in segment k.  Under the null, ȳx_j^k estimates β_j (since x has identity
-    covariance), so a change in any regression coefficient produces a
-    detectable difference between segments.
+    in segment k.
 
     **Aggregation.**  The score is the max over q regressors of the
     per-regressor absolute CUSUM increment, analogous to the max-coordinate
@@ -114,18 +127,11 @@ class RegressionMcScan:
 
     **Sample size requirement.**  None.
 
-    **Comparison with RegressionDirect.**  :class:`RegressionDirect` computes a
-    covariance-normalized Wald-type statistic with df = q degrees of freedom
-    and does not require the regressors to have identity covariance.
-    :class:`RegressionMcScan` uses a simpler cross-product CUSUM and is
-    computationally cheaper (no matrix inversion), but assumes x has identity
-    covariance and zero mean.
-
     Parameters
     ----------
     n_regressors : int
         Number of regressors ``q`` (dimension of ``x`` in the model
-        ``y = βᵀx + ε``).
+        ``y = xᵀβ + ε``).
     enable_penalty : bool, default=True
         If ``True``, divide the score by ``sqrt(log(q t))``.
         If ``False``, return the raw score with divisor 1.0.
@@ -136,11 +142,12 @@ class RegressionMcScan:
 
     @property
     def n_features(self) -> int:
+        """Observation width expected by ``update`` (response + regressors)."""
         return self.n_regressors + 1
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def init_state(self) -> RegressionMcScanState:
@@ -183,7 +190,7 @@ class RegressionMcScan:
         state: RegressionMcScanState,
         grid_states: list[RegressionMcScanState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalized) scores for every active grid candidate."""
+        """Compute unpenalized McScan scores for every active grid candidate."""
         n = len(grid_states)
         before_yx_sums = np.empty((n, self.n_regressors), dtype=np.float64)
         before_samples = np.empty(n, dtype=np.int64)

@@ -149,7 +149,7 @@ def test_npfocus_multivariate_update_and_score_shapes():
 
     assert state.running_score_state.n_smaller.shape == (2, 11)
     assert outputs[-1]["max_score"].shape == (2,)
-    assert outputs[-1]["max_score_index"].shape == (2,)
+    assert outputs[-1]["max_split_point"].shape == (2,)
 
 
 def test_npfocus_multivariate_scores_take_max_over_channels():
@@ -253,8 +253,8 @@ def test_npfocus_calibrated_detector_detects_distribution_changes(
     state, output = detector.update(state, pre_sampler(np.random.default_rng(2)))
     assert isinstance(output["max_score"], np.ndarray)
     assert output["max_score"].shape == (2,)
-    assert isinstance(output["max_score_index"], np.ndarray)
-    assert output["max_score_index"].shape == (2,)
+    assert isinstance(output["max_split_point"], np.ndarray)
+    assert output["max_split_point"].shape == (2,)
 
     null_alarm_times = _alarm_times(detector, pre_sampler)
     change_alarm_times = _alarm_times(detector, pre_sampler, post_sampler)

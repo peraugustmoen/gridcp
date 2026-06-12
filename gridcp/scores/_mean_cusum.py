@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numba as nb
 import numpy as np
 
+from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike
 
 
@@ -29,7 +30,8 @@ def mean_cusum_score(
     total_samples : int
         Total number of observations seen so far.
     before_samples : np.ndarray
-        Number of observations before each candidate, shape ``(G,)``.
+        First post-change index (0-based) for each candidate, shape ``(G,)``.
+        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
 
     Returns
     -------
@@ -147,8 +149,8 @@ class MeanCUSUM:
     enable_penalty: bool = True
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def init_state(self) -> MeanCUSUMState:
@@ -174,12 +176,7 @@ class MeanCUSUM:
         MeanCUSUMState
             Updated state.
         """
-        x_arr = np.asarray(x, dtype=np.float64).reshape(-1)
-        if x_arr.size != self.n_features:
-            raise ValueError(
-                "MeanCUSUM expected observation of size "
-                f"{self.n_features}, got {x_arr.size}."
-            )
+        x_arr = as_obs(x, self.n_features)
 
         next_n_samples = state.n_samples + 1
         next_sum = state.sum + x_arr

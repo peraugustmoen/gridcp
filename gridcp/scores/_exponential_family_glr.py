@@ -584,7 +584,7 @@ class ExponentialFamilyGLR:
         score(n_1, t) = (2 GLR(n_1, t) - v) / pen(t).
 
     **Aggregation.**  The score produces a single test statistic per candidate
-    (``n_tests = 1``).  No per-feature aggregation is performed; the GLR
+    (``n_scores = 1``).  No per-feature aggregation is performed; the GLR
     operates on the full sufficient-statistic vector.
 
     **Centering and penalty.**  The centered statistic is ``2 * GLR - v``
@@ -602,6 +602,13 @@ class ExponentialFamilyGLR:
     line search, warm-started one step from ``theta_init``.  If all supplied
     callables are Numba-compiled, the solvers and kernels are JIT-compiled for
     maximum performance; otherwise they fall back to plain NumPy.
+
+    .. note::
+        Unlike the other built-in score classes, ``ExponentialFamilyGLR`` is **not**
+        a frozen dataclass.  This is intentional: the Numba JIT-compiled solver and
+        score function are built in ``__init__`` and assigned as instance attributes,
+        which is incompatible with frozen dataclass semantics.  Do not mutate
+        instances after construction.
 
     Parameters
     ----------
@@ -758,6 +765,11 @@ class ExponentialFamilyGLR:
               variance; v=2, ``n_features=1``.
             - ``'gaussian_covariance'`` — multivariate Gaussian covariance
               (known mean = 0); v=p(p+1)/2, requires ``n_features>1``.
+              The natural parameter space requires the parameter matrix to be
+              negative definite; the Newton solver returns the current iterate
+              without further progress if the gradient becomes undefined (i.e.
+              near a singular parameter), so the score for such candidates
+              will be zero.
             - ``'poisson'`` — Poisson rate; scalar (v=1).
             - ``'exponential'`` — Exponential rate; scalar (v=1).
             - ``'bernoulli'`` — Bernoulli probability; scalar (v=1).
@@ -840,8 +852,8 @@ class ExponentialFamilyGLR:
         return cls(**kwargs)
 
     @property
-    def n_tests(self) -> int:
-        """Number of tests returned by ``compute_penalized_scores``."""
+    def n_scores(self) -> int:
+        """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
     def _get_penalty(self, n_samples: int) -> float:

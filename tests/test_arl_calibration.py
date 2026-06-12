@@ -35,7 +35,7 @@ class _CustomOpaqueScore:
         return self._n_features
 
     @property
-    def n_tests(self) -> int:
+    def n_scores(self) -> int:
         return 1
 
     def init_state(self):

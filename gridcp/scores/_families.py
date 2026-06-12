@@ -82,6 +82,7 @@ A spec dict has the following keys:
 """
 
 import math
+from functools import lru_cache
 
 import numba as nb
 import numpy as np
@@ -377,15 +378,28 @@ def _App_exponential(theta):
 # ---------------------------------------------------------------------------
 
 
-def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
-    """Return a Gamma-rate spec with the given shape parameter.
+@lru_cache(maxsize=None)
+def _gamma_rate_spec_cached(shape: float) -> dict:
+    """Build and cache a Gamma-rate spec for the given shape parameter.
+
+    Numba does not support ``cache=True`` for closures (functions defined inside
+    another function), so the inner JIT functions cannot be written to disk.  This
+    wrapper caches the returned spec dict — including the compiled callables — in
+    Python memory so that each unique ``shape`` value triggers JIT compilation at
+    most once per interpreter session.
 
     Parameters
     ----------
     shape : float
-        Known shape parameter k > 0.  Defaults to 1.0 (Exponential).
+        Known shape parameter k > 0.
+
+    Returns
+    -------
+    dict
+        Family specification dictionary with scalar sufficient statistic
+        dimension ``v=1``.
     """
-    k = float(shape)
+    k = shape
 
     @nb.njit
     def _h_gr(x):
@@ -413,6 +427,26 @@ def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
         "theta_max": 0.0,
         "min_seg": 2,
     }
+
+
+def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
+    """Return a Gamma-rate spec with the given shape parameter.
+
+    Parameters
+    ----------
+    n_features : int
+        Observation dimension.  Included for a uniform factory signature across
+        family factories; this scalar family ignores the value.
+    shape : float
+        Known shape parameter k > 0.  Defaults to 1.0 (Exponential).
+
+    Returns
+    -------
+    dict
+        Family specification dictionary with scalar sufficient statistic
+        dimension ``v=1``.
+    """
+    return _gamma_rate_spec_cached(float(shape))
 
 
 # ---------------------------------------------------------------------------
@@ -447,7 +481,19 @@ def _App_gaussian_variance(theta):
 
 
 def _gaussian_mean_spec(n_features: int) -> dict:
-    """Return the appropriate Gaussian-mean spec for the given observation dim."""
+    """Return the Gaussian-mean family spec for the given dimension.
+
+    Parameters
+    ----------
+    n_features : int
+        Observation dimension ``p``.
+
+    Returns
+    -------
+    dict
+        Scalar spec (``v=1``) when ``p=1`` and vector spec (``v=p``)
+        otherwise.
+    """
     if n_features == 1:
         return {
             "v": 1,

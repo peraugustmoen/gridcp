@@ -9,7 +9,10 @@ LOG2 = math.log(2.0)
 
 @nb.njit(fastmath=True, cache=True)
 def numba_log(x):
-    """Compute a fast approximation to log(x).
+    """Compute log(x) via a Numba JIT-compiled path.
+
+    This function is not used by the main detection algorithm.  It is
+    retained for potential use in custom Numba-compiled score functions.
 
     Parameters
     ----------
@@ -19,7 +22,7 @@ def numba_log(x):
     Returns
     -------
     float
-        Approximation to log(x).
+        ``math.log(x)`` compiled to a native instruction by Numba.
     """
     return math.log(x)
 
@@ -79,6 +82,12 @@ def get_changeloc_grid(t):
     This function is not used by the main detection algorithm.
     It is provided for testing and debugging purposes, to verify that the grid
     is being updated correctly by `update_grid_numba`.
+
+    Grid values are first post-change indices (0-based). For a value ``n1``,
+    ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
+    post-change segment.
+    For ``t >= 2``, returned values are valid split points in
+    ``{1, ..., t - 1}``. For warmup ``t = 1``, this function returns placeholder ``0``.
     """
     if t < 1:
         raise ValueError("t must be a positive integer (>= 1)")
