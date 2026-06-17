@@ -40,26 +40,28 @@ def mean_cusum_score(
         Each value is ``max_j C_j - 1`` where
         ``C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²``.
     """
-    after_samples = total_samples - before_samples
-    after_sums = total_sum - before_sums
-    before_weight = np.sqrt(after_samples / (total_samples * before_samples)).reshape(
-        -1, 1
-    )
-    after_weight = np.sqrt(before_samples / (total_samples * after_samples)).reshape(
-        -1, 1
-    )
-    square_cusum = (before_weight * before_sums - after_weight * after_sums) ** 2
-
-    # Numba compatibility: compute row-wise max explicitly.
-    n_candidates = square_cusum.shape[0]
-    n_features = square_cusum.shape[1]
+    n_candidates = before_sums.shape[0]
+    n_features = before_sums.shape[1]
     out = np.empty(n_candidates, dtype=np.float64)
+    t = total_samples
 
     for i in range(n_candidates):
-        row_max = square_cusum[i, 0]
+        n1 = before_samples[i]
+        n2 = t - n1
+        before_weight = np.sqrt(n2 / (t * n1))
+        after_weight = np.sqrt(n1 / (t * n2))
+
+        # Row-wise max of the squared CUSUM over features, accumulated in a
+        # single pass without materializing the full (G, n_features) matrix.
+        s1 = before_sums[i, 0]
+        s2 = total_sum[0] - s1
+        row_max = (before_weight * s1 - after_weight * s2) ** 2
         for j in range(1, n_features):
-            if square_cusum[i, j] > row_max:
-                row_max = square_cusum[i, j]
+            s1 = before_sums[i, j]
+            s2 = total_sum[j] - s1
+            sq = (before_weight * s1 - after_weight * s2) ** 2
+            if sq > row_max:
+                row_max = sq
         out[i] = row_max - 1.0
 
     return out

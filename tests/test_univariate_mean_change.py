@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from gridcp.detector import GridDetector
-from gridcp.scores._mean_cusum import MeanCUSUM
+from gridcp.scores._mean_cusum import MeanCUSUM, mean_cusum_score
 from gridcp.scores._mean_or_variance import MeanOrVariance
 from gridcp.scores._mean_unknown_variance import MeanCUSUMUnknownVariance
 from gridcp.scores._variance import Variance
@@ -788,3 +788,39 @@ def test_max_split_point_is_first_post_change_index():
     # Verify semantics: pre-change is x[:cp], post-change is x[cp:]
     assert list(x[:max_split_point]) == [0.0, 0.0, 0.0], "x[:cp] should be pre-change"
     assert list(x[max_split_point:]) == [1.0, 1.0, 1.0], "x[cp:] should be post-change"
+
+
+def _reference_mean_cusum_score(total_sum, before_sums, total_samples, before_samples):
+    """Independent reference for ``mean_cusum_score`` (centered max squared CUSUM).
+
+    Computes ``max_j C_j - 1`` per candidate, where
+    ``C_j = (sqrt(n2/(t*n1)) * S1_j - sqrt(n1/(t*n2)) * S2_j)**2`` with
+    ``S2_j = total_sum_j - S1_j`` and ``n2 = t - n1``.
+    """
+    n1 = before_samples.astype(np.float64)
+    n2 = float(total_samples) - n1
+    before_weight = np.sqrt(n2 / (total_samples * n1)).reshape(-1, 1)
+    after_weight = np.sqrt(n1 / (total_samples * n2)).reshape(-1, 1)
+    after_sums = total_sum - before_sums
+    square_cusum = (before_weight * before_sums - after_weight * after_sums) ** 2
+    return square_cusum.max(axis=1) - 1.0
+
+
+@pytest.mark.parametrize("n_features", [1, 3, 50])
+def test_mean_cusum_score_matches_reference(n_features):
+    """``mean_cusum_score`` reproduces the analytic centered max squared CUSUM."""
+    rng = np.random.default_rng(seed=20240617)
+    total_samples = 97
+    grid = get_changeloc_grid(total_samples)
+    before_samples = np.asarray(grid, dtype=np.int64)
+
+    before_sums = rng.standard_normal((before_samples.shape[0], n_features))
+    total_sum = before_sums[-1] + rng.standard_normal(n_features)
+
+    got = mean_cusum_score(total_sum, before_sums, total_samples, before_samples)
+    expected = _reference_mean_cusum_score(
+        total_sum, before_sums, total_samples, before_samples
+    )
+
+    assert got.shape == (before_samples.shape[0],)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=0)
