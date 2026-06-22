@@ -3,14 +3,14 @@ import numpy as np
 import gridcp.old_api as old_api
 from gridcp.detector import GridDetector
 from gridcp.scores import (
-    MeanCUSUMUnknownVariance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
-    RegressionDirect,
+    CUSUM,
+    GaussianMean,
+    GaussianMeanOrVariance,
+    GaussianMeanOrCovariance,
+    GaussianMeanFullCovariance,
+    RegressionWald,
     RegressionMcScan,
-    Variance,
+    GaussianVariance,
 )
 
 
@@ -85,7 +85,7 @@ def test_variance_parity_with_old_api():
     x = rng.normal(0.0, 1.0, size=n)
 
     old_det = old_api.make_univariate_variance_change_detector(penalty_constant=1.0)
-    new_det = GridDetector(score=Variance(n_features=1), threshold=1.0)
+    new_det = GridDetector(score=GaussianVariance(n_features=1), threshold=1.0)
 
     _run_parity_check(
         X=x,
@@ -104,7 +104,7 @@ def test_mean_or_variance_parity_with_old_api():
     old_det = old_api.make_univariate_mean_or_variance_change_detector(
         penalty_constant=1.0
     )
-    new_det = GridDetector(score=MeanOrVariance(n_features=1), threshold=1.0)
+    new_det = GridDetector(score=GaussianMeanOrVariance(n_features=1), threshold=1.0)
 
     _run_parity_check(
         X=x,
@@ -128,7 +128,7 @@ def test_multivariate_mean_identity_cov_parity_with_old_api():
         mode="known_variance",
     )
     new_det = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=np.array([1.0, 1.0], dtype=np.float64),
     )
 
@@ -154,7 +154,7 @@ def test_multivariate_mean_unknown_cov_parity_with_old_api():
         mode="unknown_variance",
     )
     new_det = GridDetector(
-        score=MultivariateMeanUnknownCov(n_features=p), threshold=1.0
+        score=GaussianMeanFullCovariance(n_features=p), threshold=1.0
     )
 
     _run_parity_check(
@@ -178,7 +178,7 @@ def test_multivariate_mean_or_covariance_parity_with_old_api():
         penalty_constant=1.0,
     )
     new_det = GridDetector(
-        score=MultivariateMeanOrCovariance(n_features=p),
+        score=GaussianMeanOrCovariance(n_features=p),
         threshold=1.0,
     )
 
@@ -226,7 +226,7 @@ def test_regression_direct_parity_with_old_api():
         mode="direct",
         penalty_constant=1.0,
     )
-    new_det = GridDetector(score=RegressionDirect(n_regressors=q), threshold=1.0)
+    new_det = GridDetector(score=RegressionWald(n_regressors=q), threshold=1.0)
 
     # The new API uses guard n1 < q (Gram matrix full rank at n1 = q), while
     # the old API used n1 <= q (off by one, too conservative).  The running
@@ -247,7 +247,7 @@ def test_regression_direct_parity_with_old_api():
 
 
 def test_mean_cusum_unknown_variance_parity_with_old_api():
-    """MeanCUSUMUnknownVariance running sums and grid candidates match old API."""
+    """GaussianMean running sums and grid candidates match old API."""
     n = 24
     rng = np.random.default_rng(2033)
     x = rng.normal(0.0, 1.0, size=n)
@@ -255,7 +255,7 @@ def test_mean_cusum_unknown_variance_parity_with_old_api():
     old_det = old_api.make_univariate_mean_change_detector(
         penalty_constant=1.0, mode="unknown_variance"
     )
-    new_det = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=1.0)
+    new_det = GridDetector(score=GaussianMean(n_features=1), threshold=1.0)
 
     # Old API stores [sum(x), sum(x^2)] as shape (2,); new API stores the
     # same in state.stats with shape (2,) for univariate.

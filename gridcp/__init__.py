@@ -9,7 +9,7 @@ The main classes are imported from the top-level package:
 - :func:`reset_detector_state` — reset a detector state to time 0.
 - :class:`DetectorOutput` — typed dict returned per update step.
 
-Score classes (e.g. :class:`~gridcp.scores.MeanCUSUM`,
+Score classes (e.g. :class:`~gridcp.scores.CUSUM`,
 :class:`~gridcp.scores.ExponentialFamilyGLR`) are **not** re-exported from
 this top-level namespace and must be imported from :mod:`gridcp.scores`.
 

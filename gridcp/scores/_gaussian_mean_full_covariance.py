@@ -1,16 +1,17 @@
-"""Multivariate mean LR score with unknown covariance."""
+"""Multivariate mean-change LR score with unknown (pooled) full covariance."""
 
 from dataclasses import dataclass, field
 
 import numba as nb
 import numpy as np
 
-from gridcp.typing import ArrayLike
+from gridcp.scores._aggregation import chi2_max_bound
 from gridcp.scores._score_helpers import as_obs
+from gridcp.typing import ArrayLike
 
 
 @nb.njit(cache=True)
-def multivariate_mean_unknown_cov_score(
+def gaussian_mean_full_covariance_score(
     total_sum: np.ndarray,
     total_sum_outer: np.ndarray,
     before_sums: np.ndarray,
@@ -35,7 +36,6 @@ def multivariate_mean_unknown_cov_score(
         Total number of observations seen so far.
     before_samples : np.ndarray
         First post-change index (0-based) for each candidate, shape ``(G,)``.
-        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
     n_features : int
         Dimension ``p`` of each observation vector.
 
@@ -44,8 +44,9 @@ def multivariate_mean_unknown_cov_score(
     np.ndarray
         Centered LR scores for each candidate, shape ``(G,)``.  Each value is
         ``2 * LR - p`` where ``2 * LR = t * (logdet Σ̂_null - logdet Σ̂_alt)``.
-        Returns the zero vector when ``t < 2*p + 2`` or when the null
-        covariance matrix is singular.
+        Returns the zero vector when ``t < 2*p + 2`` or when the null covariance
+        matrix is singular; a candidate is 0 when its alternative covariance is
+        singular.
     """
     n_candidates = before_sums.shape[0]
     out = np.zeros(n_candidates, dtype=np.float64)
@@ -88,8 +89,8 @@ def multivariate_mean_unknown_cov_score(
 
 
 @dataclass(slots=True)
-class MultivariateMeanUnknownCovState:
-    """State for the MultivariateMeanUnknownCov score.
+class GaussianMeanFullCovarianceState:
+    """State for the :class:`GaussianMeanFullCovariance` score.
 
     Parameters
     ----------
@@ -109,50 +110,36 @@ class MultivariateMeanUnknownCovState:
 
 
 @dataclass(frozen=True, slots=True)
-class MultivariateMeanUnknownCov:
-    """Multivariate mean-change LR score with unknown (pooled) covariance.
+class GaussianMeanFullCovariance:
+    """Multivariate mean-change LR score with unknown (pooled) full covariance.
 
     Under no change, X_1, ..., X_t are i.i.d. N(μ, Σ) with Σ unknown; under a
-    change at τ, X_1, ..., X_{τ-1} ~ N(μ₁, Σ) and X_τ, ..., X_t ~ N(μ₂, Σ)
-    with a common unknown covariance Σ and μ₁ ≠ μ₂.
+    change at τ the mean shifts from μ₁ to μ₂ with a common unknown covariance Σ.
 
     **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, pooling within-group scatter from both segments
-    gives the twice log-likelihood ratio
+    gives ``2 * LR = t * (logdet Σ̂_null - logdet Σ̂_alt)``, asymptotically
+    chi-squared(p) under the null.
 
-        2 * LR = t * (logdet Σ̂_null - logdet Σ̂_alt),
-
-    where
-
-        Σ̂_null = (Σᵢ xᵢxᵢᵀ - t x̄x̄ᵀ) / t   (full-window centered covariance)
-        Σ̂_alt  = (S_W1 + S_W2) / t            (pooled within-group scatter / t)
-
-    and S_Wk is the within-segment scatter matrix of segment k.  By Wilks'
-    theorem, 2 * LR is asymptotically chi-squared(p) under the null.
-
-    **Aggregation.**  The score produces a single test statistic
-    (``n_scores = 1``).  No per-feature aggregation is performed; the LR
-    operates jointly on the full p-dimensional distribution.
+    **Aggregation.**  This score is self-aggregating: the LR operates jointly on
+    the full p-dimensional distribution and produces a single test statistic
+    (``n_scores = 1``).  It does not take an ``aggregation`` keyword.
 
     **Centering and penalty.**  The statistic is centered by subtracting p (the
     chi-squared(p) mean).  When ``enable_penalty=True`` (default), the centered
-    score is divided by ``sqrt(p log t) + log t``; this is an asymptotic
-    Wilks-style approximation.  When ``enable_penalty=False``, the divisor is
-    1.0 and the raw centered statistic is returned.
+    score is divided by ``chi2_max_bound(1, p, t) = sqrt(p log t) + log t``; when
+    ``enable_penalty=False`` the divisor is 1.0.
 
-    **Sample size requirement.**  Because Σ̂_alt pools scatter from both segments,
-    its rank is ``min(t - 2, p)`` regardless of how the split is made.  The
-    strict minimum for invertibility is ``t >= p + 2``, but a more conservative
-    threshold ``t >= 2*p + 2`` is used because near the strict minimum
-    ``2 * LR`` deviates noticeably from its chi-squared limit.  The score
-    returns ``0`` whenever ``t < 2*p + 2``.
+    **Sample size requirement.**  The score returns ``0`` whenever
+    ``t < 2*p + 2`` (a conservative threshold for the pooled-within-group
+    covariance to be well-conditioned).
 
     Parameters
     ----------
     n_features : int
         Dimension ``p`` of each observation vector.
     enable_penalty : bool, default=True
-        If ``True``, divide the centered score by ``sqrt(p log t) + log t``.
+        If ``True``, divide the centered score by ``chi2_max_bound(1, p, t)``.
         If ``False``, return the raw centered score with divisor 1.0.
     """
 
@@ -164,45 +151,51 @@ class MultivariateMeanUnknownCov:
         """Number of scores returned by ``compute_penalized_scores``."""
         return 1
 
-    def init_state(self) -> MultivariateMeanUnknownCovState:
+    def init_state(self) -> GaussianMeanFullCovarianceState:
         """Return a fresh initial state with no observations seen."""
-        return MultivariateMeanUnknownCovState(
+        return GaussianMeanFullCovarianceState(
             sum=np.zeros(self.n_features, dtype=np.float64),
             sum_outer=np.zeros((self.n_features, self.n_features), dtype=np.float64),
         )
 
     def update(
         self,
-        state: MultivariateMeanUnknownCovState,
+        state: GaussianMeanFullCovarianceState,
         x: ArrayLike,
-    ) -> MultivariateMeanUnknownCovState:
+    ) -> GaussianMeanFullCovarianceState:
         """Update the state with a new observation.
 
         Parameters
         ----------
-        state : MultivariateMeanUnknownCovState
+        state : GaussianMeanFullCovarianceState
             Current state.
         x : ArrayLike
             New observation, shape ``(n_features,)``.
 
         Returns
         -------
-        MultivariateMeanUnknownCovState
+        GaussianMeanFullCovarianceState
             Updated state.
         """
         x_arr = as_obs(x, self.n_features)
-        return MultivariateMeanUnknownCovState(
+        return GaussianMeanFullCovarianceState(
             n_samples=state.n_samples + 1,
             sum=state.sum + x_arr,
             sum_outer=state.sum_outer + np.outer(x_arr, x_arr),
         )
 
-    def _compute_centered_scores(
+    def _get_penalty(self, n_samples: int) -> float:
+        """Return the penalty divisor for the current sample size."""
+        if self.enable_penalty:
+            return chi2_max_bound(1, self.n_features, n_samples)
+        return 1.0
+
+    def compute_penalized_scores(
         self,
-        state: MultivariateMeanUnknownCovState,
-        grid_states: list[MultivariateMeanUnknownCovState],
+        state: GaussianMeanFullCovarianceState,
+        grid_states: list[GaussianMeanFullCovarianceState],
     ) -> np.ndarray:
-        """Compute centered (but unpenalized) scores for every active grid candidate."""
+        """Compute penalized LR score at every active grid candidate."""
         n = len(grid_states)
         p = self.n_features
         before_sums = np.empty((n, p), dtype=np.float64)
@@ -212,7 +205,7 @@ class MultivariateMeanUnknownCov:
             before_sums[i] = st.sum
             before_sum_outers[i] = st.sum_outer
             before_samples[i] = st.n_samples
-        return multivariate_mean_unknown_cov_score(
+        scores = gaussian_mean_full_covariance_score(
             state.sum,
             state.sum_outer,
             before_sums,
@@ -221,21 +214,4 @@ class MultivariateMeanUnknownCov:
             before_samples,
             self.n_features,
         )
-
-    def _get_penalty(self, n_samples: int) -> float:
-        """Return the penalty divisor for the current sample size."""
-        if self.enable_penalty:
-            df = float(self.n_features)
-            return np.sqrt(df * np.log(n_samples)) + np.log(n_samples)
-        return 1.0
-
-    def compute_penalized_scores(
-        self,
-        state: MultivariateMeanUnknownCovState,
-        grid_states: list[MultivariateMeanUnknownCovState],
-    ) -> np.ndarray:
-        """Compute penalized LR score at every active grid candidate."""
-        scores = self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            state.n_samples
-        )
-        return scores[:, np.newaxis]
+        return (scores / self._get_penalty(state.n_samples))[:, np.newaxis]

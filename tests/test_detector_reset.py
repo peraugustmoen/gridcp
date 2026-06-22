@@ -3,12 +3,12 @@ import pytest
 
 from gridcp import reset_detector_state
 from gridcp.detector import DetectorState, GridDetector
-from gridcp.scores import MeanCUSUM
+from gridcp.scores import CUSUM
 
 
 def test_output_only_uses_local_n_samples():
     """Detector output reports local sample count only."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e6)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1e6)
     state = detector.init_state()
 
     state, out1 = detector.update(state, np.array([0.0]))
@@ -22,7 +22,7 @@ def test_output_only_uses_local_n_samples():
 
 def test_reset_detector_state_is_full_reset():
     """Reset clears all detector history and restarts local time."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e6)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1e6)
     state = detector.init_state()
 
     for _ in range(6):
@@ -44,7 +44,7 @@ def test_reset_detector_state_is_full_reset():
 
 def test_reset_state_has_no_offset_field():
     """Detector state no longer carries any offset/global-time bookkeeping."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e6)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1e6)
     state = detector.init_state()
 
     assert not hasattr(state, "n_samples_offset")
@@ -56,7 +56,7 @@ def test_reset_state_has_no_offset_field():
 
 def test_griddetector_has_no_internal_reset_api():
     """Check that reset behavior is exposed as external functions only."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1.0)
 
     assert not hasattr(detector, "reset_state")
     assert not hasattr(detector, "auto_reset_on_alarm")
@@ -71,7 +71,7 @@ def test_reset_detector_state_is_importable_from_package_root():
 
 def test_detector_state_uses_new_field_names():
     """DetectorState exposes current_score_state / previous_score_states only."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e6)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1e6)
     state = detector.init_state()
     for _ in range(4):
         state, _ = detector.update(state, np.array([0.0]))
@@ -90,7 +90,7 @@ def test_detector_state_uses_new_field_names():
 
 def test_reset_detector_state_takes_only_detector():
     """reset_detector_state(detector) returns a fresh state; the old 2-arg form is gone."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=1e6)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=1e6)
     state = detector.init_state()
     for _ in range(5):
         state, _ = detector.update(state, np.array([1.0]))
@@ -120,7 +120,7 @@ def test_detector_outputs_are_deterministic_after_rename():
     stream = np.concatenate([pre, post])
 
     def run() -> tuple[list[float], bool]:
-        detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+        detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
         state = detector.init_state()
         max_scores: list[float] = []
         alarmed = False
