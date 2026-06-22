@@ -83,13 +83,27 @@ class RegressionMcScanState:
 class RegressionMcScan:
     """Regression-change CUSUM score following Cho, Kley, and Li (2025).
 
-    Under no change, observations (yᵢ, xᵢ) follow the linear regression model
-    y = βᵀx + ε with ε ~ N(0, 1) and regressors x ∈ ℝq with identity
-    covariance and zero mean; under a change at τ, X_1, ..., X_{τ-1} follow
-    the model with coefficient vector β₁ and X_τ, ..., X_t follow the model
-    with β₂ ≠ β₁.  Each observation is passed as a vector of length q + 1
-    with the response y in position 0 and the regressors x in positions
-    1, ..., q.
+    Under no change, observations ``(y_i, x_i)`` follow the linear model
+
+    ``yᵢ = xᵢᵀβ + εᵢ``,
+
+    where ``xᵢ ∈ ℝ^q`` has zero mean and covariance ``Σ``, and the noise
+    satisfies ``εᵢ ~ N(0, σ_ε²)``.
+
+    Under the alternative with a changepoint at ``tau``, the pre-change and
+    post-change samples follow
+
+    ``yᵢ = xᵢᵀβ₁ + εᵢ`` for ``i = 1, ..., τ - 1``,
+
+    and
+
+    ``yᵢ = xᵢᵀβ₂ + εᵢ`` for ``i = τ, ..., t``,
+
+    with ``β₁ ≠ β₂``.
+
+    Each observation is passed as a vector of length ``q + 1`` with the
+    response ``y`` in position 0 and the regressors ``x`` in positions
+    ``1, ..., q``.
 
     **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the score is
@@ -97,9 +111,7 @@ class RegressionMcScan:
         T = sqrt(n_1 n_2 / t) * max_{j=1,...,q} |ȳx_j^1 - ȳx_j^2|,
 
     where ȳx_j^k is the empirical cross-product mean of y with regressor j
-    in segment k.  Under the null, ȳx_j^k estimates β_j (since x has identity
-    covariance), so a change in any regression coefficient produces a
-    detectable difference between segments.
+    in segment k.
 
     **Aggregation.**  The score is the max over q regressors of the
     per-regressor absolute CUSUM increment, analogous to the max-coordinate
@@ -119,7 +131,7 @@ class RegressionMcScan:
     ----------
     n_regressors : int
         Number of regressors ``q`` (dimension of ``x`` in the model
-        ``y = βᵀx + ε``).
+        ``y = xᵀβ + ε``).
     enable_penalty : bool, default=True
         If ``True``, divide the score by ``sqrt(log(q t))``.
         If ``False``, return the raw score with divisor 1.0.
