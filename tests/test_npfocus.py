@@ -147,7 +147,7 @@ def test_npfocus_multivariate_update_and_score_shapes():
         state, out = detector.update(state, row)
         outputs.append(out)
 
-    assert state.running_score_state.n_smaller.shape == (2, 11)
+    assert state.current_score_state.n_smaller.shape == (2, 11)
     assert outputs[-1]["max_score"].shape == (2,)
     assert outputs[-1]["max_split_point"].shape == (2,)
 
@@ -195,16 +195,16 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
         state_ch1, _ = det_ch1.update(state_ch1, row[1])
 
     scores_multi = score_multi.compute_penalized_scores(
-        state_multi.running_score_state,
-        state_multi.candidate_score_states,
+        state_multi.current_score_state,
+        state_multi.previous_score_states,
     )
     scores_ch0 = score_ch0.compute_penalized_scores(
-        state_ch0.running_score_state,
-        state_ch0.candidate_score_states,
+        state_ch0.current_score_state,
+        state_ch0.previous_score_states,
     )
     scores_ch1 = score_ch1.compute_penalized_scores(
-        state_ch1.running_score_state,
-        state_ch1.candidate_score_states,
+        state_ch1.current_score_state,
+        state_ch1.previous_score_states,
     )
 
     assert np.allclose(

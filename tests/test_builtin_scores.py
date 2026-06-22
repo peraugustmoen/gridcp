@@ -64,11 +64,11 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
 
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
-        actual_sum = state.candidate_score_states[i].sum
+        actual_sum = state.previous_score_states[i].sum
         assert np.allclose(actual_sum, expected_sum)
 
         n2 = n - n1
-        total_sum = state.running_score_state.sum
+        total_sum = state.current_score_state.sum
         mean1 = expected_sum / n1
         mean2 = (total_sum - expected_sum) / n2
         diff = mean1 - mean2
@@ -76,8 +76,8 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
         expected_raw = lr - p
 
         scores = detector.score.compute_penalized_scores(
-            state.running_score_state,
-            state.candidate_score_states,
+            state.current_score_state,
+            state.previous_score_states,
         )[i]
 
         # Column 0: sparse statistic (max of squared diffs).
@@ -169,12 +169,12 @@ def test_multivariate_mean_unknown_var_cumsums():
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
         expected_outer = cum_outers[n1 - 1]
-        actual = state.candidate_score_states[i]
+        actual = state.previous_score_states[i]
         assert np.allclose(actual.sum, expected_sum)
         assert np.allclose(actual.sum_outer, expected_outer)
 
-    assert np.allclose(state.running_score_state.sum, cumsums[-1])
-    assert np.allclose(state.running_score_state.sum_outer, cum_outers[-1])
+    assert np.allclose(state.current_score_state.sum, cumsums[-1])
+    assert np.allclose(state.current_score_state.sum_outer, cum_outers[-1])
 
 
 def test_multivariate_mean_unknown_var_no_false_alarm():
@@ -240,12 +240,12 @@ def test_multivariate_mean_or_covariance_cumsums():
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
         expected_outer = cum_outers[n1 - 1]
-        actual = state.candidate_score_states[i]
+        actual = state.previous_score_states[i]
         assert np.allclose(actual.sum, expected_sum)
         assert np.allclose(actual.sum_outer, expected_outer)
 
-    assert np.allclose(state.running_score_state.sum, cumsums[-1])
-    assert np.allclose(state.running_score_state.sum_outer, cum_outers[-1])
+    assert np.allclose(state.current_score_state.sum, cumsums[-1])
+    assert np.allclose(state.current_score_state.sum_outer, cum_outers[-1])
 
 
 def test_multivariate_mean_or_covariance_no_false_alarm():

@@ -154,14 +154,14 @@ class TestPenalizedScoresShape:
             x = rng.standard_normal(obs_size)
             state, _ = detector.update(state, x)
 
-        # At this point we have candidates in state.candidate_score_states
-        assert len(state.candidate_score_states) > 0
+        # At this point we have candidates in state.previous_score_states
+        assert len(state.previous_score_states) > 0
         out = score.compute_penalized_scores(
-            state.running_score_state, state.candidate_score_states
+            state.current_score_state, state.previous_score_states
         )
         assert out.ndim == 2, f"{name}: expected 2-D output, got shape {out.shape}"
         G, K = out.shape
-        assert G == len(state.candidate_score_states), f"{name}: G mismatch"
+        assert G == len(state.previous_score_states), f"{name}: G mismatch"
         assert K == expected_K, f"{name}: K={K} != n_scores={expected_K}"
 
     @pytest.mark.parametrize(

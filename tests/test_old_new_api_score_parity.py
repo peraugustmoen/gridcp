@@ -52,7 +52,7 @@ def _run_parity_check(
 
         # Compare running sufficient statistics.
         old_running = _as_array(old_state["sum"])
-        new_running = _as_array(running_from_new_state(state.running_score_state))
+        new_running = _as_array(running_from_new_state(state.current_score_state))
         assert np.allclose(old_running, new_running, atol=atol, rtol=rtol)
 
         # Compare candidate locations and candidate sufficient statistics.
@@ -61,7 +61,7 @@ def _run_parity_check(
         assert np.array_equal(old_changelocs, new_changelocs)
 
         old_candidates = old_state["sum_pre_list"]
-        new_candidates = state.candidate_score_states
+        new_candidates = state.previous_score_states
         assert len(old_candidates) == len(new_candidates)
 
         for old_cand, new_cand in zip(old_candidates, new_candidates):

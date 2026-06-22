@@ -78,7 +78,7 @@ def test_running_sum_matches_numpy_cumsum():
     for val in x:
         running_sum += float(val)
         state, _ = detector.update(state, np.asarray([val]))
-        assert np.isclose(state.running_score_state.sum[0], running_sum)
+        assert np.isclose(state.current_score_state.sum[0], running_sum)
 
 
 def test_grid_and_candidate_states_stay_parallel():
@@ -92,8 +92,8 @@ def test_grid_and_candidate_states_stay_parallel():
     for val in x:
         state, _ = detector.update(state, np.asarray([val]))
 
-        assert len(state.grid) == len(state.candidate_score_states)
-        for g, candidate in zip(state.grid, state.candidate_score_states):
+        assert len(state.grid) == len(state.previous_score_states)
+        for g, candidate in zip(state.grid, state.previous_score_states):
             # Candidate snapshot should correspond to the candidate grid time.
             assert candidate.n_samples == g
 
@@ -210,8 +210,8 @@ def test_max_split_point_and_score_on_noiseless_step_stream():
 
     # Cross-check output against recomputed candidate scores and state.grid mapping.
     candidate_scores = score.compute_penalized_scores(
-        state.running_score_state,
-        state.candidate_score_states,
+        state.current_score_state,
+        state.previous_score_states,
     )
     argmax = int(np.argmax(candidate_scores[:, 0]))
     expected_split_point = int(state.grid[argmax])
@@ -254,7 +254,7 @@ def test_univariate_mean_1_baseline():
         running_sum += float(val)
         state2, _ = detector2.update(state2, np.asarray([val]))
         # Verify running sum in MeanCUSUM state matches cumsum
-        assert np.isclose(state2.running_score_state.sum[0], running_sum), (
+        assert np.isclose(state2.current_score_state.sum[0], running_sum), (
             f"Running sum mismatch at n_samples={state2.n_samples}"
         )
 
@@ -320,7 +320,7 @@ def test_grid_and_cumulative_sums_match_manual_computation():
             for i in range(len(true_grid)):
                 grid_point = true_grid[i]
                 expected_cumsum = true_cumsums[i]
-                actual_cumsum = state.candidate_score_states[i].sum[0]
+                actual_cumsum = state.previous_score_states[i].sum[0]
 
                 assert np.isclose(expected_cumsum, actual_cumsum), (
                     f"At n_samples={t}, grid point {grid_point}: expected cumsum {expected_cumsum}, got {actual_cumsum}"
@@ -365,7 +365,7 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
             for i, g in enumerate(true_grid):
                 expected_sum = cumsum_x[g - 1]
                 expected_sum2 = cumsum_x2[g - 1]
-                actual_stats = state.candidate_score_states[i].stats
+                actual_stats = state.previous_score_states[i].stats
 
                 assert np.isclose(actual_stats[0], expected_sum), (
                     f"At n_samples={t}, grid point {g}: expected sum {expected_sum}, got {actual_stats[0]}"
@@ -374,8 +374,8 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
                     f"At n_samples={t}, grid point {g}: expected sumsq {expected_sum2}, got {actual_stats[1]}"
                 )
 
-    assert np.isclose(state.running_score_state.stats[0], cumsum_x[-1])
-    assert np.isclose(state.running_score_state.stats[1], cumsum_x2[-1])
+    assert np.isclose(state.current_score_state.stats[0], cumsum_x[-1])
+    assert np.isclose(state.current_score_state.stats[1], cumsum_x2[-1])
 
 
 def test_univariate_mean_unknown_variance_no_false_alarm_high_threshold():
@@ -453,8 +453,8 @@ def test_multivariate_mean_unknown_variance_accepts_vectors_and_tracks_stats():
 
     for t, row in enumerate(x, start=1):
         state, _ = detector.update(state, row)
-        assert np.allclose(state.running_score_state.stats[0], cumsum_x[t - 1])
-        assert np.allclose(state.running_score_state.stats[1], cumsum_x2[t - 1])
+        assert np.allclose(state.current_score_state.stats[0], cumsum_x[t - 1])
+        assert np.allclose(state.current_score_state.stats[1], cumsum_x2[t - 1])
 
 
 def test_multivariate_mean_unknown_variance_detects_single_feature_shift():
@@ -524,15 +524,15 @@ def test_multivariate_known_variance_matches_independent_streams():
 
         # Running statistics parity.
         expected_running_sum = np.array(
-            [st.running_score_state.sum[0] for st in single_states]
+            [st.current_score_state.sum[0] for st in single_states]
         )
-        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+        assert np.allclose(multi_state.current_score_state.sum, expected_running_sum)
 
         # Candidate statistics parity.
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum[0]
+                    single_states[k].previous_score_states[i].sum[0]
                     for k in range(n_features)
                 ]
             )
@@ -586,16 +586,16 @@ def test_multivariate_variance_matches_independent_streams():
             single_outs.append(single_out)
 
         expected_running_sumsq = np.array(
-            [st.running_score_state.sum_sq[0] for st in single_states]
+            [st.current_score_state.sum_sq[0] for st in single_states]
         )
         assert np.allclose(
-            multi_state.running_score_state.sum_sq, expected_running_sumsq
+            multi_state.current_score_state.sum_sq, expected_running_sumsq
         )
 
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    single_states[k].previous_score_states[i].sum_sq[0]
                     for k in range(n_features)
                 ]
             )
@@ -649,26 +649,26 @@ def test_multivariate_mean_or_variance_matches_independent_streams():
             single_outs.append(single_out)
 
         expected_running_sum = np.array(
-            [st.running_score_state.sum[0] for st in single_states]
+            [st.current_score_state.sum[0] for st in single_states]
         )
         expected_running_sumsq = np.array(
-            [st.running_score_state.sum_sq[0] for st in single_states]
+            [st.current_score_state.sum_sq[0] for st in single_states]
         )
-        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+        assert np.allclose(multi_state.current_score_state.sum, expected_running_sum)
         assert np.allclose(
-            multi_state.running_score_state.sum_sq, expected_running_sumsq
+            multi_state.current_score_state.sum_sq, expected_running_sumsq
         )
 
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum[0]
+                    single_states[k].previous_score_states[i].sum[0]
                     for k in range(n_features)
                 ]
             )
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    single_states[k].previous_score_states[i].sum_sq[0]
                     for k in range(n_features)
                 ]
             )
@@ -724,29 +724,29 @@ def test_multivariate_unknown_variance_matches_independent_streams():
 
         # Running statistics parity.
         expected_running_sum = np.array(
-            [st.running_score_state.stats[0] for st in single_states]
+            [st.current_score_state.stats[0] for st in single_states]
         )
         expected_running_sumsq = np.array(
-            [st.running_score_state.stats[1] for st in single_states]
+            [st.current_score_state.stats[1] for st in single_states]
         )
         assert np.allclose(
-            multi_state.running_score_state.stats[0], expected_running_sum
+            multi_state.current_score_state.stats[0], expected_running_sum
         )
         assert np.allclose(
-            multi_state.running_score_state.stats[1], expected_running_sumsq
+            multi_state.current_score_state.stats[1], expected_running_sumsq
         )
 
         # Candidate statistics parity.
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].stats[0]
+                    single_states[k].previous_score_states[i].stats[0]
                     for k in range(n_features)
                 ]
             )
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].stats[1]
+                    single_states[k].previous_score_states[i].stats[1]
                     for k in range(n_features)
                 ]
             )
