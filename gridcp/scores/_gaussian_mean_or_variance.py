@@ -122,6 +122,8 @@ class GaussianMeanOrVariance:
         Number of features in the input data.
     aggregation : {"max", "sum", "max-sum", None, "None"}, default="max"
         How to combine the p per-feature statistics across the feature axis.
+        ``"max"`` (1 column), ``"sum"`` (1 column), ``"max-sum"`` (2 columns,
+        max then sum), ``None``/``"None"`` (p columns, one per feature).
     enable_penalty : bool, default=True
         If ``True``, divide each centered column by ``chi2_max_bound(M, df, t)``;
         if ``False``, return the raw centered statistic with divisor 1.0.

@@ -136,8 +136,8 @@ class GaussianMeanOrCovariance:
 
     **Sample size requirement.**  The score returns 0 for any candidate with
     ``n_1 ≤ 2*p`` or ``n_2 ≤ 2*p`` (a conservative threshold for each segment's
-    sample covariance to be well-conditioned), and the whole score is 0 if the
-    pooled covariance is singular.
+    sample covariance to be well-conditioned) or with a singular segment
+    covariance, and the whole score is 0 if the pooled covariance is singular.
 
     Parameters
     ----------

@@ -96,8 +96,8 @@ class GaussianMeanState:
     n_samples : int
         Number of samples seen so far.
     stats : np.ndarray
-        Running sufficient statistics ``[sum(x), sum(x²)]``, shape
-        ``(2, n_features)``.
+        Running sufficient statistics ``[sum(x), sum(x²)]``.  Shape ``(2,)`` for
+        univariate series and ``(2, n_features)`` for multivariate series.
     """
 
     n_samples: int = 0
@@ -137,6 +137,8 @@ class GaussianMean:
         Number of features expected in each observation.
     aggregation : {"max", "sum", "max-sum", None, "None"}, default="max"
         How to combine the p per-feature statistics across the feature axis.
+        ``"max"`` (1 column), ``"sum"`` (1 column), ``"max-sum"`` (2 columns,
+        max then sum), ``None``/``"None"`` (p columns, one per feature).
     enable_penalty : bool, default=True
         If ``True``, divide each centered column by ``chi2_max_bound(M, df, t)``;
         if ``False``, return the raw centered statistic with divisor 1.0.

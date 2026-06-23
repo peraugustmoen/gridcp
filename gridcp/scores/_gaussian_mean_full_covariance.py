@@ -132,7 +132,9 @@ class GaussianMeanFullCovariance:
 
     **Sample size requirement.**  The score returns ``0`` whenever
     ``t < 2*p + 2`` (a conservative threshold for the pooled-within-group
-    covariance to be well-conditioned).
+    covariance to be well-conditioned) or when the pooled (null) covariance is
+    singular; an individual candidate is ``0`` when its alternative covariance is
+    singular.
 
     Parameters
     ----------
