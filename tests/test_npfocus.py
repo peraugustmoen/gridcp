@@ -80,32 +80,6 @@ def _alarm_times(detector: GridDetector, pre_sampler, post_sampler=None) -> np.n
     )
 
 
-def test_npfocus_time_dependent_penalty_matches_exponential_family_glr_shape():
-    score = NPFOCuS(
-        value_grid=np.linspace(-3.0, 3.0, 25),
-        n_features=1,
-        enable_penalty=True,
-    )
-    t = 100
-    assert np.isclose(score._get_penalty(t), np.sqrt(2.0 * np.log(t)) + np.log(t))
-
-
-def test_npfocus_default_has_penalty_disabled():
-    score = NPFOCuS(value_grid=np.linspace(-3.0, 3.0, 25), n_features=1)
-    assert score.enable_penalty is False
-    assert score._get_penalty(100) == 1.0
-
-
-def test_npfocus_constant_penalty_is_one():
-    score = NPFOCuS(
-        value_grid=np.linspace(-3.0, 3.0, 25),
-        n_features=1,
-        enable_penalty=False,
-    )
-    assert score._get_penalty(10) == 1.0
-    assert score._get_penalty(1000) == 1.0
-
-
 @pytest.mark.parametrize(
     ("value_grid", "match"),
     [
@@ -127,7 +101,6 @@ def test_npfocus_multivariate_update_and_score_shapes():
     score = NPFOCuS(
         value_grid=np.linspace(-2.0, 2.0, 11),
         n_features=2,
-        enable_penalty=False,
     )
 
     detector = GridDetector(score=score, threshold=np.array([1.0e6, 1.0e6]))
@@ -147,7 +120,7 @@ def test_npfocus_multivariate_update_and_score_shapes():
         state, out = detector.update(state, row)
         outputs.append(out)
 
-    assert state.running_score_state.n_smaller.shape == (2, 11)
+    assert state.current_score_state.n_smaller.shape == (2, 11)
     assert outputs[-1]["max_score"].shape == (2,)
     assert outputs[-1]["max_split_point"].shape == (2,)
 
@@ -157,17 +130,14 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
     score_multi = NPFOCuS(
         value_grid=value_grid,
         n_features=2,
-        enable_penalty=False,
     )
     score_ch0 = NPFOCuS(
         value_grid=value_grid,
         n_features=1,
-        enable_penalty=False,
     )
     score_ch1 = NPFOCuS(
         value_grid=value_grid,
         n_features=1,
-        enable_penalty=False,
     )
 
     x = np.array(
@@ -195,16 +165,16 @@ def test_npfocus_multivariate_scores_take_max_over_channels():
         state_ch1, _ = det_ch1.update(state_ch1, row[1])
 
     scores_multi = score_multi.compute_penalized_scores(
-        state_multi.running_score_state,
-        state_multi.candidate_score_states,
+        state_multi.current_score_state,
+        state_multi.previous_score_states,
     )
     scores_ch0 = score_ch0.compute_penalized_scores(
-        state_ch0.running_score_state,
-        state_ch0.candidate_score_states,
+        state_ch0.current_score_state,
+        state_ch0.previous_score_states,
     )
     scores_ch1 = score_ch1.compute_penalized_scores(
-        state_ch1.running_score_state,
-        state_ch1.candidate_score_states,
+        state_ch1.current_score_state,
+        state_ch1.previous_score_states,
     )
 
     assert np.allclose(

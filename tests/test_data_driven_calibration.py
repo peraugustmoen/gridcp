@@ -13,7 +13,7 @@ from gridcp.calibration import (
     draw_samples,
 )
 from gridcp.detector import GridDetector
-from gridcp.scores import MeanCUSUM, MultivariateMeanIdentityCov
+from gridcp.scores import CUSUM
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ class TestCalibrateThresholdFromSamples:
     """Tests for calibrate_threshold_false_alarm_from_samples."""
 
     def test_basic_scalar(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(50, 30, 1))
         th = calibrate_threshold_false_alarm_from_samples(
@@ -151,7 +151,7 @@ class TestCalibrateThresholdFromSamples:
         assert np.all(th > 0)
 
     def test_invalid_fap(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         samples = np.zeros((5, 10, 1))
         with pytest.raises(ValueError, match="false_alarm_probability"):
             calibrate_threshold_false_alarm_from_samples(
@@ -163,7 +163,7 @@ class TestCalibrateThresholdFromSamples:
             )
 
     def test_wrong_ndim(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="3-D"):
             calibrate_threshold_false_alarm_from_samples(
                 score=score,
@@ -172,7 +172,7 @@ class TestCalibrateThresholdFromSamples:
             )
 
     def test_n_features_mismatch(self):
-        score = MeanCUSUM(n_features=3)
+        score = CUSUM(n_features=3)
         samples = np.zeros((10, 5, 2))
         with pytest.raises(ValueError, match="n_features"):
             calibrate_threshold_false_alarm_from_samples(
@@ -182,7 +182,7 @@ class TestCalibrateThresholdFromSamples:
             )
 
     def test_multivariate_score(self):
-        score = MultivariateMeanIdentityCov(n_features=2)
+        score = CUSUM(n_features=2, aggregation="max-sum")
         rng = np.random.default_rng(7)
         samples = rng.normal(size=(30, 20, 2))
         th = calibrate_threshold_false_alarm_from_samples(
@@ -204,7 +204,7 @@ class TestCalibrateThresholdFromData:
     """Tests for calibrate_threshold_false_alarm_from_data."""
 
     def test_basic_univariate(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(0)
         training_data = rng.normal(size=200)
         th = calibrate_threshold_false_alarm_from_data(
@@ -220,7 +220,7 @@ class TestCalibrateThresholdFromData:
         assert np.all(th > 0)
 
     def test_basic_multivariate(self):
-        score = MeanCUSUM(n_features=3, enable_penalty=False)
+        score = CUSUM(n_features=3, enable_penalty=False)
         rng = np.random.default_rng(1)
         training_data = rng.normal(size=(200, 3))
         th = calibrate_threshold_false_alarm_from_data(
@@ -236,7 +236,7 @@ class TestCalibrateThresholdFromData:
         assert np.all(th > 0)
 
     def test_deterministic_with_same_rng(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th1 = calibrate_threshold_false_alarm_from_data(
             score=score,
@@ -258,7 +258,7 @@ class TestCalibrateThresholdFromData:
 
     def test_auto_block_length(self):
         """Default block_length should be max(1, int(N^(1/3)))."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=1000)
         # N=1000, N^(1/3)=10, so block_length=10
         # Just verify it runs without error
@@ -274,7 +274,7 @@ class TestCalibrateThresholdFromData:
 
     def test_block_length_one(self):
         """Explicit block_length=1 should work (i.i.d. bootstrap)."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th = calibrate_threshold_false_alarm_from_data(
             score=score,
@@ -288,7 +288,7 @@ class TestCalibrateThresholdFromData:
         assert np.all(th > 0)
 
     def test_invalid_fap(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         data = np.ones(20)
         with pytest.raises(ValueError, match="false_alarm_probability"):
             calibrate_threshold_false_alarm_from_data(
@@ -299,7 +299,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_invalid_stream_len(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="stream_len"):
             calibrate_threshold_false_alarm_from_data(
                 score=score,
@@ -309,7 +309,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_invalid_n_paths(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="n_paths"):
             calibrate_threshold_false_alarm_from_data(
                 score=score,
@@ -320,7 +320,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_invalid_block_length(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="block_length"):
             calibrate_threshold_false_alarm_from_data(
                 score=score,
@@ -331,7 +331,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_too_few_observations(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="at least 2"):
             calibrate_threshold_false_alarm_from_data(
                 score=score,
@@ -341,7 +341,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_n_features_mismatch(self):
-        score = MeanCUSUM(n_features=3)
+        score = CUSUM(n_features=3)
         data = np.ones((20, 2))
         with pytest.raises(ValueError, match="features"):
             calibrate_threshold_false_alarm_from_data(
@@ -352,7 +352,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_wrong_ndim(self):
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
         with pytest.raises(ValueError, match="ndim"):
             calibrate_threshold_false_alarm_from_data(
                 score=score,
@@ -362,7 +362,7 @@ class TestCalibrateThresholdFromData:
             )
 
     def test_short_data_warns(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.ones(5)
         with pytest.warns(UserWarning, match="wrap around"):
             calibrate_threshold_false_alarm_from_data(
@@ -384,7 +384,7 @@ class TestCalibrateDetectorThresholdFromData:
     """Tests for calibrate_detector_threshold_false_alarm_from_data."""
 
     def test_matches_calibrate_threshold_from_data(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         data = np.random.default_rng(5).normal(size=100)
         th1 = calibrate_threshold_false_alarm_from_data(
@@ -418,7 +418,7 @@ class TestParitySamplesVsMC:
     calibrate_threshold_false_alarm with strict_equivalence (both use the same samples)."""
 
     def test_scalar_parity(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         seed = 77
         n_paths, stream_len, fap = 80, 30, 0.05
 
@@ -451,7 +451,7 @@ class TestParitySamplesVsMC:
         np.testing.assert_allclose(th_samples, th_mc)
 
     def test_multivariate_parity(self):
-        score = MeanCUSUM(n_features=3, enable_penalty=False)
+        score = CUSUM(n_features=3, enable_penalty=False)
         seed = 55
         n_paths, stream_len, fap = 60, 25, 0.10
 
@@ -485,7 +485,7 @@ class TestParitySamplesVsMC:
 
     def test_parity_with_parallel_strict_equivalence(self):
         """MC strict_equivalence=True must also agree since it uses draw_samples."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         seed = 33
         n_paths, stream_len, fap = 80, 30, 0.05
 
@@ -527,7 +527,7 @@ class TestParallelSerialEquivalence:
     """parallel=True must produce the same threshold as parallel=False."""
 
     def test_from_samples_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(80, 30, 1))
         th_serial = calibrate_threshold_false_alarm_from_samples(
@@ -539,7 +539,7 @@ class TestParallelSerialEquivalence:
         assert th_serial == pytest.approx(th_parallel)
 
     def test_from_samples_parallel_multivariate(self):
-        score = MeanCUSUM(n_features=2, enable_penalty=False)
+        score = CUSUM(n_features=2, enable_penalty=False)
         rng = np.random.default_rng(7)
         samples = rng.normal(size=(60, 25, 2))
         th_serial = calibrate_threshold_false_alarm_from_samples(
@@ -551,7 +551,7 @@ class TestParallelSerialEquivalence:
         np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_from_data_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=200)
         th_serial = calibrate_threshold_false_alarm_from_data(
             score=score,
@@ -576,7 +576,7 @@ class TestParallelSerialEquivalence:
         assert th_serial == pytest.approx(th_parallel)
 
     def test_from_data_parallel_multivariate(self):
-        score = MeanCUSUM(n_features=3, enable_penalty=False)
+        score = CUSUM(n_features=3, enable_penalty=False)
         data = np.random.default_rng(1).normal(size=(200, 3))
         th_serial = calibrate_threshold_false_alarm_from_data(
             score=score,
@@ -601,7 +601,7 @@ class TestParallelSerialEquivalence:
         np.testing.assert_allclose(th_serial, th_parallel)
 
     def test_detector_wrapper_parallel_matches_serial(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         detector = GridDetector(score=score, threshold=1.0)
         data = np.random.default_rng(5).normal(size=150)
         th_serial = calibrate_detector_threshold_false_alarm_from_data(
@@ -637,7 +637,7 @@ class TestNJobs:
 
     def test_from_samples_n_jobs_1(self):
         """n_jobs=1 with parallel=True should behave like serial."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(50, 20, 1))
         th_serial = calibrate_threshold_false_alarm_from_samples(
@@ -654,7 +654,7 @@ class TestNJobs:
 
     def test_from_samples_n_jobs_2(self):
         """Explicit n_jobs=2 should give same result as serial."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         rng = np.random.default_rng(42)
         samples = rng.normal(size=(50, 20, 1))
         th_serial = calibrate_threshold_false_alarm_from_samples(
@@ -670,7 +670,7 @@ class TestNJobs:
         assert th_serial == pytest.approx(th_j2)
 
     def test_from_data_n_jobs_2(self):
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
+        score = CUSUM(n_features=1, enable_penalty=False)
         data = np.random.default_rng(0).normal(size=100)
         th_serial = calibrate_threshold_false_alarm_from_data(
             score=score,

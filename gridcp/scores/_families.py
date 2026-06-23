@@ -48,7 +48,7 @@ Vector families (v > 1)
     Multivariate Gaussian, change in mean vector (known covariance = I_p).
     h(x) = x,  A(θ) = ½‖θ‖²,  v = p = n_features,  θ ∈ ℝᵖ.
     Note: ∇²A(θ) = I_p is allocated per Newton step (O(p²) memory);
-    for large p prefer ``MultivariateMeanIdentityCov`` or ``MeanCUSUM``.
+    for large p prefer ``CUSUM`` (optionally with ``aggregation="max-sum"``).
 
 ``gaussian_mean_variance``
     Univariate Gaussian, joint change in mean and variance.

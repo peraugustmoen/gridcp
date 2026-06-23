@@ -14,16 +14,15 @@ import pytest
 from gridcp.detector import GridDetector
 from gridcp.scores import (
     ExponentialFamilyGLR,
-    MeanCUSUM,
-    MeanCUSUMUnknownVariance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
+    CUSUM,
+    GaussianMean,
+    GaussianMeanOrVariance,
+    GaussianMeanOrCovariance,
+    GaussianMeanFullCovariance,
     NPFOCuS,
-    RegressionDirect,
+    RegressionWald,
     RegressionMcScan,
-    Variance,
+    GaussianVariance,
 )
 from gridcp.calibration import (
     calibrate_threshold_false_alarm,
@@ -57,16 +56,16 @@ def _normal_sampler(rng):
 
 
 ALL_BUILTIN_SCORES = [
-    ("MeanCUSUM_K1", MeanCUSUM(n_features=1), 1),
-    ("MeanCUSUM_K3", MeanCUSUM(n_features=3), 1),
-    ("MeanCUSUMUnknownVariance_K1", MeanCUSUMUnknownVariance(n_features=1), 1),
-    ("MeanCUSUMUnknownVariance_K3", MeanCUSUMUnknownVariance(n_features=3), 1),
-    ("Variance_K1", Variance(n_features=1), 1),
-    ("MeanOrVariance_K1", MeanOrVariance(n_features=1), 1),
-    ("MultivariateMeanIdentityCov_K2", MultivariateMeanIdentityCov(n_features=3), 2),
-    ("MultivariateMeanUnknownCov_K1", MultivariateMeanUnknownCov(n_features=2), 1),
-    ("MultivariateMeanOrCovariance_K1", MultivariateMeanOrCovariance(n_features=2), 1),
-    ("RegressionDirect_K1", RegressionDirect(n_regressors=2), 1),
+    ("MeanCUSUM_K1", CUSUM(n_features=1), 1),
+    ("MeanCUSUM_K3", CUSUM(n_features=3), 1),
+    ("MeanCUSUMUnknownVariance_K1", GaussianMean(n_features=1), 1),
+    ("MeanCUSUMUnknownVariance_K3", GaussianMean(n_features=3), 1),
+    ("Variance_K1", GaussianVariance(n_features=1), 1),
+    ("MeanOrVariance_K1", GaussianMeanOrVariance(n_features=1), 1),
+    ("MultivariateMeanIdentityCov_K2", CUSUM(n_features=3, aggregation="max-sum"), 2),
+    ("MultivariateMeanUnknownCov_K1", GaussianMeanFullCovariance(n_features=2), 1),
+    ("MultivariateMeanOrCovariance_K1", GaussianMeanOrCovariance(n_features=2), 1),
+    ("RegressionDirect_K1", RegressionWald(n_regressors=2), 1),
     ("RegressionMcScan_K1", RegressionMcScan(n_regressors=2), 1),
     (
         "ExponentialFamilyGLR_K1",
@@ -154,14 +153,14 @@ class TestPenalizedScoresShape:
             x = rng.standard_normal(obs_size)
             state, _ = detector.update(state, x)
 
-        # At this point we have candidates in state.candidate_score_states
-        assert len(state.candidate_score_states) > 0
+        # At this point we have candidates in state.previous_score_states
+        assert len(state.previous_score_states) > 0
         out = score.compute_penalized_scores(
-            state.running_score_state, state.candidate_score_states
+            state.current_score_state, state.previous_score_states
         )
         assert out.ndim == 2, f"{name}: expected 2-D output, got shape {out.shape}"
         G, K = out.shape
-        assert G == len(state.candidate_score_states), f"{name}: G mismatch"
+        assert G == len(state.previous_score_states), f"{name}: G mismatch"
         assert K == expected_K, f"{name}: K={K} != n_scores={expected_K}"
 
     @pytest.mark.parametrize(
@@ -196,39 +195,39 @@ class TestDetectorThresholdLengthValidation:
 
     def test_threshold_length_mismatch_raises_at_construction_K1(self):
         """K=1 score with 2-element threshold must fail early at construction."""
-        score = MeanCUSUM(n_features=1)  # n_scores = 1
+        score = CUSUM(n_features=1)  # n_scores = 1
         with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0, 2.0]))
 
     def test_threshold_length_mismatch_raises_at_construction_K2(self):
         """K=2 score with 1-element threshold must fail early at construction."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
+        score = CUSUM(n_features=3, aggregation="max-sum")  # n_scores = 2
         with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0]))
 
     def test_threshold_length_mismatch_raises_at_construction_K2_len3(self):
         """K=2 score with 3-element threshold must fail early at construction."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
+        score = CUSUM(n_features=3, aggregation="max-sum")  # n_scores = 2
         with pytest.raises(ValueError, match="n_scores|threshold"):
             GridDetector(score=score, threshold=np.array([1.0, 2.0, 3.0]))
 
     def test_matching_threshold_length_accepted_K1(self):
         """K=1 score with 1-element threshold must be accepted."""
-        score = MeanCUSUM(n_features=1)  # n_scores = 1
+        score = CUSUM(n_features=1)  # n_scores = 1
         det = GridDetector(score=score, threshold=np.array([5.0]))
         assert det is not None
 
     def test_matching_threshold_length_accepted_K2(self):
         """K=2 score with 2-element threshold must be accepted."""
-        score = MultivariateMeanIdentityCov(n_features=3)  # n_scores = 2
+        score = CUSUM(n_features=3, aggregation="max-sum")  # n_scores = 2
         det = GridDetector(score=score, threshold=np.array([5.0, 5.0]))
         assert det is not None
 
     def test_scalar_threshold_always_accepted(self):
         """Scalar threshold must always be accepted (broadcast)."""
-        det1 = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+        det1 = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
         det2 = GridDetector(
-            score=MultivariateMeanIdentityCov(n_features=3), threshold=5.0
+            score=CUSUM(n_features=3, aggregation="max-sum"), threshold=5.0
         )
         assert det1 is not None
         assert det2 is not None

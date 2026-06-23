@@ -9,8 +9,17 @@ import numba as nb
 import numpy as np
 from numpy.typing import NDArray
 
+from gridcp.scores._aggregation import (
+    aggregate_features,
+    aggregation_dims,
+    aggregation_mode_code,
+)
 from gridcp.scores._score_helpers import as_obs
 from gridcp.typing import ArrayLike
+
+# Per-channel degrees of freedom placeholder; NPFOCuS applies no penalty or
+# centering, so this only drives the per-aggregation column count.
+_NPFOCUS_DF = 1
 
 
 @nb.njit(cache=True)
@@ -33,58 +42,48 @@ def bernoulli_max_ll(k: np.ndarray, n: int) -> np.ndarray:
 
 
 @nb.njit(cache=True)
-def npfocus_score(
+def npfocus_channel_stats(
     total_sum: np.ndarray,
     before_sums: np.ndarray,
     total_samples: int,
     before_samples: np.ndarray,
-) -> np.ndarray:
-    """Compute NPFOCuS scores for all active candidate changepoints.
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the two per-channel NPFOCuS statistics for all candidates.
 
-    Returns one row per active candidate and two columns.
-
-    For each feature, NPFOCuS forms the sum and maximum of the Bernoulli LR
-    statistics across the user grid. The returned score is then the maximum of
-    these per-feature statistics across channels.
+    For each candidate and feature (channel), the Bernoulli 2*LR is formed
+    across the value grid and reduced two ways: a sum over the grid and a max
+    over the grid.  No aggregation across channels, no centering, no penalty.
 
     Parameters
     ----------
-    total_sum : np.ndarray
-        Per-threshold cumulative counts across all observations, shape
-        ``(n_features, value_grid.size)``.  ``total_sum[f, k]`` is the
-        number of observations in feature ``f`` that are
-        ``<= value_grid[k]``.
-    before_sums : np.ndarray
-        Per-candidate cumulative counts, shape ``(G, n_features, value_grid.size)``.
-        ``before_sums[j, f, k]`` is the number of pre-change observations in
-        candidate ``j``, feature ``f``, that are ``<= value_grid[k]``.
+    total_sum : np.ndarray, shape (n_features, value_grid.size)
+        Per-threshold cumulative counts across all observations.
+    before_sums : np.ndarray, shape (G, n_features, value_grid.size)
+        Per-candidate cumulative counts.
     total_samples : int
         Total number of observations seen so far.
-    before_samples : np.ndarray
-        First post-change index (0-based) for each candidate, shape ``(G,)``.
-        Equals the pre-change sample count: ``data[0:n1]`` is pre-change.
+    before_samples : np.ndarray, shape (G,)
+        First post-change index (0-based) for each candidate.
 
     Returns
     -------
-    np.ndarray
-        Score matrix of shape ``(G, 2)``.  Column 0: sum score.
-        Column 1: max score.
+    sum_stat : np.ndarray, shape (G, n_features)
+        Per-channel sum-over-grid Bernoulli 2*LR.
+    max_stat : np.ndarray, shape (G, n_features)
+        Per-channel max-over-grid Bernoulli 2*LR.
     """
     n_candidates = before_sums.shape[0]
-    scores = np.zeros((n_candidates, 2), dtype=np.float64)
-    if total_samples <= 0:
-        return scores
-
     n_features = total_sum.shape[0]
+    sum_stat = np.zeros((n_candidates, n_features), dtype=np.float64)
+    max_stat = np.zeros((n_candidates, n_features), dtype=np.float64)
+    if total_samples <= 0:
+        return sum_stat, max_stat
 
     for j in range(n_candidates):
         n_pre = before_samples[j]
         n_post = total_samples - n_pre
         if n_pre <= 0 or n_post <= 0:
             continue
-
-        best_sum_score = 0.0
-        best_max_score = 0.0
 
         for feature_idx in range(n_features):
             total_sum_feature = total_sum[feature_idx]
@@ -96,18 +95,10 @@ def npfocus_score(
             ll_post = bernoulli_max_ll(sum_post_feature, n_post)
             lr_scores = 2.0 * (ll_post + ll_pre - ll_tot)
 
-            sum_score = np.sum(lr_scores)
-            max_score = np.max(lr_scores)
+            sum_stat[j, feature_idx] = np.sum(lr_scores)
+            max_stat[j, feature_idx] = np.max(lr_scores)
 
-            if feature_idx == 0 or sum_score > best_sum_score:
-                best_sum_score = sum_score
-            if feature_idx == 0 or max_score > best_max_score:
-                best_max_score = max_score
-
-        scores[j, 0] = best_sum_score
-        scores[j, 1] = best_max_score
-
-    return scores
+    return sum_stat, max_stat
 
 
 @dataclass(slots=True)
@@ -123,37 +114,35 @@ class NPFOCuS:
     """Nonparametric FOCuS score for changepoint detection.
 
     Under no change, X_1, ..., X_t are i.i.d. with unknown distribution F;
-    under a change at τ, X_1, ..., X_{τ-1} ~ F₁ and X_τ, ..., X_t ~ F₂ for
-    continuous distributions F₁ ≠ F₂.
+    under a change at τ the marginal distribution changes.
 
     **Score.**  The score discretizes each feature's marginal using the
-    user-supplied ``value_grid``.  For each threshold v_k in the grid, the
-    indicator I(x ≤ v_k) is Bernoulli with parameter F(v_k) under no change.
-    The Bernoulli LR statistic is computed for each grid point and candidate
-    changepoint.
+    user-supplied ``value_grid``.  For each threshold v_k, the indicator
+    I(x ≤ v_k) is Bernoulli, and the Bernoulli 2*LR statistic is computed for
+    each grid point and candidate changepoint.
 
-    **Aggregation.**  The grid LR values are combined into two test statistics
-    per candidate (``n_scores = 2``):
+    **Channel statistics.**  For each feature (channel), the grid 2*LR values are
+    reduced two ways: a **sum over the value grid** and a **max over the value
+    grid**.  These two per-channel statistics are intrinsic to NPFOCuS and are
+    always both produced.
 
-    - **Column 0 (sum):** Σₖ 2 * LR_k(b), summing Bernoulli LR values across
-      all grid points.
-    - **Column 1 (max):** max_k 2 * LR_k(b), the maximum Bernoulli LR across
-      grid points.
+    **Aggregation.**  The ``aggregation`` keyword acts on the **channel axis**,
+    independently on each of the two statistics:
 
-    For ``n_features > 1``, both columns are computed per feature and the
-    per-feature maximum is taken, matching the channelwise-max convention of
-    the other univariate-style scores.
+    - ``"max"`` (default): 2 columns (channel-max of the grid-sum and of the
+      grid-max statistic).
+    - ``"sum"``: 2 columns (channel-sum of each).
+    - ``"max-sum"``: 4 columns.
+    - ``None``/``"None"``: ``2 * n_features`` columns (per-channel, both stats).
 
-    **Centering and penalty.**  No centering constant is subtracted from either
-    output column.  ``enable_penalty`` defaults to ``False`` for this score,
-    as threshold calibration is typically done empirically.  When
-    ``enable_penalty=True``, both columns are divided by
-    ``sqrt(2 log(t p)) + log(t p)``, where p = ``n_features``; this follows
-    a Bonferroni-corrected penalty analogous to the two-dimensional
-    exponential-family GLR case.  When ``enable_penalty=False`` (default), the
-    divisor is 1.0 and the raw scores are returned.
+    **Centering and penalty.**  None.  The grid-sum statistic sums strongly
+    positively correlated indicator terms, so there is no defensible
+    chi-squared degrees of freedom; NPFOCuS therefore applies **no penalty and
+    no centering** and has no ``enable_penalty`` parameter.  Calibrate the
+    detector threshold empirically.
 
-    **Sample size requirement.**  None.
+    **Sample size requirement.**  None (candidates with no pre- or post-change
+    observations score 0).
 
     Parameters
     ----------
@@ -162,20 +151,20 @@ class NPFOCuS:
         construct the indicator process underlying the score.
     n_features : int, default=1
         Observation dimension expected by the score.
-    enable_penalty : bool, default=False
-        If ``True``, apply the time-dependent divisor
-        ``sqrt(2 log(t p)) + log(t p)`` to both output columns.
-        If ``False`` (default), use divisor 1.0.
+    aggregation : {"max", "sum", "max-sum", None, "None"}, default="max"
+        How to combine the per-channel statistics across the feature axis,
+        applied independently to the grid-sum and grid-max statistics.
     """
 
     value_grid: ArrayLike
     n_features: int = 1
-    enable_penalty: bool = False
+    aggregation: object = "max"
 
     @property
     def n_scores(self) -> int:
         """Number of scores returned by ``compute_penalized_scores``."""
-        return 2
+        per_stat = len(aggregation_dims(self.aggregation, self.n_features, _NPFOCUS_DF))
+        return 2 * per_stat
 
     @property
     def _value_grid_array(self) -> NDArray[np.float64]:
@@ -186,6 +175,7 @@ class NPFOCuS:
         """Validate and normalize the evaluation grid and score config."""
         if self.n_features < 1:
             raise ValueError("n_features must be >= 1.")
+        aggregation_mode_code(self.aggregation)
 
         try:
             raw_value_grid = np.asarray(self.value_grid)
@@ -240,12 +230,12 @@ class NPFOCuS:
             n_smaller=next_n_smaller,
         )
 
-    def _compute_centered_scores(
+    def compute_penalized_scores(
         self,
         state: NPFOCuSState,
         grid_states: list[NPFOCuSState],
     ) -> np.ndarray:
-        """Compute centered but unpenalized scores for active candidates."""
+        """Compute the channel-aggregated raw NPFOCuS statistics (no penalty)."""
         if len(grid_states) == 0:
             raise ValueError("grid_states is empty.")
 
@@ -254,26 +244,13 @@ class NPFOCuS:
             [candidate.n_samples for candidate in grid_states],
             dtype=np.int64,
         )
-        return npfocus_score(
+        sum_stat, max_stat = npfocus_channel_stats(
             total_sum=state.n_smaller,
             before_sums=grid_sums,
             total_samples=state.n_samples,
             before_samples=grid_n_samples,
         )
-
-    def _get_penalty(self, n_samples: int) -> float:
-        """Return the penalty divisor for the current sample size."""
-        if self.enable_penalty:
-            log_tp = np.log(n_samples * self.n_features)
-            return np.sqrt(2.0 * log_tp) + log_tp
-        return 1.0
-
-    def compute_penalized_scores(
-        self,
-        state: NPFOCuSState,
-        grid_states: list[NPFOCuSState],
-    ) -> np.ndarray:
-        """Compute penalized score for every active grid candidate."""
-        return self._compute_centered_scores(state, grid_states) / self._get_penalty(
-            state.n_samples
-        )
+        mode = aggregation_mode_code(self.aggregation)
+        cols_sum = aggregate_features(sum_stat, mode)
+        cols_max = aggregate_features(max_stat, mode)
+        return np.concatenate((cols_sum, cols_max), axis=1)

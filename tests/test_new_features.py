@@ -6,16 +6,16 @@ import pytest
 from gridcp.calibration import calibrate_threshold_false_alarm
 from gridcp.detector import GridDetector
 from gridcp.scores import (
-    MeanCUSUM,
-    MeanCUSUMUnknownVariance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
-    RegressionDirect,
+    CUSUM,
+    GaussianMean,
+    GaussianMeanOrVariance,
+    GaussianMeanOrCovariance,
+    GaussianMeanFullCovariance,
+    RegressionWald,
     RegressionMcScan,
-    Variance,
+    GaussianVariance,
 )
+from gridcp.scores._aggregation import chi2_max_bound
 
 
 def _run_stream(detector, x):
@@ -26,6 +26,14 @@ def _run_stream(detector, x):
         state, out = detector.update(state, row)
         outputs.append(out)
     return state, outputs
+
+
+def _prefix_state(score, data, n1):
+    """Build a score state from the first ``n1`` observations of ``data``."""
+    st = score.init_state()
+    for x in data[:n1]:
+        st = score.update(st, x)
+    return st
 
 
 # ---------------------------------------------------------------------------
@@ -39,14 +47,14 @@ class TestEnablePenalty:
     @pytest.mark.parametrize(
         "score_cls, kwargs",
         [
-            (MeanCUSUM, dict(n_features=1)),
-            (MeanCUSUMUnknownVariance, dict(n_features=1)),
-            (MeanOrVariance, dict(n_features=1)),
-            (Variance, dict(n_features=1)),
-            (MultivariateMeanIdentityCov, dict(n_features=3)),
-            (MultivariateMeanUnknownCov, dict(n_features=3)),
-            (MultivariateMeanOrCovariance, dict(n_features=3)),
-            (RegressionDirect, dict(n_regressors=2)),
+            (CUSUM, dict(n_features=1)),
+            (GaussianMean, dict(n_features=1)),
+            (GaussianMeanOrVariance, dict(n_features=1)),
+            (GaussianVariance, dict(n_features=1)),
+            (CUSUM, dict(n_features=3, aggregation="max-sum")),
+            (GaussianMeanFullCovariance, dict(n_features=3)),
+            (GaussianMeanOrCovariance, dict(n_features=3)),
+            (RegressionWald, dict(n_regressors=2)),
             (RegressionMcScan, dict(n_regressors=2)),
         ],
         ids=lambda x: x.__name__ if isinstance(x, type) else str(x),
@@ -71,10 +79,10 @@ class TestEnablePenalty:
     @pytest.mark.parametrize(
         "score_cls, kwargs",
         [
-            (MeanCUSUM, dict(n_features=1)),
-            (MeanOrVariance, dict(n_features=1)),
-            (Variance, dict(n_features=1)),
-            (MultivariateMeanIdentityCov, dict(n_features=3)),
+            (CUSUM, dict(n_features=1)),
+            (GaussianMeanOrVariance, dict(n_features=1)),
+            (GaussianVariance, dict(n_features=1)),
+            (CUSUM, dict(n_features=3, aggregation="max-sum")),
             (RegressionMcScan, dict(n_regressors=2)),
         ],
         ids=lambda x: x.__name__ if isinstance(x, type) else str(x),
@@ -107,15 +115,23 @@ class TestEnablePenalty:
             f"enable_penalty=False={c_final}"
         )
 
-    def test_constant_penalty_returns_one(self):
-        """_get_penalty should return 1.0 for disabled mode."""
-        score = MeanCUSUM(n_features=1, enable_penalty=False)
-        assert score._get_penalty(100) == 1.0
+    def test_disabled_penalty_returns_centered_statistic(self):
+        """With enable_penalty=False the centered statistic is returned (divisor 1)."""
+        rng = np.random.default_rng(0)
+        data = rng.normal(size=(12, 1))
+        off = CUSUM(n_features=1, enable_penalty=False)
+        on = CUSUM(n_features=1, enable_penalty=True)
+        total = off.init_state()
+        for x in data:
+            total = off.update(total, x)
+        grid = [_prefix_state(off, data, n1) for n1 in (3, 7, 11)]
 
-    def test_time_dependent_penalty_greater_than_one(self):
-        """_get_penalty should return > 1.0 for enabled mode with large n."""
-        score = MeanCUSUM(n_features=1, enable_penalty=True)
-        assert score._get_penalty(100) > 1.0
+        off_out = off.compute_penalized_scores(total, grid)
+        on_out = on.compute_penalized_scores(total, grid)
+        # Disabled divides by 1.0; enabled divides by chi2_max_bound(1, 1, t) > 1,
+        # so the enabled magnitudes are strictly smaller.
+        assert np.all(np.abs(on_out) < np.abs(off_out) + 1e-12)
+        assert chi2_max_bound(1, 1, total.n_samples) > 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +148,7 @@ class TestApplyBonferroni:
 
     def test_multivariate_threshold_returns_array(self):
         """Multivariate score should return an array threshold."""
-        score = MultivariateMeanIdentityCov(n_features=3)
+        score = CUSUM(n_features=3, aggregation="max-sum")
         threshold = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
@@ -148,7 +164,7 @@ class TestApplyBonferroni:
 
     def test_bonferroni_higher_than_uncorrected(self):
         """Bonferroni-corrected threshold should be >= uncorrected."""
-        score = MultivariateMeanIdentityCov(n_features=3)
+        score = CUSUM(n_features=3, aggregation="max-sum")
         th_bonf = calibrate_threshold_false_alarm(
             score=score,
             false_alarm_probability=0.1,
@@ -179,7 +195,7 @@ class TestApplyBonferroni:
 
     def test_scalar_score_ignores_bonferroni(self):
         """For scalar scores, apply_bonferroni has no effect."""
-        score = MeanCUSUM(n_features=1)
+        score = CUSUM(n_features=1)
 
         def sampler(rng: np.random.Generator) -> float:
             return float(rng.normal())
