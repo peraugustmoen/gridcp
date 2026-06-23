@@ -100,10 +100,10 @@ def test_gaussian_mean_or_variance_max_reproduces_legacy():
 
 
 @pytest.mark.parametrize(
-    "score_cls,df",
-    [(GaussianMean, 1), (GaussianVariance, 1), (GaussianMeanOrVariance, 2)],
+    "score_cls",
+    [GaussianMean, GaussianVariance, GaussianMeanOrVariance],
 )
-def test_new_aggregations_shapes_and_n_scores(score_cls, df):
+def test_new_aggregations_shapes_and_n_scores(score_cls):
     rng = np.random.default_rng(3)
     data = rng.normal(size=(25, 4))
     splits = [5, 12, 20]

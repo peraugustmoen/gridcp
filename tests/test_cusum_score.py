@@ -118,11 +118,13 @@ def test_aggregation_none_one_column_per_feature():
     assert score.n_scores == 5
     out = score.compute_penalized_scores(total, grid)
     assert out.shape == (3, 5)
-    # Each column j is C_j - 1 (df=1 centering).
+    # Each column j is C_j - 1 (df=1 centering): the per-feature column must
+    # match a single-feature CUSUM computed on that feature's data alone.
+    single_score = CUSUM(n_features=1, aggregation=None, enable_penalty=False)
     for col in range(5):
-        # Max over a single-feature slice equals that feature's value.
-        single = CUSUM(n_features=5, aggregation=None, enable_penalty=False)
-        _ = single  # documented: per-feature centering is df=1
+        single_total, single_grid = _build_states(data[:, [col]], splits)
+        single_out = single_score.compute_penalized_scores(single_total, single_grid)
+        np.testing.assert_allclose(out[:, col], single_out[:, 0])
     # Sum of (col + 1) over features equals the dense sum statistic + p.
     dense = out.sum(axis=1) + 5  # add back the per-feature centering
     score_sum = CUSUM(n_features=5, aggregation="sum", enable_penalty=False)

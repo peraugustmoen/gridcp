@@ -3,17 +3,17 @@ General CHAD implementation
 
 ## Quick start
 
-Score classes (e.g. `MeanCUSUM`) are imported from `gridcp.scores`.  The
+Score classes (e.g. `CUSUM`) are imported from `gridcp.scores`.  The
 detector and calibration helpers are available from the top-level `gridcp`
 package.
 
 ```python
 import numpy as np
 from gridcp import GridDetector
-from gridcp.scores import MeanCUSUM
+from gridcp.scores import CUSUM
 
 # Create a detector for univariate mean changes
-detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
 state = detector.init_state()
 
 # Feed observations one at a time
@@ -89,7 +89,7 @@ pre-commit run --all-files
 - The main object is `gridcp.detector.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
 - `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
     compatible with `gridcp.detector.GridDetector`.
-- `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
+- `gridcp.scores.CUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
 - The `notebooks/` directory contains demonstration notebooks for the API.
 
 ### Calibration notes
@@ -194,7 +194,7 @@ The intended pattern is:
 - Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
 - This file needs two classes:
     * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
-    * `MyScoreState`: Holds running statistics used to compute penalized scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
+    * `MyScoreState`: Holds running statistics used to compute penalized scores. See `CUSUMState` and `CUSUM` for an example.
 - `MyScoreState` must be treated as immutable snapshots. `update(...)` must return a
     new state and must not mutate the input state in place, because `GridDetector`
     stores historical state snapshots for active candidates.
