@@ -8,6 +8,10 @@ __pycache__/
 
 # folders:
 .vscode/
+confidential_soundsensing_data_12052026/
+
+# generated outputs:
+changepoint-examples-*.html
 
 # Distribution / packaging
 .Python
