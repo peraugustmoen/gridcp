@@ -37,7 +37,7 @@ The package has two APIs — the **new API** (active) and `gridcp/old_api/` (pre
 
 **`gridcp/detector.py`** — `GridDetector`: the meta-detector that works with any `ScoreModel`. Maintains a logarithmic grid of O(log n) candidate changepoint positions.
 
-**`gridcp/scores/`** — Concrete score implementations: `MeanCUSUM`, `MeanCUSUMUnknownVariance`, `Variance`, `MeanOrVariance`, `MultivariateMeanIdentityCov`, `MultivariateMeanUnknownCov`, `MultivariateMeanOrCovariance`, `RegressionDirect`, `RegressionMcScan`, `ExponentialFamilyGLR`. Built-in exponential families accessible via `ExponentialFamilyGLR.from_family(name)`.
+**`gridcp/scores/`** — Concrete score implementations: `CUSUM`, `GaussianMean`, `GaussianVariance`, `GaussianMeanOrVariance`, `GaussianMeanFullCovariance`, `GaussianMeanOrCovariance`, `RegressionMcScan`, `RegressionWald`, `ExponentialFamilyGLR`, `NPFOCuS`. Built-in exponential families accessible via `ExponentialFamilyGLR.from_family(name)`.
 
 **`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration. Supports parallel execution via `n_jobs`.
 

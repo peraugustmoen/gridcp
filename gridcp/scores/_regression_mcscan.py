@@ -115,7 +115,7 @@ class RegressionMcScan:
 
     **Aggregation.**  The score is the max over q regressors of the
     per-regressor absolute CUSUM increment, analogous to the max-coordinate
-    CUSUM of :class:`MeanCUSUM` but operating on cross-product statistics
+    CUSUM of :class:`CUSUM` but operating on cross-product statistics
     rather than the response mean.
 
     **Centering and penalty.**  This is a max-type statistic; no chi-squared

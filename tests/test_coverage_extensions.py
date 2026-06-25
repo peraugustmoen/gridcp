@@ -38,17 +38,17 @@ from gridcp.calibration import (
 from gridcp.detector import GridDetector
 from gridcp.scores import (
     ExponentialFamilyGLR,
-    MeanCUSUM,
-    MeanCUSUMUnknownVariance,
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
+    CUSUM,
+    GaussianMean,
+    GaussianMeanOrVariance,
+    GaussianMeanOrCovariance,
+    GaussianMeanFullCovariance,
     NPFOCuS,
-    RegressionDirect,
+    RegressionWald,
     RegressionMcScan,
-    Variance,
+    GaussianVariance,
 )
+from gridcp.scores._aggregation import chi2_max_bound
 from gridcp.scores._score_helpers import as_obs, inv_sqrtm_pd
 from gridcp.utils import get_G_grid, get_changeloc_grid
 
@@ -178,7 +178,7 @@ class TestAsObs:
 
 class TestInvSqrtmPd:
     """inv_sqrtm_pd computes the inverse matrix square root of a positive-
-    definite matrix.  It is used in RegressionDirect but was never tested.
+    definite matrix.  It is used in RegressionWald but was never tested.
     We verify: identity → identity, known 2×2 case, A^{-1/2} A A^{-1/2} = I.
     """
 
@@ -220,232 +220,77 @@ class TestInvSqrtmPd:
 
 
 class TestPenalties:
-    """Every score model's _get_penalty() was completely untested.
-    The penalty controls the false-alarm rate: enabled mode should grow with
-    n_samples, and disabled mode should always return 1.0.
+    """Penalty contract for the built-in scores, via the public surface.
+
+    The redesigned per-feature scores apply the ``chi2_max_bound`` penalty
+    inline (there is no private ``_get_penalty``), so the contract is checked
+    through ``compute_penalized_scores`` and the public ``chi2_max_bound``.
     """
 
-    SCORES_WITH_DEFAULTS = [
-        MeanCUSUM(n_features=1),
-        Variance(n_features=1),
-        MeanOrVariance(n_features=1),
-        MeanCUSUMUnknownVariance(n_features=1),
-        MultivariateMeanIdentityCov(n_features=2),
-        MultivariateMeanUnknownCov(n_features=2),
-        MultivariateMeanOrCovariance(n_features=2),
-        RegressionDirect(n_regressors=2),
-        RegressionMcScan(n_regressors=2),
+    # (score_cls, kwargs, observation dimension)
+    CHI2_SCORES = [
+        (CUSUM, dict(n_features=1), 1),
+        (GaussianVariance, dict(n_features=1), 1),
+        (GaussianMeanOrVariance, dict(n_features=1), 1),
+        (GaussianMean, dict(n_features=1), 1),
+        (CUSUM, dict(n_features=2, aggregation="max-sum"), 2),
+        (GaussianMeanFullCovariance, dict(n_features=2), 2),
+        (GaussianMeanOrCovariance, dict(n_features=2), 2),
+        (RegressionWald, dict(n_regressors=2), 3),
+        (RegressionMcScan, dict(n_regressors=2), 3),
     ]
 
-    ALL_BUILTIN_DEFAULTS = [
-        ("MeanCUSUM", MeanCUSUM(n_features=1), True),
-        ("Variance", Variance(n_features=1), True),
-        ("MeanOrVariance", MeanOrVariance(n_features=1), True),
-        ("MeanCUSUMUnknownVariance", MeanCUSUMUnknownVariance(n_features=1), True),
-        (
-            "MultivariateMeanIdentityCov",
-            MultivariateMeanIdentityCov(n_features=2),
-            True,
-        ),
-        ("MultivariateMeanUnknownCov", MultivariateMeanUnknownCov(n_features=2), True),
-        (
-            "MultivariateMeanOrCovariance",
-            MultivariateMeanOrCovariance(n_features=2),
-            True,
-        ),
-        ("RegressionDirect", RegressionDirect(n_regressors=2), True),
-        ("RegressionMcScan", RegressionMcScan(n_regressors=2), True),
-        (
-            "ExponentialFamilyGLR",
-            ExponentialFamilyGLR(
-                v=2,
-                n_features=2,
-                h=_h_vector_identity,
-                A=_A_vector_gaussian,
-                A_grad=_Agrad_vector_gaussian,
-                A_hess=_Ahess_vector_gaussian,
-            ),
-            True,
-        ),
-        (
-            "NPFOCuS",
-            NPFOCuS(value_grid=np.linspace(-2.0, 2.0, 9), n_features=1),
-            False,
-        ),
-    ]
+    @staticmethod
+    def _outputs(score, obs_dim, t=200, n1=80, seed=0):
+        """Penalized scores for one valid candidate over a random stream."""
+        rng = np.random.default_rng(seed)
+        data = rng.normal(size=(t, obs_dim))
+        total = score.init_state()
+        for x in data:
+            total = score.update(total, x)
+        grid = score.init_state()
+        for x in data[:n1]:
+            grid = score.update(grid, x)
+        return score.compute_penalized_scores(total, [grid])
 
-    ALL_BUILTINS_DISABLED = [
-        MeanCUSUM(n_features=1, enable_penalty=False),
-        Variance(n_features=1, enable_penalty=False),
-        MeanOrVariance(n_features=1, enable_penalty=False),
-        MeanCUSUMUnknownVariance(n_features=1, enable_penalty=False),
-        MultivariateMeanIdentityCov(n_features=2, enable_penalty=False),
-        MultivariateMeanUnknownCov(n_features=2, enable_penalty=False),
-        MultivariateMeanOrCovariance(n_features=2, enable_penalty=False),
-        RegressionDirect(n_regressors=2, enable_penalty=False),
-        RegressionMcScan(n_regressors=2, enable_penalty=False),
-        ExponentialFamilyGLR(
-            v=2,
-            n_features=2,
-            h=_h_vector_identity,
-            A=_A_vector_gaussian,
-            A_grad=_Agrad_vector_gaussian,
-            A_hess=_Ahess_vector_gaussian,
-            enable_penalty=False,
-        ),
-        NPFOCuS(
-            value_grid=np.linspace(-2.0, 2.0, 9),
-            n_features=1,
-            enable_penalty=False,
-        ),
-    ]
+    @pytest.mark.parametrize("score_cls, kwargs, obs_dim", CHI2_SCORES)
+    def test_enable_penalty_defaults_true(self, score_cls, kwargs, obs_dim):
+        """Every chi-squared score keeps the time-varying penalty on by default."""
+        assert score_cls(**kwargs).enable_penalty is True
 
-    ALL_BUILTINS_ENABLED = [
-        MeanCUSUM(n_features=1, enable_penalty=True),
-        Variance(n_features=1, enable_penalty=True),
-        MeanOrVariance(n_features=1, enable_penalty=True),
-        MeanCUSUMUnknownVariance(n_features=1, enable_penalty=True),
-        MultivariateMeanIdentityCov(n_features=2, enable_penalty=True),
-        MultivariateMeanUnknownCov(n_features=2, enable_penalty=True),
-        MultivariateMeanOrCovariance(n_features=2, enable_penalty=True),
-        RegressionDirect(n_regressors=2, enable_penalty=True),
-        RegressionMcScan(n_regressors=2, enable_penalty=True),
-        ExponentialFamilyGLR(
-            v=2,
-            n_features=2,
-            h=_h_vector_identity,
-            A=_A_vector_gaussian,
-            A_grad=_Agrad_vector_gaussian,
-            A_hess=_Ahess_vector_gaussian,
-            enable_penalty=True,
-        ),
-        NPFOCuS(
-            value_grid=np.linspace(-2.0, 2.0, 9),
-            n_features=1,
-            enable_penalty=True,
-        ),
-    ]
+    @pytest.mark.parametrize("score_cls, kwargs, obs_dim", CHI2_SCORES)
+    def test_disabled_is_unscaled_and_enabled_shrinks(self, score_cls, kwargs, obs_dim):
+        """Disabled divides by 1.0; enabled divides by a divisor > 1 (shrinks)."""
+        enabled = self._outputs(score_cls(enable_penalty=True, **kwargs), obs_dim)
+        disabled = self._outputs(score_cls(enable_penalty=False, **kwargs), obs_dim)
+        # Divisor >= 1 at t=200, so enabled magnitudes never exceed disabled.
+        assert np.all(np.abs(enabled) <= np.abs(disabled) + 1e-9)
+        # The penalty actually scales something (not a no-op).
+        assert np.any(np.abs(disabled) > 1e-9)
+        assert not np.allclose(enabled, disabled)
 
-    @pytest.mark.parametrize(
-        "score", SCORES_WITH_DEFAULTS, ids=lambda s: type(s).__name__
-    )
-    def test_time_dependent_penalty_increases(self, score):
-        """Enabled penalty divisor must be strictly increasing in n_samples."""
-        p10 = np.asarray(score._get_penalty(10))
-        p100 = np.asarray(score._get_penalty(100))
-        p1000 = np.asarray(score._get_penalty(1000))
-        assert np.all(p10 > 0)
-        assert np.all(p100 > p10)
-        assert np.all(p1000 > p100)
+    def test_npfocus_has_no_enable_penalty(self):
+        """NPFOCuS dropped the penalty entirely (no ``enable_penalty``)."""
+        score = NPFOCuS(value_grid=np.linspace(-2.0, 2.0, 9), n_features=1)
+        assert not hasattr(score, "enable_penalty")
+        with pytest.raises(TypeError):
+            NPFOCuS(value_grid=np.linspace(-2.0, 2.0, 9), enable_penalty=False)
 
-    @pytest.mark.parametrize(
-        "score",
-        SCORES_WITH_DEFAULTS,
-        ids=lambda s: f"{type(s).__name__}_default",
-    )
-    def test_default_has_penalty_enabled_for_standard_builtins(self, score):
-        """Standard built-ins should keep time-varying penalization enabled."""
-        assert score.enable_penalty is True
-
-    @pytest.mark.parametrize(
-        "name, score, expected_default",
-        ALL_BUILTIN_DEFAULTS,
-        ids=[item[0] for item in ALL_BUILTIN_DEFAULTS],
-    )
-    def test_default_enable_penalty_matches_api_contract(
-        self,
-        name,
-        score,
-        expected_default,
-    ):
-        """All built-ins should match documented default penalty behavior."""
-        assert score.enable_penalty is expected_default, name
-
-    @pytest.mark.parametrize(
-        "score_cls",
-        [
-            MeanCUSUM,
-            Variance,
-            MeanOrVariance,
-            MeanCUSUMUnknownVariance,
-            MultivariateMeanIdentityCov,
-            MultivariateMeanUnknownCov,
-            MultivariateMeanOrCovariance,
-        ],
-        ids=lambda c: c.__name__,
-    )
-    def test_constant_penalty_is_one(self, score_cls):
-        """Disabled penalty mode must return 1.0 regardless of n_samples."""
-        score = score_cls(n_features=2, enable_penalty=False)
-        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
-        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
-
-    @pytest.mark.parametrize(
-        "score",
-        ALL_BUILTINS_DISABLED,
-        ids=lambda s: f"{type(s).__name__}_disabled",
-    )
-    def test_disabled_penalty_is_one_for_all_builtins(self, score):
-        """All built-ins should use constant divisor 1.0 when disabled."""
-        np.testing.assert_allclose(np.asarray(score._get_penalty(10)), 1.0)
-        np.testing.assert_allclose(np.asarray(score._get_penalty(1000)), 1.0)
-
-    @pytest.mark.parametrize(
-        "score",
-        ALL_BUILTINS_ENABLED,
-        ids=lambda s: f"{type(s).__name__}_enabled",
-    )
-    def test_enabled_penalty_increases_for_all_builtins(self, score):
-        """All built-ins should have increasing positive divisor when enabled."""
-        p10 = np.asarray(score._get_penalty(10))
-        p100 = np.asarray(score._get_penalty(100))
-        p1000 = np.asarray(score._get_penalty(1000))
-        assert np.all(p10 > 0)
-        assert np.all(p100 > p10)
-        assert np.all(p1000 > p100)
-
-    @pytest.mark.parametrize(
-        "score",
-        [
-            RegressionDirect(n_regressors=2, enable_penalty=False),
-            RegressionMcScan(n_regressors=2, enable_penalty=False),
-        ],
-        ids=lambda s: type(s).__name__,
-    )
-    def test_disabled_penalty_is_one_for_regression_scores(self, score):
-        """Regression scores should return unit divisor when penalty is disabled."""
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(10)), 1.0)
-        np.testing.assert_array_equal(np.asarray(score._get_penalty(1000)), 1.0)
-
-    def test_exact_penalty_shapes_for_chi_square_scores(self):
-        t = 100
-        p = 3
-
+    def test_chi2_max_bound_matches_documented_forms(self):
+        """The shared penalty reproduces each documented closed form."""
+        t, p = 100, 3
         log_tp = np.log(t * p)
+        # max aggregations (M = p): df = 1 and df = 2.
+        assert np.isclose(chi2_max_bound(p, 1, t), log_tp + np.sqrt(log_tp))
+        assert np.isclose(chi2_max_bound(p, 2, t), log_tp + np.sqrt(2.0 * log_tp))
+        # self-aggregating (M = 1): full covariance and mean-or-covariance df.
+        df_cov = 4
         assert np.isclose(
-            MeanCUSUMUnknownVariance(n_features=p)._get_penalty(t),
-            log_tp + np.sqrt(log_tp),
+            chi2_max_bound(1, df_cov, t), np.log(t) + np.sqrt(df_cov * np.log(t))
         )
+        df_mv = 4 + (4 * 5) // 2
         assert np.isclose(
-            Variance(n_features=p)._get_penalty(t),
-            log_tp + np.sqrt(log_tp),
-        )
-        assert np.isclose(
-            MeanOrVariance(n_features=p)._get_penalty(t),
-            log_tp + np.sqrt(2.0 * log_tp),
-        )
-
-        df_mean = 4.0
-        assert np.isclose(
-            MultivariateMeanUnknownCov(n_features=int(df_mean))._get_penalty(t),
-            np.sqrt(df_mean * np.log(t)) + np.log(t),
-        )
-
-        p_mv = 4
-        df_mv = float(p_mv + (p_mv * (p_mv + 1)) // 2)
-        assert np.isclose(
-            MultivariateMeanOrCovariance(n_features=p_mv)._get_penalty(t),
-            np.sqrt(df_mv * np.log(t)) + np.log(t),
+            chi2_max_bound(1, df_mv, t), np.log(t) + np.sqrt(df_mv * np.log(t))
         )
 
     def test_exponential_family_glr_penalty_shape(self):
@@ -731,18 +576,18 @@ class TestDetectorEdgeCases:
     def test_negative_scalar_threshold_rejected(self):
         """Negative threshold must raise ValueError."""
         with pytest.raises(ValueError, match="positive"):
-            GridDetector(score=MeanCUSUM(), threshold=-1.0)
+            GridDetector(score=CUSUM(), threshold=-1.0)
 
     def test_zero_scalar_threshold_rejected(self):
         """Zero threshold must raise ValueError."""
         with pytest.raises(ValueError, match="positive"):
-            GridDetector(score=MeanCUSUM(), threshold=0.0)
+            GridDetector(score=CUSUM(), threshold=0.0)
 
     def test_vector_threshold_negative_entry_rejected(self):
         """Vector threshold with any non-positive entry must raise."""
         with pytest.raises(ValueError, match="positive"):
             GridDetector(
-                score=MultivariateMeanIdentityCov(n_features=2),
+                score=CUSUM(n_features=2, aggregation="max-sum"),
                 threshold=np.array([1.0, -0.5]),
             )
 
@@ -750,13 +595,13 @@ class TestDetectorEdgeCases:
         """2-D threshold array must raise ValueError."""
         with pytest.raises(ValueError, match="scalar or 1-D"):
             GridDetector(
-                score=MeanCUSUM(),
+                score=CUSUM(),
                 threshold=np.array([[1.0, 2.0]]),
             )
 
     def test_first_update_no_alarm(self):
         """The first observation (n_samples=1) must never alarm."""
-        det = GridDetector(score=MeanCUSUM(), threshold=1.0)
+        det = GridDetector(score=CUSUM(), threshold=1.0)
         state = det.init_state()
         state, out = det.update(state, 999999.0)
         assert out["n_samples"] == 1
@@ -767,7 +612,7 @@ class TestDetectorEdgeCases:
     def test_first_update_multitest_scalar_threshold_placeholder_shape(self):
         """Placeholder shape must be (K,) even for multi-test scores with scalar threshold."""
         det = GridDetector(
-            score=MultivariateMeanIdentityCov(n_features=3), threshold=1.0
+            score=CUSUM(n_features=3, aggregation="max-sum"), threshold=1.0
         )
         state = det.init_state()
         state, out = det.update(state, [1.0, 2.0, 3.0])
@@ -779,7 +624,7 @@ class TestDetectorEdgeCases:
     def test_grid_matches_changeloc_grid(self):
         """After n updates, the detector grid must match get_changeloc_grid(n)."""
         n = 30
-        det = GridDetector(score=MeanCUSUM(), threshold=1e10)
+        det = GridDetector(score=CUSUM(), threshold=1e10)
         state = det.init_state()
         rng = np.random.default_rng(0)
         for _ in range(n):
@@ -799,25 +644,25 @@ class TestScoreObservationMismatch:
     """
 
     def test_mean_cusum_wrong_size(self):
-        score = MeanCUSUM(n_features=3)
+        score = CUSUM(n_features=3)
         state = score.init_state()
         with pytest.raises(ValueError, match="size"):
             score.update(state, [1.0, 2.0])
 
     def test_variance_wrong_size(self):
-        score = Variance(n_features=2)
+        score = GaussianVariance(n_features=2)
         state = score.init_state()
         with pytest.raises(ValueError, match="size"):
             score.update(state, [1.0, 2.0, 3.0])
 
     def test_regression_direct_wrong_size(self):
-        score = RegressionDirect(n_regressors=2)  # n_features = 3
+        score = RegressionWald(n_regressors=2)  # n_features = 3
         state = score.init_state()
         with pytest.raises(ValueError, match="size"):
             score.update(state, [1.0])
 
     def test_multivariate_identity_cov_wrong_size(self):
-        score = MultivariateMeanIdentityCov(n_features=4)
+        score = CUSUM(n_features=4, aggregation="max-sum")
         state = score.init_state()
         with pytest.raises(ValueError, match="size"):
             score.update(state, [1.0, 2.0])

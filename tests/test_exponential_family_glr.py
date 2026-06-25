@@ -16,22 +16,22 @@ from gridcp.scores._families import FAMILIES
 # ---------------------------------------------------------------------------
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _h_gauss(x):
     return x[0]
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _A_gauss(theta):
     return 0.5 * theta * theta
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _Ap_gauss(theta):
     return theta
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _App_gauss(theta):
     return 1.0
 
@@ -41,12 +41,12 @@ def _App_gauss(theta):
 # ---------------------------------------------------------------------------
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _h_mv(x):
     return x.copy()
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _A_mv(theta):
     s = 0.0
     for i in range(theta.shape[0]):
@@ -54,12 +54,12 @@ def _A_mv(theta):
     return 0.5 * s
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _Agrad_mv(theta):
     return theta.copy()
 
 
-@nb.njit(cache=True)
+@nb.njit
 def _Ahess_mv(theta):
     return np.eye(theta.shape[0])
 
