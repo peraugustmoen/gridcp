@@ -141,6 +141,11 @@ class GridDetector:
             )
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
+
+        # This is the recommended patter for assigning to a frozen dataclass field in
+        # __post_init__ by the Python documentation:
+        # https://docs.python.org/3/library/dataclasses.html#frozen-instances
+        # This means that the GridDetector is immutable only after construction.
         object.__setattr__(self, "threshold", th)
 
     def init_state(self) -> DetectorState:
@@ -181,7 +186,7 @@ class GridDetector:
             n_samples=new_n_samples,
         )
 
-        threshold = cast(np.ndarray, self.threshold)
+        threshold = cast(np.ndarray, self.threshold)  # to satisfy the type checker.
         current_n_scores = self.score.n_scores
         if current_n_scores != threshold.shape[0]:
             raise ValueError(
