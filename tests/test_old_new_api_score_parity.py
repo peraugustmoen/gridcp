@@ -7,7 +7,6 @@ from gridcp.scores import (
     GaussianMean,
     GaussianMeanOrVariance,
     GaussianMeanOrCovariance,
-    GaussianMeanFullCovariance,
     RegressionWald,
     RegressionMcScan,
     GaussianVariance,
@@ -154,7 +153,7 @@ def test_multivariate_mean_unknown_cov_parity_with_old_api():
         mode="unknown_variance",
     )
     new_det = GridDetector(
-        score=GaussianMeanFullCovariance(n_features=p), threshold=1.0
+        score=GaussianMean(cov_estimate="full", n_features=p), threshold=1.0
     )
 
     _run_parity_check(
@@ -257,13 +256,13 @@ def test_mean_cusum_unknown_variance_parity_with_old_api():
     )
     new_det = GridDetector(score=GaussianMean(n_features=1), threshold=1.0)
 
-    # Old API stores [sum(x), sum(x^2)] as shape (2,); new API stores the
-    # same in state.stats with shape (2,) for univariate.
+    # Old API stores [sum(x), sum(x^2)] as shape (2,); the merged GaussianMean
+    # stores it in state.stats with shape (2, 1) for univariate, so flatten.
     _run_parity_check(
         X=x,
         old_detector=old_det,
         new_detector=new_det,
-        running_from_new_state=lambda st: st.stats,
-        candidate_from_new_state=lambda st: st.stats,
+        running_from_new_state=lambda st: st.stats.reshape(-1),
+        candidate_from_new_state=lambda st: st.stats.reshape(-1),
         check_max_statistic=False,
     )

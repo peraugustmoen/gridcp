@@ -8,7 +8,6 @@ See `_cusum.py` for an example implementation.
 from gridcp.scores._cusum import CUSUM
 from gridcp.scores._exponential_family_glr import ExponentialFamilyGLR
 from gridcp.scores._gaussian_mean import GaussianMean
-from gridcp.scores._gaussian_mean_full_covariance import GaussianMeanFullCovariance
 from gridcp.scores._gaussian_mean_or_covariance import GaussianMeanOrCovariance
 from gridcp.scores._gaussian_mean_or_variance import GaussianMeanOrVariance
 from gridcp.scores._gaussian_variance import GaussianVariance
@@ -22,7 +21,6 @@ BUILTIN_SCORE_TYPES = (
     GaussianMean,
     GaussianVariance,
     GaussianMeanOrVariance,
-    GaussianMeanFullCovariance,
     GaussianMeanOrCovariance,
     RegressionMcScan,
     RegressionWald,
@@ -36,7 +34,6 @@ __all__ = [
     "GaussianMean",
     "GaussianVariance",
     "GaussianMeanOrVariance",
-    "GaussianMeanFullCovariance",
     "GaussianMeanOrCovariance",
     "RegressionMcScan",
     "RegressionWald",

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from gridcp.scores import GaussianMeanFullCovariance, GaussianMeanOrCovariance
+from gridcp.scores import GaussianMean, GaussianMeanOrCovariance
 from gridcp.scores._aggregation import chi2_max_bound
 from tests._reference_legacy_kernels import (
     reference_multivariate_mean_or_covariance_penalty,
@@ -40,7 +40,7 @@ def test_full_covariance_reproduces_legacy():
     p = 2
     data = rng.normal(size=(40, p))
     splits = [8, 16, 24, 32, 39]
-    score = GaussianMeanFullCovariance(n_features=p)
+    score = GaussianMean(cov_estimate="full", n_features=p)
     total, grid = _build_states(score, data, splits)
     t = total.n_samples
     ts, to, bs, bo, bn = _ref_arrays(data, splits)
@@ -48,8 +48,8 @@ def test_full_covariance_reproduces_legacy():
     ref = reference_multivariate_mean_unknown_cov_score(ts, to, bs, bo, t, bn, p)
     ref_pen = ref / reference_multivariate_mean_unknown_cov_penalty(t, p)
 
-    centered = GaussianMeanFullCovariance(
-        n_features=p, enable_penalty=False
+    centered = GaussianMean(
+        cov_estimate="full", n_features=p, enable_penalty=False
     ).compute_penalized_scores(total, grid)
     penalized = score.compute_penalized_scores(total, grid)
 
@@ -87,9 +87,7 @@ def test_mean_or_covariance_reproduces_legacy():
     )
 
 
-@pytest.mark.parametrize(
-    "score_cls", [GaussianMeanFullCovariance, GaussianMeanOrCovariance]
-)
-def test_self_aggregating_scores_reject_aggregation_keyword(score_cls):
+def test_mean_or_covariance_rejects_aggregation_keyword():
+    # GaussianMeanOrCovariance is self-aggregating: no such parameter.
     with pytest.raises(TypeError):
-        score_cls(n_features=2, aggregation="max")  # type: ignore[call-arg]
+        GaussianMeanOrCovariance(n_features=2, aggregation="max")  # type: ignore[call-arg]

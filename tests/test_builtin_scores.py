@@ -8,7 +8,7 @@ from gridcp.scores import (
     CUSUM,
     GaussianMeanOrVariance,
     GaussianMeanOrCovariance,
-    GaussianMeanFullCovariance,
+    GaussianMean,
     RegressionWald,
     RegressionMcScan,
     GaussianVariance,
@@ -138,7 +138,7 @@ def test_multivariate_mean_unknown_var_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=GaussianMeanFullCovariance(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=50.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -166,7 +166,7 @@ def test_multivariate_mean_unknown_var_cumsums():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=GaussianMeanFullCovariance(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -200,7 +200,7 @@ def test_multivariate_mean_unknown_var_no_false_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=GaussianMeanFullCovariance(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=50.0,
     )
     _, outputs = _run_stream(detector, x)
@@ -379,7 +379,7 @@ def test_mean_unknown_cov_guard_at_boundary():
     """
     p = 4
     rng = np.random.default_rng(0)
-    score = GaussianMeanFullCovariance(n_features=p)
+    score = GaussianMean(cov_estimate="full", n_features=p)
 
     # t = 2*p+1: just below the guard, all scores must be 0.
     x_short = rng.normal(size=(2 * p + 1, p))
@@ -476,7 +476,7 @@ def test_no_runtime_warnings_mean_unknown_cov():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(500, p))
     detector = GridDetector(
-        score=GaussianMeanFullCovariance(n_features=p), threshold=100.0
+        score=GaussianMean(cov_estimate="full", n_features=p), threshold=100.0
     )
     state = detector.init_state()
     with warnings.catch_warnings():
@@ -784,7 +784,7 @@ def test_multivariate_mean_identity_cov_scores_match_formula():
 
 
 # ---------------------------------------------------------------------------
-# GaussianMeanFullCovariance formula-parity test
+# GaussianMean(cov_estimate="full") formula-parity test
 # ---------------------------------------------------------------------------
 
 
@@ -797,7 +797,7 @@ def test_multivariate_mean_unknown_cov_scores_match_formula():
     rng = np.random.default_rng(101)
     x = rng.normal(size=(n, p))
 
-    score = GaussianMeanFullCovariance(n_features=p)
+    score = GaussianMean(cov_estimate="full", n_features=p)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
