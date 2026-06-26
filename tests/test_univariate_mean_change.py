@@ -714,12 +714,13 @@ def test_multivariate_unknown_variance_matches_independent_streams():
             )
             single_outs.append(single_out)
 
-        # Running statistics parity.
+        # Running statistics parity.  Univariate diagonal state stores stats as
+        # shape (2, 1), so flatten each single-feature row to a scalar.
         expected_running_sum = np.array(
-            [st.current_score_state.stats[0] for st in single_states]
+            [st.current_score_state.stats[0, 0] for st in single_states]
         )
         expected_running_sumsq = np.array(
-            [st.current_score_state.stats[1] for st in single_states]
+            [st.current_score_state.stats[1, 0] for st in single_states]
         )
         assert np.allclose(
             multi_state.current_score_state.stats[0], expected_running_sum
@@ -732,13 +733,13 @@ def test_multivariate_unknown_variance_matches_independent_streams():
         for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].previous_score_states[i].stats[0]
+                    single_states[k].previous_score_states[i].stats[0, 0]
                     for k in range(n_features)
                 ]
             )
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].previous_score_states[i].stats[1]
+                    single_states[k].previous_score_states[i].stats[1, 0]
                     for k in range(n_features)
                 ]
             )
