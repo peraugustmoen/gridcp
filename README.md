@@ -1,202 +1,172 @@
-# G-CHAD
-General CHAD implementation 
+# gridcp
+
+**Online grid-based changepoint detection in Python — bring any offline test statistic online, with logarithmic time and memory.**
+
+[![CI](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE)
+
+<!-- On release, add PyPI version and DOI badges here. -->
+
+## Overview
+
+**Online changepoint detection** is the problem of flagging distributional changes
+in a data stream in real time. A rich toolbox of *offline* (fixed-sample) tests
+already exists, but rerunning them as data accumulate becomes infeasible: cost grows
+with the length of the stream.
+
+`gridcp` makes offline tests usable online. It evaluates a chosen test statistic over a
+**sparse, geometric grid of candidate split points** — dense near the present and
+increasingly spread out into the past — so that update time and memory stay **O(log n)**
+in the length of the stream, while guaranteeing that no true changepoint is ever far from
+a grid point.
+
+```
+   time ──────────────────────────────────────────────▶  now
+   │        │     │     │   │  │  │ │ │ ││││
+   ●········●·····●·····●···●··●··●·●·●·●●●●●          candidate split points
+   sparse in the distant past        dense near the present
+```
+
+The package pairs this grid detector with a library of ready-to-use, Numba-accelerated
+detectors and with Monte Carlo tools for calibrating alarm thresholds to a target
+false-alarm probability or average run length (ARL).
+
+## Installation
+
+```bash
+pip install gridcp
+```
 
 ## Quick start
-
-Score classes (e.g. `MeanCUSUM`) are imported from `gridcp.scores`.  The
-detector and calibration helpers are available from the top-level `gridcp`
-package.
 
 ```python
 import numpy as np
 from gridcp import GridDetector
-from gridcp.scores import MeanCUSUM
+from gridcp.scores import CUSUM
 
-# Create a detector for univariate mean changes
-detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+# A detector for a change in mean, using the CUSUM statistic.
+detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
 state = detector.init_state()
 
-# Feed observations one at a time
+# Feed observations one at a time; a change is injected at t = 100.
 rng = np.random.default_rng(0)
 for t in range(200):
     x = rng.normal(0.0, 1.0) if t < 100 else rng.normal(3.0, 1.0)
     state, output = detector.update(state, [x])
     if output["alarm"]:
-        print(f"Change detected at observation {t}!")
+        print(f"Change detected at observation {t}")
         break
 ```
 
-## Installation
+The `threshold` above is illustrative. To control the false-alarm rate, calibrate it
+first — see [Calibrating thresholds](#calibrating-thresholds).
 
-### User installation
-```python
-pip install gridcp
-```
+## Key features
 
-### Development installation
-From the package root, run:
-```python
-pip install -e .[dev]
-```
+- **Bring your own statistic.** Any offline test that implements the lightweight
+  `ScoreModel` protocol works with the detector — no detector internals required.
+- **Logarithmic cost.** Update time and memory scale as O(log n) in the stream length.
+- **Built-in tests included.** A library of built-in detectors for changes in mean,
+  variance, covariance, regression coefficients, and exponential-family parameters,
+  plus a non-parametric detector.
+- **Numba-accelerated.** Hot paths in the built-in scores are JIT-compiled.
+- **Principled thresholds.** Monte Carlo calibration targets a false-alarm probability
+  or an average run length, with optional parallel execution.
 
-Or if using uv as the package manager:
-```python
-uv pip install -e .[dev]
-```
+## Built-in detectors
 
-## Developer guide
-### Coding conventions
+Each implemented test is a *score* imported from `gridcp.scores` and plugged into `GridDetector`.
 
-- Intervals are always left-closed, right-open: [a, b). This is the standard python
-    convention for intervals and slicing. Following this drastically reduce strange bugs
-    and indexing errors.
-- Indices are 0-indexed by default unless explicitly stated otherwise.
-- A "changepoint" is the **first post-change index (0-based)**: the first index
-    of the new distribution's segment, not the last pre-change index as in some
-    literature. Specifically, for a changepoint `cp`:
+| Score | Detects a change in |
+| --- | --- |
+| `CUSUM` | mean (known unit variance), uni- or multivariate |
+| `GaussianMean` | mean (unknown variance) |
+| `GaussianVariance` | variance |
+| `GaussianMeanOrVariance` | mean and/or variance |
+| `GaussianMeanFullCovariance` | mean (with full covariance) |
+| `GaussianMeanOrCovariance` | mean and/or covariance |
+| `RegressionMcScan` | regression coefficients (McScan) |
+| `RegressionWald` | regression coefficients (Wald) |
+| `ExponentialFamilyGLR` | exponential-family parameters (GLR test) |
+| `NPFOCuS` | distribution (non-parametric) |
 
-    * `data[0:cp]` is the pre-change segment; `data[cp:]` is the post-change segment.
-    * Follows Python standard slicing convention, such that `data[cp[i]:cp[i+1]]` is the i-th segment.
-    * Detection delay = `alarm_time - cp` (delay=0 means alarm fires exactly at the first post-change observation).
-- A leading underscore "_" in a file name, class name of function name indicates that it
-  is a "private" implementation detail, and not part of the public API. This is a common
-  python convention, and is used to indicate that the implementation may change without
-  warning, and should not be used directly by users of the package.
+`ExponentialFamilyGLR.from_family(name)` provides ready-made GLR detectors for the
+`bernoulli`, `poisson`, `exponential`, `gamma_rate`, `gaussian_mean`,
+`gaussian_variance`, `gaussian_mean_variance`, and `gaussian_covariance` families.
 
-### Automated linting and formatting
+## Calibrating thresholds
 
-Run this once after the development install to auto-run linting/formatting before each commit:
-
-```bash
-pre-commit install
-```
-
-Run this once to also execute tests before each push:
-
-```bash
-pre-commit install --hook-type pre-push
-```
-
-Run on all files manually:
-
-```bash
-pre-commit run --all-files
-```
-
-### About the new API
-
-- "Score" is the term for a "test statistic" in the code.
-- The main object is `gridcp.detector.GridDetector`, which is a "meta-detector" that can be used with any score that follows the `ScoreModel` protocol.
-- `gridcp.typing.ScoreModel` defines the "protocol" or interface for a score to be 
-    compatible with `gridcp.detector.GridDetector`.
-- `gridcp.scores.MeanCUSUM` is an example of a score that follows the `ScoreModel` protocol, and can be used with `GridDetector`.
-- The `notebooks/` directory contains demonstration notebooks for the API.
-
-### Calibration notes
-
-- `gridcp.calibration.calibrate_threshold_false_alarm(score, ...)` uses a score-first API.
-- Calibration threshold APIs return 1-D NumPy arrays of shape `(n_scores,)`.
-    For single-score models, this is shape `(1,)`.
-- `gridcp.calibration.mc_alarm_times(detector, ...)` returns the first alarm time per path.
-- Indexing convention in calibration internals:
-    - Loop variable `t` denotes current sample size, so it is 1-indexed (`t = 1, ..., stream_len`).
-    - Returned alarm times are 0-indexed array indices (Python convention).
-- For calibration/MC helpers, `rng` accepts `numpy.random.Generator`, an integer seed, or `None`.
-- Reproducibility policy:
-    - `rng=<Generator>`: workers are seeded from the generator's original
-      `SeedSequence`.
-    - `rng=<int>`: deterministic run from that seed.
-    - `rng=None`: deterministic run from a fixed internal default seed.
-- Sampler signature contract in calibration helpers:
-    - Supported: `sampler(rng, /, *args, **kwargs)` (positional-only `rng`).
-    - Supported: `sampler(*args, rng, **kwargs)` (keyword-capable `rng`).
-
-- Sampler output convention in `gridcp.calibration`:
-    - Monte Carlo helpers are vector-oriented with per-step shape `(n_features,)`.
-    - Scalar outputs are broadcast to length `n_features`.
-    - Non-scalar outputs are flattened to 1D and must have size `n_features`.
-- `n_features` is inferred from `score.n_features` when present.
-- For custom scores that do not define `n_features`, pass `n_features` explicitly.
-- If `changepoint` is provided, `post_sampler` must also be provided.
-
-### Threshold shape behavior in `GridDetector`
-
-- Threshold values must be strictly positive.
-- `ScoreModel.n_scores` is the number of penalized scores and is the authoritative
-    value for the score output dimension.
-- `ScoreModel.compute_penalized_scores` must return shape `(G, n_scores)`.
-    Single-score models must return `(G, 1)`. Here, `G` is the number of elements of
-    the current grid of candidate changepoints. 
-- A vector threshold must have length `n_scores`. **Mismatch is caught at
-    construction time**, not deferred to the first `update()` call.
-- `GridDetector.threshold` is always stored as a 1-D `float64` NumPy array of
-    shape `(n_scores,)`. Scalar inputs are broadcast once at construction time
-    to a length-`n_scores` vector.
-- When penalized scores are available, `DetectorOutput.max_score` and
-    `DetectorOutput.max_split_point` are vectors of shape `(n_scores,)` (including
-    `(1,)` for single-score models).
-- Each `max_split_point` entry is the first post-change index (0-based)
-    `n1 = state.grid[argmax]`. For valid scored candidates (`n_samples >= 2`),
-    `n1` is in `{1, ..., n_samples-1}`: `data[0:n1]` is pre-change and
-    `data[n1:]` is post-change.
-- For `n_samples < 2`, no candidate score exists yet. `max_score` and
-    `max_split_point` are zero vectors of shape `(n_scores,)`.
-- At runtime, if `compute_penalized_scores` returns an output width that does not
-    match `n_scores`, the detector raises `ValueError` immediately.
-
-
-### Reset semantics in `GridDetector`
-
-`GridDetector` uses one time scale:
-
-- `n_samples`: local time since the most recent reset.
-
-Each call to `update(...)` returns `n_samples` in the output dictionary.
-
-Resetting is external to `GridDetector` and handled with `reset_detector_state`:
+Pick a threshold that achieves a target false-alarm probability under a null model you
+specify, then build the detector with it:
 
 ```python
-from gridcp import reset_detector_state
+import numpy as np
+from gridcp import GridDetector
+from gridcp.scores import CUSUM
+from gridcp.calibration import calibrate_threshold_false_alarm
 
-state = reset_detector_state(state, detector)
+def normal_sampler(rng, size, loc, scale):
+    return rng.normal(size=size, loc=loc, scale=scale)
+
+score = CUSUM(n_features=1)
+threshold = calibrate_threshold_false_alarm(
+    score=score,
+    false_alarm_probability=0.05,
+    stream_len=150,
+    n_paths=3000,
+    pre_sampler=normal_sampler,
+    pre_kwargs={"size": 1, "loc": 0.0, "scale": 1.0},
+    rng=123,
+)
+
+detector = GridDetector(score=score, threshold=threshold)
 ```
 
-- Clears the running score state
-- Clears the grid and all candidate score snapshots
-- Sets local `n_samples` back to 0
+To target an average run length instead, use `calibrate_threshold_arl`. Both helpers
+support parallel execution and can calibrate directly from data. See the
+[demo notebook](https://github.com/peraugustmoen/G-CHAD/blob/main/notebooks/new_api_demo.ipynb)
+for an end-to-end calibration and benchmarking workflow.
 
-**Note:** Any time-dependent penalty that uses `state.n_samples` (for example, `log(t)` or
-`sqrt(log(t)) + log(t)`) also restarts from this post-reset local time. This differs from
-a "continuous penalty time" interpretation where the penalty clock keeps increasing across
-resets. As a result, long-run false-alarm guarantees or intuitions that assume a globally
-increasing time index do not automatically carry over across multiple resets.
+## Custom detectors
 
-#### Custom score contract
+Any object implementing the `ScoreModel` protocol — `init_state`, `update`, and
+`compute_penalized_scores` — can be used with `GridDetector`; there is no base class to
+inherit from. This is how you bring your own offline test statistic online. The
+[demo notebook](https://github.com/peraugustmoen/G-CHAD/blob/main/notebooks/new_api_demo.ipynb)
+walks through a complete custom score, and
+[CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
+documents the full contract.
 
-Custom score models must implement:
+## Documentation and examples
 
-```python
-def compute_penalized_scores(
-    self,
-    state,
-    grid_states,
-) -> np.ndarray:
-    ...
+- **Worked examples:** the [`notebooks/`](https://github.com/peraugustmoen/G-CHAD/tree/main/notebooks)
+  directory contains runnable tours of detection, calibration, and benchmarking.
+- **API reference:** every public class and function carries a NumPy-style docstring;
+  use `help(...)` or your editor's tooltips.
+
+## Citation
+
+If you use `gridcp` in your research, please cite:
+
+```bibtex
+@misc{gridcp,
+  title  = {{gridcp}: Grid-based online changepoint detection in {Python}},
+  author = {Moen, Per August and others},
+  year   = {2026},
+  note   = {Working paper}
+}
 ```
+<!-- Complete the author list and publication details before release. -->
 
-The intended pattern is:
+## Contributing
 
-- compute centered or raw statistics from `state` and `grid_states`
-- use `state.n_samples` for any time-dependent penalty divisor
+Contributions are welcome. See
+[CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
+for the development setup, coding conventions, and the contract for adding a new
+detector.
 
-### Adding a new score/test statistic
+## License
 
-- Add a new file in `gridcp/scores/` for your score, e.g. `_my_score.py`.
-- This file needs two classes:
-    * `MyScore`: The actual score implementation, which needs to follow the `ScoreModel` protocol.
-    * `MyScoreState`: Holds running statistics used to compute penalized scores. See `MeanCUSUMState` and `MeanCUSUM` for an example.
-- `MyScoreState` must be treated as immutable snapshots. `update(...)` must return a
-    new state and must not mutate the input state in place, because `GridDetector`
-    stores historical state snapshots for active candidates.
-- Add the new score and state to `gridcp/scores/__init__.py`. Now the score can be imported from `gridcp.scores` and used with `GridDetector`.
-
+`gridcp` is released under the MIT License. See
+[LICENSE](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE).

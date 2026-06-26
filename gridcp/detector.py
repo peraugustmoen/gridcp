@@ -11,8 +11,8 @@ from gridcp.utils import v2
 
 def _update_grid(
     grid: list[int],
-    candidate_score_states: list[TScoreState],
-    prev_running_score_state: TScoreState,
+    previous_score_states: list[TScoreState],
+    previous_score_state: TScoreState,
 ) -> tuple[list[int], list[TScoreState]]:
     """Update the grid and per-candidate scores for the next time step.
 
@@ -30,9 +30,9 @@ def _update_grid(
     ----------
     grid : list[int]
         Current local-time grid (candidate changepoint locations).
-    candidate_score_states : list[TScoreState]
+    previous_score_states : list[TScoreState]
         Per-candidate score state snapshots, parallel to `grid`.
-    prev_running_score_state : TScoreState
+    previous_score_state : TScoreState
         Score state snapshot to append as the new candidate (the pre-update
         global state, captured before the current observation is processed).
 
@@ -40,16 +40,16 @@ def _update_grid(
     -------
     grid : list[int]
         Updated grid.
-    candidate_score_states : list[TScoreState]
+    previous_score_states : list[TScoreState]
         Updated per-candidate score state snapshots.
     """
     new_grid = list(grid)
-    new_candidate_score_states = list(candidate_score_states)
+    new_previous_score_states = list(previous_score_states)
 
     prev_n_samples = new_grid[-1] + 1 if len(new_grid) > 0 else 0
     if prev_n_samples == 1 or prev_n_samples == 2:
         new_grid.pop(0)
-        new_candidate_score_states.pop(0)
+        new_previous_score_states.pop(0)
     elif prev_n_samples > 2:
         j = v2(prev_n_samples) + 1
         if j > 0:
@@ -57,11 +57,11 @@ def _update_grid(
             if ind < len(new_grid):
                 removed = len(new_grid) - ind - 1
                 new_grid.pop(removed)
-                new_candidate_score_states.pop(removed)
+                new_previous_score_states.pop(removed)
 
     new_grid.append(prev_n_samples)
-    new_candidate_score_states.append(prev_running_score_state)
-    return new_grid, new_candidate_score_states
+    new_previous_score_states.append(previous_score_state)
+    return new_grid, new_previous_score_states
 
 
 @dataclass
@@ -70,11 +70,11 @@ class DetectorState(Generic[TScoreState]):
 
     Parameters
     ----------
-    running_score_state : TScoreState
-        Current running score state.
+    current_score_state : TScoreState
+        Current score state.
     n_samples : int, default=0
         Number of observations processed since initialization or reset.
-    candidate_score_states : list[TScoreState]
+    previous_score_states : list[TScoreState]
         Score-state snapshots for the grid of candidate changepoints.
     grid : list[int]
         Current candidate changepoint locations.
@@ -86,9 +86,9 @@ class DetectorState(Generic[TScoreState]):
         placeholder ``0``.
     """
 
-    running_score_state: TScoreState
+    current_score_state: TScoreState
     n_samples: int = 0
-    candidate_score_states: list[TScoreState] = field(default_factory=list)
+    previous_score_states: list[TScoreState] = field(default_factory=list)
     grid: list[int] = field(default_factory=list)
 
 
@@ -101,7 +101,7 @@ class GridDetector:
     Reset semantics
     ---------------
     Resetting is handled by the module-level function
-    ``reset_detector_state(state, detector)``.
+    ``reset_detector_state(detector)``.
 
     Threshold semantics
     -------------------
@@ -141,6 +141,11 @@ class GridDetector:
             )
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
+
+        # This is the recommended patter for assigning to a frozen dataclass field in
+        # __post_init__ by the Python documentation:
+        # https://docs.python.org/3/library/dataclasses.html#frozen-instances
+        # This means that the GridDetector is immutable only after construction.
         object.__setattr__(self, "threshold", th)
 
     def init_state(self) -> DetectorState:
@@ -148,7 +153,7 @@ class GridDetector:
 
         The returned state has empty grid history and ``n_samples = 0``.
         """
-        return DetectorState(running_score_state=self.score.init_state())
+        return DetectorState(current_score_state=self.score.init_state())
 
     def update(
         self,
@@ -170,18 +175,18 @@ class GridDetector:
             Updated state and output dictionary.
         """
         new_n_samples = state.n_samples + 1
-        new_running_score_state = self.score.update(state.running_score_state, x)
-        new_grid, new_candidate_score_states = _update_grid(
-            state.grid, state.candidate_score_states, state.running_score_state
+        new_current_score_state = self.score.update(state.current_score_state, x)
+        new_grid, new_previous_score_states = _update_grid(
+            state.grid, state.previous_score_states, state.current_score_state
         )
         new_state = DetectorState(
-            running_score_state=new_running_score_state,
-            candidate_score_states=new_candidate_score_states,
+            current_score_state=new_current_score_state,
+            previous_score_states=new_previous_score_states,
             grid=new_grid,
             n_samples=new_n_samples,
         )
 
-        threshold = cast(np.ndarray, self.threshold)
+        threshold = cast(np.ndarray, self.threshold)  # to satisfy the type checker.
         current_n_scores = self.score.n_scores
         if current_n_scores != threshold.shape[0]:
             raise ValueError(
@@ -192,8 +197,8 @@ class GridDetector:
 
         if new_n_samples >= 2:
             penalized_scores = self.score.compute_penalized_scores(
-                new_state.running_score_state,
-                new_state.candidate_score_states,
+                new_state.current_score_state,
+                new_state.previous_score_states,
             )
             if penalized_scores.ndim != 2:
                 raise ValueError(
@@ -233,7 +238,6 @@ class GridDetector:
 
 
 def reset_detector_state(
-    state: DetectorState,
     detector: GridDetector,
 ) -> DetectorState:
     """Reset detector history to a fresh initial-like state.
@@ -244,10 +248,6 @@ def reset_detector_state(
 
     Parameters
     ----------
-    state : DetectorState
-        Current detector state.
-        Included for API symmetry with ``update`` and for call sites that
-        carry state explicitly; not used by the reset operation.
     detector : GridDetector
         Detector instance used to initialize a fresh score state.
 
@@ -258,5 +258,5 @@ def reset_detector_state(
         score state from ``detector.score.init_state()``.
     """
     return DetectorState(
-        running_score_state=detector.score.init_state(),
+        current_score_state=detector.score.init_state(),
     )

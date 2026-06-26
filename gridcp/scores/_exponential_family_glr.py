@@ -756,9 +756,9 @@ class ExponentialFamilyGLR:
 
             - ``'gaussian_mean'`` — Gaussian mean (known variance = 1);
               scalar (v=1) when ``n_features=1``, multivariate (v=p) when
-              ``n_features>1``.  For large p, prefer
-              ``MultivariateMeanIdentityCov`` or ``MeanCUSUM``, which use
-              closed-form O(p) scores for the same model.
+              ``n_features>1``.  For large p, prefer ``CUSUM`` (optionally with
+              ``aggregation="max-sum"``), which uses closed-form O(p) scores for
+              the same model.
             - ``'gaussian_variance'`` — Gaussian variance (known mean = 0);
               scalar (v=1).
             - ``'gaussian_mean_variance'`` — joint Gaussian mean and

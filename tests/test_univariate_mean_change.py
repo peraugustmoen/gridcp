@@ -2,15 +2,13 @@ import numpy as np
 import pytest
 
 from gridcp.detector import GridDetector
-from gridcp.scores._mean_cusum import MeanCUSUM
-from gridcp.scores._mean_or_variance import MeanOrVariance
-from gridcp.scores._mean_unknown_variance import MeanCUSUMUnknownVariance
-from gridcp.scores._variance import Variance
+from gridcp.scores import CUSUM, GaussianMean, GaussianMeanOrVariance, GaussianVariance
+from gridcp.scores._cusum import cusum_score
 from gridcp.utils import get_changeloc_grid
 
 
 def _run_stream(data: np.ndarray, threshold: float = 10.0):
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=threshold)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=threshold)
     state = detector.init_state()
     outputs = []
     for x in data:
@@ -23,7 +21,7 @@ def _run_stream_unknown_variance(
     data: np.ndarray, threshold: float = 10.0, n_features: int = 1
 ):
     detector = GridDetector(
-        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=threshold
+        score=GaussianMean(n_features=n_features), threshold=threshold
     )
     state = detector.init_state()
     outputs = []
@@ -38,10 +36,10 @@ def _run_stream_unknown_variance(
 def test_threshold_must_be_positive():
     """Reject non-positive detector thresholds."""
     with pytest.raises(ValueError):
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=0.0)
+        GridDetector(score=CUSUM(n_features=1), threshold=0.0)
 
     with pytest.raises(ValueError):
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=-1.0)
+        GridDetector(score=CUSUM(n_features=1), threshold=-1.0)
 
 
 def test_no_false_alarm_under_null_with_high_threshold():
@@ -71,14 +69,14 @@ def test_running_sum_matches_numpy_cumsum():
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=200)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=100.0)
     state = detector.init_state()
 
     running_sum = 0.0
     for val in x:
         running_sum += float(val)
         state, _ = detector.update(state, np.asarray([val]))
-        assert np.isclose(state.running_score_state.sum[0], running_sum)
+        assert np.isclose(state.current_score_state.sum[0], running_sum)
 
 
 def test_grid_and_candidate_states_stay_parallel():
@@ -86,14 +84,14 @@ def test_grid_and_candidate_states_stay_parallel():
     rng = np.random.default_rng(seed=7)
     x = rng.normal(loc=0.0, scale=1.0, size=250)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=100.0)
     state = detector.init_state()
 
     for val in x:
         state, _ = detector.update(state, np.asarray([val]))
 
-        assert len(state.grid) == len(state.candidate_score_states)
-        for g, candidate in zip(state.grid, state.candidate_score_states):
+        assert len(state.grid) == len(state.previous_score_states)
+        for g, candidate in zip(state.grid, state.previous_score_states):
             # Candidate snapshot should correspond to the candidate grid time.
             assert candidate.n_samples == g
 
@@ -137,7 +135,7 @@ def test_n_samples_increments_by_one():
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=100)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=100.0)
     state = detector.init_state()
     assert state.n_samples == 0
 
@@ -153,7 +151,7 @@ def test_max_score_alarms_when_exceeds_threshold():
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=100)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=10.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=10.0)
     state = detector.init_state()
 
     for val in x:
@@ -175,7 +173,7 @@ def test_max_split_point_is_valid_after_alarm():
     rng = np.random.default_rng(seed=42)
     x = rng.normal(loc=0.0, scale=1.0, size=100)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=8.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=8.0)
     state = detector.init_state()
 
     for val in x:
@@ -194,7 +192,7 @@ def test_max_split_point_and_score_on_noiseless_step_stream():
     """Noiseless step stream should maximize at split n1=3 with centered score 0.5."""
     x = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0], dtype=float)
 
-    score = MeanCUSUM(n_features=1, enable_penalty=False)
+    score = CUSUM(n_features=1, enable_penalty=False)
     detector = GridDetector(score=score, threshold=1e6)
     state = detector.init_state()
     out = None
@@ -210,8 +208,8 @@ def test_max_split_point_and_score_on_noiseless_step_stream():
 
     # Cross-check output against recomputed candidate scores and state.grid mapping.
     candidate_scores = score.compute_penalized_scores(
-        state.running_score_state,
-        state.candidate_score_states,
+        state.current_score_state,
+        state.previous_score_states,
     )
     argmax = int(np.argmax(candidate_scores[:, 0]))
     expected_split_point = int(state.grid[argmax])
@@ -227,7 +225,7 @@ def test_univariate_mean_1_baseline():
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0, scale=1, size=N)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     outputs = []
@@ -247,14 +245,14 @@ def test_univariate_mean_1_baseline():
 
     # Check cumulative sums match expected values
     # Re-run to accumulate running sum
-    detector2 = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+    detector2 = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
     state2 = detector2.init_state()
     running_sum = 0.0
     for val in x:
         running_sum += float(val)
         state2, _ = detector2.update(state2, np.asarray([val]))
-        # Verify running sum in MeanCUSUM state matches cumsum
-        assert np.isclose(state2.running_score_state.sum[0], running_sum), (
+        # Verify running sum in CUSUM state matches cumsum
+        assert np.isclose(state2.current_score_state.sum[0], running_sum), (
             f"Running sum mismatch at n_samples={state2.n_samples}"
         )
 
@@ -264,7 +262,7 @@ def test_grid_correctness_univariate():
     rng = np.random.default_rng(seed=55)
     x = rng.normal(loc=0.0, scale=1.0, size=1000)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=100.0)
     state = detector.init_state()
 
     grid_sizes = []
@@ -297,7 +295,7 @@ def test_grid_and_cumulative_sums_match_manual_computation():
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0, scale=1, size=N)
 
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=100.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=100.0)
     state = detector.init_state()
 
     # Run detector through all samples
@@ -320,7 +318,7 @@ def test_grid_and_cumulative_sums_match_manual_computation():
             for i in range(len(true_grid)):
                 grid_point = true_grid[i]
                 expected_cumsum = true_cumsums[i]
-                actual_cumsum = state.candidate_score_states[i].sum[0]
+                actual_cumsum = state.previous_score_states[i].sum[0]
 
                 assert np.isclose(expected_cumsum, actual_cumsum), (
                     f"At n_samples={t}, grid point {grid_point}: expected cumsum {expected_cumsum}, got {actual_cumsum}"
@@ -345,9 +343,7 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
     rng = np.random.default_rng(seed=123)
     x = rng.normal(loc=0.0, scale=1.0, size=N)
 
-    detector = GridDetector(
-        score=MeanCUSUMUnknownVariance(n_features=1), threshold=100.0
-    )
+    detector = GridDetector(score=GaussianMean(n_features=1), threshold=100.0)
     state = detector.init_state()
 
     cumsum_x = np.cumsum(x)
@@ -365,7 +361,7 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
             for i, g in enumerate(true_grid):
                 expected_sum = cumsum_x[g - 1]
                 expected_sum2 = cumsum_x2[g - 1]
-                actual_stats = state.candidate_score_states[i].stats
+                actual_stats = state.previous_score_states[i].stats
 
                 assert np.isclose(actual_stats[0], expected_sum), (
                     f"At n_samples={t}, grid point {g}: expected sum {expected_sum}, got {actual_stats[0]}"
@@ -374,8 +370,8 @@ def test_univariate_mean_unknown_variance_cumsums_match_manual():
                     f"At n_samples={t}, grid point {g}: expected sumsq {expected_sum2}, got {actual_stats[1]}"
                 )
 
-    assert np.isclose(state.running_score_state.stats[0], cumsum_x[-1])
-    assert np.isclose(state.running_score_state.stats[1], cumsum_x2[-1])
+    assert np.isclose(state.current_score_state.stats[0], cumsum_x[-1])
+    assert np.isclose(state.current_score_state.stats[1], cumsum_x2[-1])
 
 
 def test_univariate_mean_unknown_variance_no_false_alarm_high_threshold():
@@ -395,7 +391,7 @@ def test_univariate_mean_unknown_variance_detects_shift():
     x_pre = rng.normal(loc=0.0, scale=1.0, size=N_pre)
     x_post = rng.normal(loc=5.0, scale=1.0, size=N_post)
 
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=5.0)
+    detector = GridDetector(score=GaussianMean(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     pre_alarm = False
@@ -416,7 +412,7 @@ def test_univariate_mean_unknown_variance_detects_shift():
 
 def test_univariate_mean_unknown_variance_requires_matching_feature_size():
     """Unknown-variance score should reject observations with wrong feature size."""
-    detector = GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=5.0)
+    detector = GridDetector(score=GaussianMean(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     state, _ = detector.update(state, np.asarray([0.2]))
@@ -427,7 +423,7 @@ def test_univariate_mean_unknown_variance_requires_matching_feature_size():
 
 def test_mean_cusum_requires_matching_feature_size():
     """Known-variance score should reject observations with wrong feature size."""
-    detector = GridDetector(score=MeanCUSUM(n_features=1), threshold=5.0)
+    detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
     state = detector.init_state()
 
     state, _ = detector.update(state, np.asarray([0.2]))
@@ -443,9 +439,7 @@ def test_multivariate_mean_unknown_variance_accepts_vectors_and_tracks_stats():
     n_features = 3
     x = rng.normal(loc=0.0, scale=1.0, size=(n_samples, n_features))
 
-    detector = GridDetector(
-        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=100.0
-    )
+    detector = GridDetector(score=GaussianMean(n_features=n_features), threshold=100.0)
     state = detector.init_state()
 
     cumsum_x = np.cumsum(x, axis=0)
@@ -453,8 +447,8 @@ def test_multivariate_mean_unknown_variance_accepts_vectors_and_tracks_stats():
 
     for t, row in enumerate(x, start=1):
         state, _ = detector.update(state, row)
-        assert np.allclose(state.running_score_state.stats[0], cumsum_x[t - 1])
-        assert np.allclose(state.running_score_state.stats[1], cumsum_x2[t - 1])
+        assert np.allclose(state.current_score_state.stats[0], cumsum_x[t - 1])
+        assert np.allclose(state.current_score_state.stats[1], cumsum_x2[t - 1])
 
 
 def test_multivariate_mean_unknown_variance_detects_single_feature_shift():
@@ -469,9 +463,7 @@ def test_multivariate_mean_unknown_variance_detects_single_feature_shift():
     x_post[:, 1] += 5.0  # strong shift in a single feature
     x = np.vstack([x_pre, x_post])
 
-    detector = GridDetector(
-        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=5.0
-    )
+    detector = GridDetector(score=GaussianMean(n_features=n_features), threshold=5.0)
     state = detector.init_state()
     alarmed = False
 
@@ -502,12 +494,12 @@ def test_multivariate_known_variance_matches_independent_streams():
 
     threshold = 1e6
     multi_detector = GridDetector(
-        score=MeanCUSUM(n_features=n_features), threshold=threshold
+        score=CUSUM(n_features=n_features), threshold=threshold
     )
     multi_state = multi_detector.init_state()
 
     single_detectors = [
-        GridDetector(score=MeanCUSUM(n_features=1), threshold=threshold)
+        GridDetector(score=CUSUM(n_features=1), threshold=threshold)
         for _ in range(n_features)
     ]
     single_states = [det.init_state() for det in single_detectors]
@@ -524,15 +516,15 @@ def test_multivariate_known_variance_matches_independent_streams():
 
         # Running statistics parity.
         expected_running_sum = np.array(
-            [st.running_score_state.sum[0] for st in single_states]
+            [st.current_score_state.sum[0] for st in single_states]
         )
-        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+        assert np.allclose(multi_state.current_score_state.sum, expected_running_sum)
 
         # Candidate statistics parity.
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum[0]
+                    single_states[k].previous_score_states[i].sum[0]
                     for k in range(n_features)
                 ]
             )
@@ -550,7 +542,7 @@ def test_multivariate_known_variance_matches_independent_streams():
 
 
 def test_multivariate_variance_matches_independent_streams():
-    """Variance multivariate detector should match independent univariate runs.
+    """GaussianVariance multivariate detector should match independent univariate runs.
 
     We check, at every step, that:
     1. Running sumsq stats match feature-wise independent detectors.
@@ -565,12 +557,12 @@ def test_multivariate_variance_matches_independent_streams():
 
     threshold = 1e6
     multi_detector = GridDetector(
-        score=Variance(n_features=n_features), threshold=threshold
+        score=GaussianVariance(n_features=n_features), threshold=threshold
     )
     multi_state = multi_detector.init_state()
 
     single_detectors = [
-        GridDetector(score=Variance(n_features=1), threshold=threshold)
+        GridDetector(score=GaussianVariance(n_features=1), threshold=threshold)
         for _ in range(n_features)
     ]
     single_states = [det.init_state() for det in single_detectors]
@@ -586,16 +578,16 @@ def test_multivariate_variance_matches_independent_streams():
             single_outs.append(single_out)
 
         expected_running_sumsq = np.array(
-            [st.running_score_state.sum_sq[0] for st in single_states]
+            [st.current_score_state.sum_sq[0] for st in single_states]
         )
         assert np.allclose(
-            multi_state.running_score_state.sum_sq, expected_running_sumsq
+            multi_state.current_score_state.sum_sq, expected_running_sumsq
         )
 
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    single_states[k].previous_score_states[i].sum_sq[0]
                     for k in range(n_features)
                 ]
             )
@@ -613,7 +605,7 @@ def test_multivariate_variance_matches_independent_streams():
 
 
 def test_multivariate_mean_or_variance_matches_independent_streams():
-    """MeanOrVariance multivariate detector should match independent univariate runs.
+    """GaussianMeanOrVariance multivariate detector should match independent univariate runs.
 
     We check, at every step, that:
     1. Running [sum, sumsq] stats match feature-wise independent detectors.
@@ -628,12 +620,12 @@ def test_multivariate_mean_or_variance_matches_independent_streams():
 
     threshold = 1e6
     multi_detector = GridDetector(
-        score=MeanOrVariance(n_features=n_features), threshold=threshold
+        score=GaussianMeanOrVariance(n_features=n_features), threshold=threshold
     )
     multi_state = multi_detector.init_state()
 
     single_detectors = [
-        GridDetector(score=MeanOrVariance(n_features=1), threshold=threshold)
+        GridDetector(score=GaussianMeanOrVariance(n_features=1), threshold=threshold)
         for _ in range(n_features)
     ]
     single_states = [det.init_state() for det in single_detectors]
@@ -649,26 +641,26 @@ def test_multivariate_mean_or_variance_matches_independent_streams():
             single_outs.append(single_out)
 
         expected_running_sum = np.array(
-            [st.running_score_state.sum[0] for st in single_states]
+            [st.current_score_state.sum[0] for st in single_states]
         )
         expected_running_sumsq = np.array(
-            [st.running_score_state.sum_sq[0] for st in single_states]
+            [st.current_score_state.sum_sq[0] for st in single_states]
         )
-        assert np.allclose(multi_state.running_score_state.sum, expected_running_sum)
+        assert np.allclose(multi_state.current_score_state.sum, expected_running_sum)
         assert np.allclose(
-            multi_state.running_score_state.sum_sq, expected_running_sumsq
+            multi_state.current_score_state.sum_sq, expected_running_sumsq
         )
 
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum[0]
+                    single_states[k].previous_score_states[i].sum[0]
                     for k in range(n_features)
                 ]
             )
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].sum_sq[0]
+                    single_states[k].previous_score_states[i].sum_sq[0]
                     for k in range(n_features)
                 ]
             )
@@ -702,12 +694,12 @@ def test_multivariate_unknown_variance_matches_independent_streams():
 
     threshold = 1e6
     multi_detector = GridDetector(
-        score=MeanCUSUMUnknownVariance(n_features=n_features), threshold=threshold
+        score=GaussianMean(n_features=n_features), threshold=threshold
     )
     multi_state = multi_detector.init_state()
 
     single_detectors = [
-        GridDetector(score=MeanCUSUMUnknownVariance(n_features=1), threshold=threshold)
+        GridDetector(score=GaussianMean(n_features=1), threshold=threshold)
         for _ in range(n_features)
     ]
     single_states = [det.init_state() for det in single_detectors]
@@ -722,31 +714,32 @@ def test_multivariate_unknown_variance_matches_independent_streams():
             )
             single_outs.append(single_out)
 
-        # Running statistics parity.
+        # Running statistics parity.  Univariate diagonal state stores stats as
+        # shape (2, 1), so flatten each single-feature row to a scalar.
         expected_running_sum = np.array(
-            [st.running_score_state.stats[0] for st in single_states]
+            [st.current_score_state.stats[0, 0] for st in single_states]
         )
         expected_running_sumsq = np.array(
-            [st.running_score_state.stats[1] for st in single_states]
+            [st.current_score_state.stats[1, 0] for st in single_states]
         )
         assert np.allclose(
-            multi_state.running_score_state.stats[0], expected_running_sum
+            multi_state.current_score_state.stats[0], expected_running_sum
         )
         assert np.allclose(
-            multi_state.running_score_state.stats[1], expected_running_sumsq
+            multi_state.current_score_state.stats[1], expected_running_sumsq
         )
 
         # Candidate statistics parity.
-        for i, multi_candidate_state in enumerate(multi_state.candidate_score_states):
+        for i, multi_candidate_state in enumerate(multi_state.previous_score_states):
             expected_candidate_sum = np.array(
                 [
-                    single_states[k].candidate_score_states[i].stats[0]
+                    single_states[k].previous_score_states[i].stats[0, 0]
                     for k in range(n_features)
                 ]
             )
             expected_candidate_sumsq = np.array(
                 [
-                    single_states[k].candidate_score_states[i].stats[1]
+                    single_states[k].previous_score_states[i].stats[1, 0]
                     for k in range(n_features)
                 ]
             )
@@ -774,7 +767,7 @@ def test_max_split_point_is_first_post_change_index():
     """
     x = np.array([0.0, 0.0, 0.0, 1.0, 1.0, 1.0], dtype=float)
 
-    score = MeanCUSUM(n_features=1, enable_penalty=False)
+    score = CUSUM(n_features=1, enable_penalty=False)
     detector = GridDetector(score=score, threshold=1e6)
     state = detector.init_state()
 
@@ -788,3 +781,42 @@ def test_max_split_point_is_first_post_change_index():
     # Verify semantics: pre-change is x[:cp], post-change is x[cp:]
     assert list(x[:max_split_point]) == [0.0, 0.0, 0.0], "x[:cp] should be pre-change"
     assert list(x[max_split_point:]) == [1.0, 1.0, 1.0], "x[cp:] should be post-change"
+
+
+def _reference_mean_cusum_score(total_sum, before_sums, total_samples, before_samples):
+    """Independent reference for ``mean_cusum_score`` (centered max squared CUSUM).
+
+    Computes ``max_j C_j - 1`` per candidate, where
+    ``C_j = (sqrt(n2/(t*n1)) * S1_j - sqrt(n1/(t*n2)) * S2_j)**2`` with
+    ``S2_j = total_sum_j - S1_j`` and ``n2 = t - n1``.
+    """
+    n1 = before_samples.astype(np.float64)
+    n2 = float(total_samples) - n1
+    before_weight = np.sqrt(n2 / (total_samples * n1)).reshape(-1, 1)
+    after_weight = np.sqrt(n1 / (total_samples * n2)).reshape(-1, 1)
+    after_sums = total_sum - before_sums
+    square_cusum = (before_weight * before_sums - after_weight * after_sums) ** 2
+    return square_cusum.max(axis=1) - 1.0
+
+
+@pytest.mark.parametrize("n_features", [1, 3, 50])
+def test_mean_cusum_score_matches_reference(n_features):
+    """``cusum_score`` (raw per-feature) yields the analytic centered max CUSUM."""
+    rng = np.random.default_rng(seed=20240617)
+    total_samples = 97
+    grid = get_changeloc_grid(total_samples)
+    before_samples = np.asarray(grid, dtype=np.int64)
+
+    before_sums = rng.standard_normal((before_samples.shape[0], n_features))
+    total_sum = before_sums[-1] + rng.standard_normal(n_features)
+
+    raw = cusum_score(total_sum, before_sums, total_samples, before_samples)
+    # cusum_score returns the raw (G, p) per-feature squared CUSUM; the
+    # centered-max statistic is max over features minus 1.
+    got = raw.max(axis=1) - 1.0
+    expected = _reference_mean_cusum_score(
+        total_sum, before_sums, total_samples, before_samples
+    )
+
+    assert got.shape == (before_samples.shape[0],)
+    np.testing.assert_allclose(got, expected, rtol=0, atol=0)

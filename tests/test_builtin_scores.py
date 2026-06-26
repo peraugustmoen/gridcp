@@ -1,17 +1,30 @@
 import numpy as np
 import pytest
 
+import dataclasses
+
 from gridcp.detector import GridDetector
 from gridcp.scores import (
-    MeanOrVariance,
-    MultivariateMeanIdentityCov,
-    MultivariateMeanOrCovariance,
-    MultivariateMeanUnknownCov,
-    RegressionDirect,
+    CUSUM,
+    GaussianMeanOrVariance,
+    GaussianMeanOrCovariance,
+    GaussianMean,
+    RegressionWald,
     RegressionMcScan,
-    Variance,
+    GaussianVariance,
 )
 from gridcp.utils import get_changeloc_grid
+
+
+def _centered(score, total, grid_states):
+    """Centered (unpenalized) scores via the public ``enable_penalty=False`` path.
+
+    Returns the legacy shape: ``(G,)`` for single-score models and ``(G, k)`` for
+    multi-column models, matching the removed ``_compute_centered_scores`` helper.
+    """
+    disabled = dataclasses.replace(score, enable_penalty=False)
+    out = disabled.compute_penalized_scores(total, grid_states)
+    return out[:, 0] if out.shape[1] == 1 else out
 
 
 def _run_stream(detector: GridDetector, x: np.ndarray):
@@ -32,7 +45,7 @@ def test_multivariate_mean_known_var_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=np.array([5.0, 5.0], dtype=np.float64),
     )
     state, outputs = _run_stream(detector, x)
@@ -52,7 +65,7 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=np.array([100.0, 100.0], dtype=np.float64),
     )
     state, _ = _run_stream(detector, x)
@@ -64,11 +77,11 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
 
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
-        actual_sum = state.candidate_score_states[i].sum
+        actual_sum = state.previous_score_states[i].sum
         assert np.allclose(actual_sum, expected_sum)
 
         n2 = n - n1
-        total_sum = state.running_score_state.sum
+        total_sum = state.current_score_state.sum
         mean1 = expected_sum / n1
         mean2 = (total_sum - expected_sum) / n2
         diff = mean1 - mean2
@@ -76,13 +89,14 @@ def test_multivariate_mean_known_var_cumsums_and_scores():
         expected_raw = lr - p
 
         scores = detector.score.compute_penalized_scores(
-            state.running_score_state,
-            state.candidate_score_states,
+            state.current_score_state,
+            state.previous_score_states,
         )[i]
 
-        # Column 0: sparse statistic (max of squared diffs).
+        # Column 0: sparse statistic (max of squared diffs).  The sparse penalty
+        # is the corrected chi2_max_bound(p, 1, t) = log(tp) + sqrt(log(tp)).
         lr_sparse = (n1 * n2 / n) * float(np.max(diff * diff))
-        penalty_sparse = np.log(n) + np.log(p)
+        penalty_sparse = np.log(n * p) + np.sqrt(np.log(n * p))
         assert np.isclose(scores[0], (lr_sparse - 1) / penalty_sparse)
 
         # Column 1: dense statistic (sum of squared diffs).
@@ -99,7 +113,7 @@ def test_multivariate_mean_known_var_reset_semantics():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=np.array([5.0, 5.0], dtype=np.float64),
     )
     state, _ = _run_stream(detector, x)
@@ -124,7 +138,7 @@ def test_multivariate_mean_unknown_var_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCov(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=50.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -152,7 +166,7 @@ def test_multivariate_mean_unknown_var_cumsums():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCov(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -169,12 +183,12 @@ def test_multivariate_mean_unknown_var_cumsums():
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
         expected_outer = cum_outers[n1 - 1]
-        actual = state.candidate_score_states[i]
+        actual = state.previous_score_states[i]
         assert np.allclose(actual.sum, expected_sum)
         assert np.allclose(actual.sum_outer, expected_outer)
 
-    assert np.allclose(state.running_score_state.sum, cumsums[-1])
-    assert np.allclose(state.running_score_state.sum_outer, cum_outers[-1])
+    assert np.allclose(state.current_score_state.sum, cumsums[-1])
+    assert np.allclose(state.current_score_state.sum_outer, cum_outers[-1])
 
 
 def test_multivariate_mean_unknown_var_no_false_alarm():
@@ -186,7 +200,7 @@ def test_multivariate_mean_unknown_var_no_false_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanUnknownCov(n_features=p),
+        score=GaussianMean(cov_estimate="full", n_features=p),
         threshold=50.0,
     )
     _, outputs = _run_stream(detector, x)
@@ -203,7 +217,7 @@ def test_multivariate_mean_or_covariance_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanOrCovariance(n_features=p),
+        score=GaussianMeanOrCovariance(n_features=p),
         threshold=5.0,
     )
     state, outputs = _run_stream(detector, x)
@@ -223,7 +237,7 @@ def test_multivariate_mean_or_covariance_cumsums():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanOrCovariance(n_features=p),
+        score=GaussianMeanOrCovariance(n_features=p),
         threshold=100.0,
     )
     state, _ = _run_stream(detector, x)
@@ -240,12 +254,12 @@ def test_multivariate_mean_or_covariance_cumsums():
     for i, n1 in enumerate(state.grid):
         expected_sum = cumsums[n1 - 1]
         expected_outer = cum_outers[n1 - 1]
-        actual = state.candidate_score_states[i]
+        actual = state.previous_score_states[i]
         assert np.allclose(actual.sum, expected_sum)
         assert np.allclose(actual.sum_outer, expected_outer)
 
-    assert np.allclose(state.running_score_state.sum, cumsums[-1])
-    assert np.allclose(state.running_score_state.sum_outer, cum_outers[-1])
+    assert np.allclose(state.current_score_state.sum, cumsums[-1])
+    assert np.allclose(state.current_score_state.sum_outer, cum_outers[-1])
 
 
 def test_multivariate_mean_or_covariance_no_false_alarm():
@@ -257,7 +271,7 @@ def test_multivariate_mean_or_covariance_no_false_alarm():
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
     detector = GridDetector(
-        score=MultivariateMeanOrCovariance(n_features=p),
+        score=GaussianMeanOrCovariance(n_features=p),
         threshold=50.0,
     )
     _, outputs = _run_stream(detector, x)
@@ -269,7 +283,7 @@ def test_multivariate_identity_cov_broadcasts_scalar_threshold_silently():
     """A scalar threshold is broadcast for multivariate scores."""
     p = 4
     detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=1.0,
     )
     state = detector.init_state()
@@ -291,7 +305,7 @@ def test_multivariate_identity_cov_rejects_wrong_threshold_length():
     p = 4
     with pytest.raises(ValueError, match="n_scores|threshold"):
         GridDetector(
-            score=MultivariateMeanIdentityCov(n_features=p),
+            score=CUSUM(n_features=p, aggregation="max-sum"),
             threshold=np.array([1.0], dtype=np.float64),
         )
 
@@ -300,7 +314,7 @@ def test_multivariate_identity_cov_accepts_matching_threshold_length():
     """Strict mode accepts a threshold vector that matches score dimension."""
     p = 4
     detector = GridDetector(
-        score=MultivariateMeanIdentityCov(n_features=p),
+        score=CUSUM(n_features=p, aggregation="max-sum"),
         threshold=np.array([1.0, 1.0], dtype=np.float64),
     )
     state = detector.init_state()
@@ -327,7 +341,7 @@ def test_mean_or_cov_guard_at_boundary():
     """
     p = 4
     rng = np.random.default_rng(0)
-    score = MultivariateMeanOrCovariance(n_features=p)
+    score = GaussianMeanOrCovariance(n_features=p)
 
     # t = 2*(2*p+1) so that n1=2*p+1 and n2=2*p+1 is the minimal valid split.
     t = 2 * (2 * p + 1)
@@ -347,8 +361,8 @@ def test_mean_or_cov_guard_at_boundary():
     for xi in x[: 2 * p + 1]:
         grid_n1_2p1 = score.update(grid_n1_2p1, xi)
 
-    scores_below = score._compute_centered_scores(total, [grid_n1_2p])
-    scores_at = score._compute_centered_scores(total, [grid_n1_2p1])
+    scores_below = _centered(score, total, [grid_n1_2p])
+    scores_at = _centered(score, total, [grid_n1_2p1])
 
     assert scores_below[0] == 0.0
     assert scores_at[0] != 0.0
@@ -365,7 +379,7 @@ def test_mean_unknown_cov_guard_at_boundary():
     """
     p = 4
     rng = np.random.default_rng(0)
-    score = MultivariateMeanUnknownCov(n_features=p)
+    score = GaussianMean(cov_estimate="full", n_features=p)
 
     # t = 2*p+1: just below the guard, all scores must be 0.
     x_short = rng.normal(size=(2 * p + 1, p))
@@ -376,7 +390,7 @@ def test_mean_unknown_cov_guard_at_boundary():
     grid_n1_1_short = score.init_state()
     grid_n1_1_short = score.update(grid_n1_1_short, x_short[0])
 
-    assert score._compute_centered_scores(total_short, [grid_n1_1_short])[0] == 0.0
+    assert _centered(score, total_short, [grid_n1_1_short])[0] == 0.0
 
     # t = 2*p+2, n1 = 2*p+1, n2 = 1:
     # S_W2 = 0 (single obs), sigma_alt = S_W1/t, rank = t-2 = 2*p >= p. Valid.
@@ -389,7 +403,7 @@ def test_mean_unknown_cov_guard_at_boundary():
     for xi in x_enough[: 2 * p + 1]:
         grid_n1_2p1 = score.update(grid_n1_2p1, xi)
 
-    assert score._compute_centered_scores(total_enough, [grid_n1_2p1])[0] != 0.0
+    assert _centered(score, total_enough, [grid_n1_2p1])[0] != 0.0
 
 
 def test_regression_direct_guard_at_boundary():
@@ -401,7 +415,7 @@ def test_regression_direct_guard_at_boundary():
     """
     q = 4
     rng = np.random.default_rng(0)
-    score = RegressionDirect(n_regressors=q)
+    score = RegressionWald(n_regressors=q)
 
     # t = 2*q so both segments simultaneously sit at the boundary.
     t = 2 * q
@@ -421,8 +435,8 @@ def test_regression_direct_guard_at_boundary():
     for xi in x[:q]:
         grid_n1_q = score.update(grid_n1_q, xi)
 
-    scores_below = score._compute_centered_scores(total, [grid_n1_qm1])
-    scores_at = score._compute_centered_scores(total, [grid_n1_q])
+    scores_below = _centered(score, total, [grid_n1_qm1])
+    scores_at = _centered(score, total, [grid_n1_q])
 
     assert scores_below[0] == 0.0
     assert scores_at[0] != 0.0
@@ -440,7 +454,7 @@ def test_no_runtime_warnings_mean_or_covariance():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(500, p))
     detector = GridDetector(
-        score=MultivariateMeanOrCovariance(n_features=p), threshold=100.0
+        score=GaussianMeanOrCovariance(n_features=p), threshold=100.0
     )
     state = detector.init_state()
     with warnings.catch_warnings():
@@ -462,7 +476,7 @@ def test_no_runtime_warnings_mean_unknown_cov():
     rng = np.random.default_rng(0)
     x = rng.normal(size=(500, p))
     detector = GridDetector(
-        score=MultivariateMeanUnknownCov(n_features=p), threshold=100.0
+        score=GaussianMean(cov_estimate="full", n_features=p), threshold=100.0
     )
     state = detector.init_state()
     with warnings.catch_warnings():
@@ -472,7 +486,7 @@ def test_no_runtime_warnings_mean_unknown_cov():
 
 
 # ---------------------------------------------------------------------------
-# Variance parity tests
+# GaussianVariance parity tests
 # ---------------------------------------------------------------------------
 
 
@@ -483,7 +497,7 @@ def test_variance_alarm():
     rng = np.random.default_rng(7)
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
-    detector = GridDetector(score=Variance(n_features=p), threshold=20.0)
+    detector = GridDetector(score=GaussianVariance(n_features=p), threshold=20.0)
     state, outputs = _run_stream(detector, x)
     assert not any(out["alarm"] for out in outputs)
 
@@ -499,7 +513,7 @@ def test_variance_scores_match_formula():
     rng = np.random.default_rng(42)
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
-    score = Variance(n_features=p)
+    score = GaussianVariance(n_features=p)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -510,7 +524,7 @@ def test_variance_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     t = n
     n2 = t - n1
@@ -535,10 +549,10 @@ def test_variance_scores_match_formula():
 
 
 def test_variance_no_alarm_univariate():
-    """Single-feature Variance does not alarm on iid null stream."""
+    """Single-feature GaussianVariance does not alarm on iid null stream."""
     rng = np.random.default_rng(99)
     x = rng.normal(loc=0.0, scale=1.0, size=200)
-    detector = GridDetector(score=Variance(n_features=1), threshold=10.0)
+    detector = GridDetector(score=GaussianVariance(n_features=1), threshold=10.0)
     state = detector.init_state()
     for xi in x:
         state, out = detector.update(state, xi)
@@ -546,7 +560,7 @@ def test_variance_no_alarm_univariate():
 
 
 # ---------------------------------------------------------------------------
-# MeanOrVariance parity tests
+# GaussianMeanOrVariance parity tests
 # ---------------------------------------------------------------------------
 
 
@@ -557,7 +571,7 @@ def test_mean_or_variance_alarm():
     rng = np.random.default_rng(11)
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
-    detector = GridDetector(score=MeanOrVariance(n_features=p), threshold=20.0)
+    detector = GridDetector(score=GaussianMeanOrVariance(n_features=p), threshold=20.0)
     state, outputs = _run_stream(detector, x)
     assert not any(out["alarm"] for out in outputs)
 
@@ -573,7 +587,7 @@ def test_mean_or_variance_scores_match_formula():
     rng = np.random.default_rng(17)
     x = rng.normal(loc=0.0, scale=1.0, size=(n, p))
 
-    score = MeanOrVariance(n_features=p)
+    score = GaussianMeanOrVariance(n_features=p)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -583,7 +597,7 @@ def test_mean_or_variance_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     t = n
     n2 = t - n1
@@ -657,7 +671,7 @@ def test_regression_mcscan_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     t = n
     n2 = t - n1
@@ -672,7 +686,7 @@ def test_regression_mcscan_scores_match_formula():
 
 
 # ---------------------------------------------------------------------------
-# RegressionDirect parity tests
+# RegressionWald parity tests
 # ---------------------------------------------------------------------------
 
 
@@ -685,7 +699,7 @@ def test_regression_direct_alarm():
     y = x_reg @ np.zeros(q) + rng.normal(size=n)
     x = np.column_stack([y, x_reg])
 
-    detector = GridDetector(score=RegressionDirect(n_regressors=q), threshold=10.0)
+    detector = GridDetector(score=RegressionWald(n_regressors=q), threshold=10.0)
     state, outputs = _run_stream(detector, x)
     assert not any(out["alarm"] for out in outputs)
 
@@ -698,10 +712,8 @@ def test_regression_direct_alarm():
     assert out["alarm"]
 
 
-def test_regression_direct_scores_match_formula():
-    """_compute_centered_scores matches the inv_sqrtm_pd-based formula."""
-    from gridcp.scores._score_helpers import inv_sqrtm_pd
-
+def test_regression_wald_scores_match_formula():
+    """Centered score matches the two-sample (Chow) Wald contrast minus q."""
     q = 3
     n = 60
     rng = np.random.default_rng(88)
@@ -709,7 +721,7 @@ def test_regression_direct_scores_match_formula():
     y = x_reg @ np.ones(q) + rng.normal(size=n)
     x = np.column_stack([y, x_reg])
 
-    score = RegressionDirect(n_regressors=q)
+    score = RegressionWald(n_regressors=q)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -719,17 +731,18 @@ def test_regression_direct_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
-    yx_pre = np.sum(y[:n1, None] * x_reg[:n1], axis=0)
-    yx_post = np.sum(y[n1:, None] * x_reg[n1:], axis=0)
-    xx_pre = x_reg[:n1].T @ x_reg[:n1]
-    xx_post = x_reg[n1:].T @ x_reg[n1:]
+    s_pre = np.sum(y[:n1, None] * x_reg[:n1], axis=0)
+    s_post = np.sum(y[n1:, None] * x_reg[n1:], axis=0)
+    m_pre = x_reg[:n1].T @ x_reg[:n1]
+    m_post = x_reg[n1:].T @ x_reg[n1:]
 
-    m1_inv = inv_sqrtm_pd(xx_pre)
-    m2_inv = inv_sqrtm_pd(xx_post)
-    diff = m1_inv @ yx_pre - m2_inv @ yx_post
-    expected = 0.5 * float(np.dot(diff, diff)) - q
+    m1_inv = np.linalg.inv(m_pre)
+    m2_inv = np.linalg.inv(m_post)
+    diff = m1_inv @ s_pre - m2_inv @ s_post
+    middle = np.linalg.inv(m1_inv + m2_inv)
+    expected = float(diff @ middle @ diff) - q
 
     assert np.isclose(result[0], expected)
 
@@ -746,7 +759,7 @@ def test_multivariate_mean_identity_cov_scores_match_formula():
     rng = np.random.default_rng(33)
     x = rng.normal(size=(n, p))
 
-    score = MultivariateMeanIdentityCov(n_features=p)
+    score = CUSUM(n_features=p, aggregation="max-sum")
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -756,7 +769,7 @@ def test_multivariate_mean_identity_cov_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     t = n
     n2 = t - n1
@@ -771,7 +784,7 @@ def test_multivariate_mean_identity_cov_scores_match_formula():
 
 
 # ---------------------------------------------------------------------------
-# MultivariateMeanUnknownCov formula-parity test
+# GaussianMean(cov_estimate="full") formula-parity test
 # ---------------------------------------------------------------------------
 
 
@@ -784,7 +797,7 @@ def test_multivariate_mean_unknown_cov_scores_match_formula():
     rng = np.random.default_rng(101)
     x = rng.normal(size=(n, p))
 
-    score = MultivariateMeanUnknownCov(n_features=p)
+    score = GaussianMean(cov_estimate="full", n_features=p)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -793,7 +806,7 @@ def test_multivariate_mean_unknown_cov_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     # Reference formula (identical logic to original Python code).
     t = n
@@ -817,7 +830,7 @@ def test_multivariate_mean_unknown_cov_scores_match_formula():
 
 
 # ---------------------------------------------------------------------------
-# MultivariateMeanOrCovariance formula-parity test
+# GaussianMeanOrCovariance formula-parity test
 # ---------------------------------------------------------------------------
 
 
@@ -830,7 +843,7 @@ def test_multivariate_mean_or_covariance_scores_match_formula():
     rng = np.random.default_rng(202)
     x = rng.normal(size=(n, p))
 
-    score = MultivariateMeanOrCovariance(n_features=p)
+    score = GaussianMeanOrCovariance(n_features=p)
     total = score.init_state()
     for xi in x:
         total = score.update(total, xi)
@@ -839,7 +852,7 @@ def test_multivariate_mean_or_covariance_scores_match_formula():
     for xi in x[:n1]:
         grid_state = score.update(grid_state, xi)
 
-    result = score._compute_centered_scores(total, [grid_state])
+    result = _centered(score, total, [grid_state])
 
     # Reference formula (identical logic to original Python code).
     t = n

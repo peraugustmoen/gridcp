@@ -8,6 +8,10 @@ __pycache__/
 
 # folders:
 .vscode/
+confidential_soundsensing_data_12052026/
+
+# generated outputs:
+changepoint-examples-*.html
 
 # Distribution / packaging
 .Python
@@ -251,3 +255,11 @@ review_results.md
 
 # TCPD benchmark dataset (external clone, kept local only)
 TCPD/
+
+software_paper/
+jss-styleguide/
+.claude/
+openspec/
+issue_notes_pa.md
+CONTRIBUTING_suggestion.md
+README_suggestion.md
