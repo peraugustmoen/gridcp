@@ -81,10 +81,9 @@ Each implemented test is a *score* imported from `gridcp.scores` and plugged int
 | Score | Detects a change in |
 | --- | --- |
 | `CUSUM` | mean (known unit variance), uni- or multivariate |
-| `GaussianMean` | mean (unknown variance) |
+| `GaussianMean` | mean (unknown variance/covariance) |
 | `GaussianVariance` | variance |
 | `GaussianMeanOrVariance` | mean and/or variance |
-| `GaussianMeanFullCovariance` | mean (with full covariance) |
 | `GaussianMeanOrCovariance` | mean and/or covariance |
 | `RegressionMcScan` | regression coefficients (McScan) |
 | `RegressionWald` | regression coefficients (Wald) |
