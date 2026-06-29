@@ -1,6 +1,6 @@
 # gridcp
 
-**Online grid-based changepoint detection in Python — bring any offline test statistic online, with logarithmic time and memory.**
+**Online grid-based changepoint detection in Python — with logarithmic time and memory.**
 
 [![CI](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -10,7 +10,7 @@
 
 ## Overview
 
-**Online changepoint detection** is the problem of flagging distributional changes
+**Online changepoint detection** is the problem of detecting distributional changes
 in a data stream in real time. A rich toolbox of *offline* (fixed-sample) tests
 already exists, but rerunning them as data accumulate becomes infeasible: cost grows
 with the length of the stream.
@@ -152,7 +152,7 @@ If you use `gridcp` in your research, please cite:
 ```bibtex
 @misc{gridcp,
   title  = {{gridcp}: Grid-based online changepoint detection in {Python}},
-  author = {Moen, Per August and others},
+  author = {Moen, Per August J., Nielsen, Sebastian G., Urheim, Espen B., Tveten, Martin, Glad, Ingrid K.},
   year   = {2026},
   note   = {Working paper}
 }
