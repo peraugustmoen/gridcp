@@ -249,6 +249,13 @@ code_for_paper/highd_mean_delay.pdf
 code_for_paper/highd_runtime.pdf
 PA_checklist_review.txt
 review_results.md
+
+# Local simulation outputs (keep on disk, never commit)
+*.npz
+
+# TCPD benchmark dataset (external clone, kept local only)
+TCPD/
+
 software_paper/
 jss-styleguide/
 .claude/
