@@ -70,7 +70,7 @@ npf_det = GridDetector(
     threshold=np.maximum(NPFOCUS_THRESHOLD, threshold_floor),
 )
 
-
+# Hej
 def run_detector_with_crossing_events(detector, stream, threshold):
     state = detector.init_state()
     trace = []
