@@ -45,7 +45,7 @@ def gaussian_mean_score(
     Returns
     -------
     raw : np.ndarray, shape (n_candidates, n_features)
-        Raw (uncentered, unaggregated) per-feature LR.  Features with a
+        Raw (uncentered, unaggregated) per-feature LR. Features with a
         degenerate variance estimate are set to 0.
     valid : np.ndarray, shape (n_candidates,)
         Boolean flag; ``False`` for candidates with ``n1 <= 2``/``n2 <= 2`` or
@@ -124,7 +124,7 @@ def gaussian_mean_full_covariance_score(
     Returns
     -------
     np.ndarray
-        Centered LR scores for each candidate, shape ``(G,)``.  Each value is
+        Centered LR scores for each candidate, shape ``(G,)``. Each value is
         ``2 * LR - p`` where ``2 * LR = t * (logdet Σ̂_null - logdet Σ̂_alt)``.
         Returns the zero vector when ``t < 2*p + 2`` or when the null covariance
         matrix is singular; a candidate is 0 when its alternative covariance is
@@ -210,25 +210,25 @@ class GaussianMean:
 
     **Score.**
 
-    - ``cov_estimate="diagonal"`` (default): Σ is taken diagonal — a separate
-      unknown variance per feature.  The per-feature twice profile
+    - ``cov_estimate="diagonal"`` (default): Σ is taken diagonal, with a separate
+      unknown variance per feature. The per-feature twice profile
       log-likelihood ratio ``2 * LR = t * (log σ̂²_null - log σ̂²_alt)`` is
       computed for each feature (asymptotically chi-squared(1) under the null,
       Wilks) and combined across features by ``aggregation``.
     - ``cov_estimate="full"``: Σ is a full unknown covariance, pooled within
-      group.  The joint statistic
+      group. The joint statistic
       ``2 * LR = t * (logdet Σ̂_null - logdet Σ̂_alt)`` is asymptotically
       chi-squared(p) under the null and forms a single test statistic.
 
-    **Aggregation.**  Applies only to ``cov_estimate="diagonal"``: the p
+    **Aggregation.** Applies only to ``cov_estimate="diagonal"``: the p
     per-feature statistics are combined according to the ``aggregation`` keyword
-    (``"max"`` by default; see Parameters).  For ``cov_estimate="full"`` the
+    (``"max"`` by default; see Parameters). For ``cov_estimate="full"`` the
     score is a single joint statistic (``n_scores = 1``) and ``aggregation`` has
-    no effect — passing a non-default value emits a ``UserWarning``.
+    no effect, so passing a non-default value emits a ``UserWarning``.
 
-    **Centering and penalty.**  Each output column is centered by subtracting its
+    **Centering and penalty.** Each output column is centered by subtracting its
     degrees of freedom ``df`` inside the score (``df = 1`` per feature for
-    diagonal; ``df = p`` for full).  When ``enable_penalty=True`` (default) the
+    diagonal; ``df = p`` for full). When ``enable_penalty=True`` (default) the
     centered column is divided by ``chi2_max_bound(M, df, t)``
     (``chi2_max_bound(1, p, t)`` for full); when ``enable_penalty=False`` the
     divisor is 1.0.
@@ -247,15 +247,15 @@ class GaussianMean:
     n_features : int, default=1
         Number of features ``p`` expected in each observation.
     cov_estimate : {"diagonal", "full"}, default="diagonal"
-        Nuisance covariance model.  ``"diagonal"`` estimates a per-feature
+        Nuisance covariance model. ``"diagonal"`` estimates a per-feature
         variance (O(p) running state, supports ``aggregation``); ``"full"``
         estimates a full p×p covariance (O(p²) running state, single joint
         statistic).
     aggregation : {"max", "sum", "max-sum", None, "None"}, default="max"
         How to combine the p per-feature statistics across the feature axis when
-        ``cov_estimate="diagonal"``.  ``"max"`` (1 column), ``"sum"`` (1 column),
+        ``cov_estimate="diagonal"``. ``"max"`` (1 column), ``"sum"`` (1 column),
         ``"max-sum"`` (2 columns, max then sum), ``None``/``"None"`` (p columns,
-        one per feature).  Ignored (with a ``UserWarning`` if non-default) when
+        one per feature). Ignored (with a ``UserWarning`` if non-default) when
         ``cov_estimate="full"``.
     enable_penalty : bool, default=True
         If ``True``, divide each centered column by ``chi2_max_bound(M, df, t)``;

@@ -42,7 +42,7 @@ def gaussian_mean_or_covariance_score(
     Returns
     -------
     np.ndarray
-        Centered LR scores for each candidate, shape ``(G,)``.  Each value is
+        Centered LR scores for each candidate, shape ``(G,)``. Each value is
         ``2 * LR - df`` where ``df = p + p*(p+1)/2`` and
         ``2 * LR = t * logdet Σ̂_tot - n_1 * logdet Σ̂_1 - n_2 * logdet Σ̂_2``.
         The whole score is 0 when the pooled covariance is singular; candidates
@@ -120,21 +120,21 @@ class GaussianMeanOrCovariance:
     unknown; under a change at τ the mean vector, covariance matrix, or both
     may change.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the twice log-likelihood ratio is
     ``2 * LR = t logdet Σ̂_tot - n_1 logdet Σ̂_1 - n_2 logdet Σ̂_2``,
     asymptotically chi-squared with ``df = p + p*(p+1)/2`` under the null.
 
-    **Aggregation.**  This score is self-aggregating: the LR operates jointly on
+    **Aggregation.** This score is self-aggregating: the LR operates jointly on
     the full p-dimensional distribution and produces a single test statistic
-    (``n_scores = 1``).  It does not take an ``aggregation`` keyword.
+    (``n_scores = 1``). It does not take an ``aggregation`` keyword.
 
-    **Centering and penalty.**  The statistic is centered by subtracting df (the
-    chi-squared(df) mean).  When ``enable_penalty=True`` (default), the centered
+    **Centering and penalty.** The statistic is centered by subtracting df (the
+    chi-squared(df) mean). When ``enable_penalty=True`` (default), the centered
     score is divided by ``chi2_max_bound(1, df, t) = sqrt(df log t) + log t``;
     when ``enable_penalty=False`` the divisor is 1.0.
 
-    **Sample size requirement.**  The score returns 0 for any candidate with
+    **Sample size requirement.** The score returns 0 for any candidate with
     ``n_1 ≤ 2*p`` or ``n_2 ≤ 2*p`` (a conservative threshold for each segment's
     sample covariance to be well-conditioned) or with a singular segment
     covariance, and the whole score is 0 if the pooled covariance is singular.
@@ -145,7 +145,7 @@ class GaussianMeanOrCovariance:
         Dimension ``p`` of each observation vector.
     enable_penalty : bool, default=True
         If ``True``, divide the centered score by ``chi2_max_bound(1, df, t)``
-        with ``df = p + p*(p+1)/2``.  If ``False``, return the raw centered score
+        with ``df = p + p*(p+1)/2``. If ``False``, return the raw centered score
         with divisor 1.0.
     """
 

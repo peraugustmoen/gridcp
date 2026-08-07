@@ -23,18 +23,17 @@ Sampler contract
 All user-provided samplers (``pre_sampler``/``post_sampler``) must accept an
 ``rng`` argument. Supported forms are:
 
-- ``sampler(rng, /, *args, **kwargs)`` — positional-only ``rng``; called as
+- ``sampler(rng, /, *args, **kwargs)``: positional-only ``rng``; called as
   ``sampler(rng, *args, **kwargs)``.
-- ``sampler(rng, *args, **kwargs)`` — ``rng`` as the first
+- ``sampler(rng, *args, **kwargs)``: ``rng`` as the first
   POSITIONAL_OR_KEYWORD parameter; also called positionally as
-  ``sampler(rng, *args, **kwargs)``.  This is the most common pattern.
-- ``sampler(*args, rng, **kwargs)`` — ``rng`` is keyword-only or not the first
+  ``sampler(rng, *args, **kwargs)``. This is the most common pattern.
+- ``sampler(*args, rng, **kwargs)``: ``rng`` is keyword-only or not the first
   positional parameter; called as ``sampler(*args, rng=rng, **kwargs)``.
 
-The rule is simple: if ``rng`` is the first positional parameter (whether
-declared positional-only or not), it is passed positionally and
-``pre_args``/``post_args`` fill the remaining positions in order.  Otherwise
-it is passed by keyword.
+If ``rng`` is the first positional parameter (whether declared positional-only
+or not), it is passed positionally and ``pre_args``/``post_args`` fill the
+remaining positions in order; otherwise it is passed by keyword.
 
 This ensures all randomness is anchored in the calibrated simulation RNG and
 therefore reproducible in both serial and parallel execution.
@@ -106,10 +105,10 @@ def _sampler_rng_mode_uncached(sampler: Callable[..., Any]) -> str:
     Returns one of:
 
     - ``"positional"``: ``rng`` is POSITIONAL_ONLY, **or** it is
-      POSITIONAL_OR_KEYWORD and is the first positional parameter.  In both
+      POSITIONAL_OR_KEYWORD and is the first positional parameter. In both
       cases the caller uses ``sampler(local_rng, *args, **kwargs)``.
     - ``"keyword"``: ``rng`` is POSITIONAL_OR_KEYWORD but not the first
-      positional parameter, or it is KEYWORD_ONLY.  The caller uses
+      positional parameter, or it is KEYWORD_ONLY. The caller uses
       ``sampler(*args, rng=local_rng, **kwargs)``.
     - ``"kwargs"``: sampler has no explicit ``rng`` parameter but accepts
       ``**kwargs``; ``rng`` is injected by keyword.
@@ -310,8 +309,8 @@ def _spawn_worker_seeds(rng: RNGInput, n_chunks: int) -> list[int]:
     - ``None``: fixed internal default ``SeedSequence``, always the same.
     - ``int``: ``SeedSequence`` seeded from that integer.
     - ``Generator``: ``SeedSequence`` taken from the generator's
-      ``bit_generator.seed_seq``.  This reflects the *original* seed the
-      generator was constructed from, not its current draw position.  In
+      ``bit_generator.seed_seq``. This reflects the *original* seed the
+      generator was constructed from, not its current draw position. In
       practice this means two parallel calls with the same generator (even
       after advancing it) will produce the same worker seeds.
     """
@@ -368,7 +367,7 @@ def _mc_worker_chunk(
         state = _WORKER_DETECTOR.init_state()
         max_score = np.zeros(declared_k, dtype=np.float64)
 
-        # Note: t below represents the SAMPLE SIZE (1-indexed; current observation count).
+        # Note: t below represents the sample size (1-indexed, and current observation count).
         # This ranges from 1 to stream_len, not 0 to stream_len-1.
         # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
@@ -690,8 +689,8 @@ def draw_samples(
         Observation dimension (length of the per-time-step 1D observation
         vector used internally).
     pre_sampler : callable
-        Pre-change sampler.  Must accept ``rng`` as described in the
-        module-level sampler contract.  Scalar outputs are broadcast to
+        Pre-change sampler. Must accept ``rng`` as described in the
+        module-level sampler contract. Scalar outputs are broadcast to
         ``(n_features,)``; non-scalar outputs are flattened and must have
         total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
@@ -780,7 +779,7 @@ def draw_samples(
 
     for path_idx in range(n_paths):
         cp = _resolve_changepoint(changepoint, local_rng, stream_len, path_idx)
-        # Note: t represents the SAMPLE SIZE (1-indexed; current observation count).
+        # Note: t represents the sample size (1-indexed and  current observation count).
         # This ranges from 1 to stream_len, not 0 to stream_len-1.
         # When storing in arrays, use (t - 1) for 0-indexed array access.
         for t in range(1, stream_len + 1):
@@ -828,7 +827,7 @@ def mc_max_scores(
     """Run Monte Carlo paths and return per-path maxima of penalized scores.
 
     For each path, records the running maximum of ``output["max_score"]``
-    returned by `GridDetector.update`.  The threshold stored in
+    returned by `GridDetector.update`. The threshold stored in
     ``detector`` is not used; only the score model matters.
 
     Parameters
@@ -840,8 +839,8 @@ def mc_max_scores(
     stream_len : int
         Number of observations per path.
     pre_sampler : callable
-        Pre-change sampler.  Must accept ``rng`` as described in the
-        module-level sampler contract.  Scalar outputs are broadcast to
+        Pre-change sampler. Must accept ``rng`` as described in the
+        module-level sampler contract. Scalar outputs are broadcast to
         ``(n_features,)``; non-scalar outputs are flattened and must have
         total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
@@ -861,7 +860,7 @@ def mc_max_scores(
     post_args, post_kwargs : optional
         Extra arguments forwarded to ``post_sampler``.
     changepoint : int | callable | None, optional
-        First post-change index (0-based).  See module docstring for allowed
+        First post-change index (0-based). See module docstring for allowed
         types and values.
     parallel : bool, optional
         Use process-based parallel execution (default ``True``).
@@ -875,7 +874,7 @@ def mc_max_scores(
     Returns
     -------
     np.ndarray
-        Shape ``(n_paths, n_scores)``.  Per-path maxima of penalized scores.
+        Shape ``(n_paths, n_scores)``. Per-path maxima of penalized scores.
     """
     n_features: int = detector.score.n_features
 
@@ -1067,7 +1066,7 @@ def mc_alarm_times(
 ) -> np.ndarray:
     """Run Monte Carlo paths and return first alarm index for each path.
 
-    Alarm indices are 0-based.  Paths with no alarm within the stream return
+    Alarm indices are 0-based. Paths with no alarm within the stream return
     ``stream_len``.
 
     Only the first alarm per path is recorded.
@@ -1081,8 +1080,8 @@ def mc_alarm_times(
     stream_len : int
         Number of observations per path.
     pre_sampler : callable
-        Pre-change sampler.  Must accept ``rng`` as described in the
-        module-level sampler contract.  Scalar outputs are broadcast to
+        Pre-change sampler. Must accept ``rng`` as described in the
+        module-level sampler contract. Scalar outputs are broadcast to
         ``(n_features,)``; non-scalar outputs are flattened and must have
         total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
@@ -1102,12 +1101,12 @@ def mc_alarm_times(
     post_args, post_kwargs : optional
         Extra arguments forwarded to ``post_sampler``.
     changepoint : int | callable | None, optional
-        First post-change index (0-based).  See module docstring for allowed
+        First post-change index (0-based). See module docstring for allowed
         types and values.
     parallel : bool, optional
         Use process-based parallel execution (default ``True``).
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` (default) uses all available
+        Number of worker processes. ``None`` (default) uses all available
         CPU cores.
     strict_equivalence : bool, optional
         If ``True``, generate samples serially before parallel evaluation,
@@ -1117,7 +1116,7 @@ def mc_alarm_times(
     Returns
     -------
     np.ndarray
-        Shape ``(n_paths,)``.  First alarm index per path (0-based), or
+        Shape ``(n_paths,)``. First alarm index per path (0-based), or
         ``stream_len`` if no alarm occurred.
     """
     n_features: int = detector.score.n_features
@@ -1313,8 +1312,8 @@ def calibrate_threshold_false_alarm(
     stream_len : int
         Number of observations per path.
     pre_sampler : callable
-        Pre-change sampler.  Must accept ``rng`` as described in the
-        module-level sampler contract.  Scalar outputs are broadcast to
+        Pre-change sampler. Must accept ``rng`` as described in the
+        module-level sampler contract. Scalar outputs are broadcast to
         ``(n_features,)``; non-scalar outputs are flattened and must have
         total size ``n_features``.
     rng : numpy.random.Generator | int | None, optional
@@ -1336,7 +1335,7 @@ def calibrate_threshold_false_alarm(
     parallel : bool, optional
         Use process-based parallel execution (default ``True``).
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` (default) uses all available
+        Number of worker processes. ``None`` (default) uses all available
         CPU cores.
     strict_equivalence : bool, optional
         If ``True``, generate samples serially before parallel evaluation,
@@ -1420,7 +1419,7 @@ def with_calibrated_threshold(
 ) -> GridDetector:
     """Return a copy of ``detector`` with updated threshold.
 
-    The threshold is normalised to a 1-D ``float64`` array by
+    The threshold is normalized to a 1-D ``float64`` array by
     ``GridDetector.__post_init__``.
     """
     return replace(detector, threshold=threshold)
@@ -1530,7 +1529,7 @@ def _compute_arl_threshold_from_max_scores(
         (per-score quantiles).
     max_scores_step2 : np.ndarray or None, optional
         If provided (multivariate only), used for step 2 (joint scaling) in
-        place of ``max_scores``.  Ignored for scalar scores.
+        place of ``max_scores``. Ignored for scalar scores.
 
     Returns
     -------
@@ -1542,7 +1541,7 @@ def _compute_arl_threshold_from_max_scores(
             f"max_scores must have shape (n_paths, n_scores); got shape {max_scores.shape}."
         )
 
-    # n_scores > 1 — two-step procedure.
+    # n_scores > 1: two-step procedure.
     # Step 1: per-score (1/e)-quantiles.
     n_scores = max_scores.shape[1]
     if n_scores == 1:
@@ -1603,7 +1602,7 @@ def _eval_max_scores(
     score : ScoreModel
         Score model compatible with ``GridDetector``.
     samples : np.ndarray
-        Shape ``(n_paths, stream_len, n_features)``.  Assumed already validated.
+        Shape ``(n_paths, stream_len, n_features)``. Assumed already validated.
     parallel : bool
         Whether to evaluate paths in parallel.
     n_jobs : int or None
@@ -1655,7 +1654,7 @@ def calibrate_threshold_false_alarm_from_samples(
 ) -> np.ndarray:
     """Estimate threshold(s) from pre-generated paths via max penalized scores.
 
-    This is the most flexible data-driven calibration entry point.  The caller
+    This is the most flexible data-driven calibration entry point. The caller
     supplies an array of observation streams (e.g. generated by any bootstrap
     method, including external packages such as ``tsbootstrap``) and the
     function runs each stream through the detector to build the null
@@ -1667,7 +1666,7 @@ def calibrate_threshold_false_alarm_from_samples(
         Score model compatible with ``GridDetector``.
     samples : ArrayLike
         Pre-generated observation streams with shape
-        ``(n_paths, stream_len, n_features)``.  Lists, tuples, and other
+        ``(n_paths, stream_len, n_features)``. Lists, tuples, and other
         array-like inputs are accepted and converted to ``float64``.
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
@@ -1679,7 +1678,7 @@ def calibrate_threshold_false_alarm_from_samples(
         If ``True`` (default), evaluate sample paths across multiple
         processes.
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` (default) uses all available
+        Number of worker processes. ``None`` (default) uses all available
         CPU cores.
 
     Returns
@@ -1778,12 +1777,12 @@ def calibrate_threshold_false_alarm_from_data(
     When the null distribution is unknown but a representative change-free
     training set is available, this function calibrates the threshold by:
 
-    1.  Resampling ``n_paths`` streams of length ``stream_len`` from
+    1. Resampling ``n_paths`` streams of length ``stream_len`` from
         ``training_data`` using the circular block bootstrap (Politis &
         Romano, 1992).
-    2.  Running each stream through the detector and recording the path-wise
+    2. Running each stream through the detector and recording the path-wise
         maximum penalized score.
-    3.  Setting per-score thresholds from path-wise maxima using
+    3. Setting per-score thresholds from path-wise maxima using
         :func:`_compute_false_alarm_threshold_from_max_scores` (Bonferroni
         corrected when ``apply_bonferroni=True``).
 
@@ -1806,7 +1805,7 @@ def calibrate_threshold_false_alarm_from_data(
         Score model compatible with ``GridDetector``.
     training_data : ArrayLike
         Change-free training observations, shape ``(N,)`` for univariate or
-        ``(N, n_features)`` for multivariate data.  Lists, tuples, and other
+        ``(N, n_features)`` for multivariate data. Lists, tuples, and other
         array-like inputs are accepted and converted to ``float64``.
     false_alarm_probability : float
         Target false alarm probability in ``(0, 1)``.
@@ -1815,7 +1814,7 @@ def calibrate_threshold_false_alarm_from_data(
     n_paths : int, optional
         Number of bootstrap replications (default 1000).
     block_length : int or None, optional
-        Block length for the circular block bootstrap.  ``None`` selects
+        Block length for the circular block bootstrap. ``None`` selects
         ``max(1, int(N ** (1/3)))`` automatically.
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
@@ -1826,7 +1825,7 @@ def calibrate_threshold_false_alarm_from_data(
         If ``True`` (default), evaluate sample paths across multiple
         processes.
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` (default) uses all available
+        Number of worker processes. ``None`` (default) uses all available
         CPU cores.
 
     Returns
@@ -1971,7 +1970,7 @@ def calibrate_threshold_arl(
     """Estimate a score threshold via Average Run Length (ARL) calibration.
 
     Simulates *n_paths* null streams of length *target_arl*, collects the
-    maximum score from each, and returns the (1/e)-quantile.  This yields a
+    maximum score from each, and returns the (1/e)-quantile. This yields a
     detector whose expected alarm time under the null is approximately
     *target_arl*.
 
@@ -1995,18 +1994,18 @@ def calibrate_threshold_arl(
     parallel : bool, default True
         Whether to run Monte Carlo paths in parallel.
     n_jobs : int or None, optional
-        Number of parallel workers.  ``None`` uses automatic core detection.
+        Number of parallel workers. ``None`` uses automatic core detection.
     strict_equivalence : bool, default False
         If ``True``, sample generation is serial (only evaluation is
         parallel), guaranteeing identical output to ``parallel=False``.
     resimulate_combined_threshold : bool, default False
-        For scores with ``score.n_scores > 1`` only.  If ``True``, runs a
+        For scores with ``score.n_scores > 1`` only. If ``True``, runs a
         second independent Monte Carlo simulation for step 2 of the
-        calibration procedure (the joint scaling of per-score thresholds).  The
+        calibration procedure (the joint scaling of per-score thresholds). The
         second simulation continues from the same ``rng`` (whose state has been
         advanced by the first simulation), so step-2 samples are independent of
-        step-1 samples.  This removes the sample-reuse bias between the two
-        estimation steps at the cost of twice the computation.  Has no effect
+        step-1 samples. This removes the sample-reuse bias between the two
+        estimation steps at the cost of twice the computation. Has no effect
         when ``score.n_scores == 1``.
 
     Returns
@@ -2117,7 +2116,7 @@ def calibrate_threshold_arl_from_samples(
     scores, then returns the ``(1/e)``-quantile as the threshold.
 
     Both steps of the multivariate two-step procedure reuse the same sample
-    array.  If independent step-2 samples are needed, use
+    array. If independent step-2 samples are needed, use
     :func:`calibrate_threshold_arl_from_data` with
     ``resimulate_combined_threshold=True``.
 
@@ -2127,12 +2126,12 @@ def calibrate_threshold_arl_from_samples(
         Score model compatible with ``GridDetector``.
     samples : ArrayLike
         Pre-generated observation streams with shape
-        ``(n_paths, stream_len, n_features)``.  The stream length is used as
-        the ARL target implicitly — it should equal the desired ``target_arl``.
+        ``(n_paths, stream_len, n_features)``. The stream length is used as
+        the ARL target implicitly, so it should equal the desired ``target_arl``.
     parallel : bool, optional
         If ``True`` (default), evaluate sample paths across multiple processes.
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` uses all available CPU cores.
+        Number of worker processes. ``None`` uses all available CPU cores.
 
     Returns
     -------
@@ -2202,12 +2201,12 @@ def calibrate_threshold_arl_from_data(
     When the null distribution is unknown but a representative change-free
     training set is available, this function calibrates the threshold by:
 
-    1.  Resampling ``n_paths`` streams of length ``target_arl`` from
+    1. Resampling ``n_paths`` streams of length ``target_arl`` from
         ``training_data`` using the circular block bootstrap (Politis &
         Romano, 1992).
-    2.  Running each stream through the detector and recording the path-wise
+    2. Running each stream through the detector and recording the path-wise
         maximum score.
-    3.  Setting the threshold at the empirical ``(1/e)``-quantile.
+    3. Setting the threshold at the empirical ``(1/e)``-quantile.
 
     Parameters
     ----------
@@ -2217,27 +2216,27 @@ def calibrate_threshold_arl_from_data(
         Change-free training observations, shape ``(N,)`` for univariate or
         ``(N, n_features)`` for multivariate data.
     target_arl : int
-        Desired average run length under the null.  Also used as the
+        Desired average run length under the null. Also used as the
         bootstrap stream length.
     n_paths : int, optional
         Number of bootstrap replications (default 1000).
     block_length : int or None, optional
-        Block length for the circular block bootstrap.  ``None`` selects
+        Block length for the circular block bootstrap. ``None`` selects
         ``max(1, int(N ** (1/3)))`` automatically.
     rng : numpy.random.Generator | int | None, optional
         Randomness control.
     parallel : bool, optional
         If ``True`` (default), evaluate sample paths across multiple processes.
     n_jobs : int or None, optional
-        Number of worker processes.  ``None`` uses all available CPU cores.
+        Number of worker processes. ``None`` uses all available CPU cores.
     resimulate_combined_threshold : bool, default False
-        For scores with ``score.n_scores > 1`` only.  If ``True``, generates
+        For scores with ``score.n_scores > 1`` only. If ``True``, generates
         a second independent bootstrap sample for step 2 of the calibration
-        procedure (the joint scaling of per-score thresholds).  The second
+        procedure (the joint scaling of per-score thresholds). The second
         bootstrap continues from the same ``rng`` (advanced by the first
-        draw), so step-2 samples are independent of step-1 samples.  This
+        draw), so step-2 samples are independent of step-1 samples. This
         removes the sample-reuse bias between the two estimation steps at the
-        cost of twice the bootstrap computation.  Has no effect when
+        cost of twice the bootstrap computation. Has no effect when
         ``score.n_scores == 1``.
 
     Returns

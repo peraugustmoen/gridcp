@@ -105,7 +105,7 @@ class RegressionMcScan:
     response ``y`` in position 0 and the regressors ``x`` in positions
     ``1, ..., q``.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the score is
 
         T = sqrt(n_1 n_2 / t) * max_{j=1,...,q} |ȳx_j^1 - ȳx_j^2|,
@@ -113,19 +113,19 @@ class RegressionMcScan:
     where ȳx_j^k is the empirical cross-product mean of y with regressor j
     in segment k.
 
-    **Aggregation.**  The score is the max over q regressors of the
+    **Aggregation.** The score is the max over q regressors of the
     per-regressor absolute CUSUM increment, analogous to the max-coordinate
     CUSUM of :class:`CUSUM` but operating on cross-product statistics
     rather than the response mean.
 
-    **Centering and penalty.**  This is a max-type statistic; no chi-squared
-    centering constant is subtracted.  When ``enable_penalty=True`` (default),
+    **Centering and penalty.** This is a max-type statistic; no chi-squared
+    centering constant is subtracted. When ``enable_penalty=True`` (default),
     the score is divided by ``sqrt(log(q t))``, where q = ``n_regressors``;
     this is a high-probability bound for the max of q sub-Gaussian random
-    variables (analogous to a Bonferroni correction for max-type scans).  When
+    variables (analogous to a Bonferroni correction for max-type scans). When
     ``enable_penalty=False``, the divisor is 1.0 and the raw score is returned.
 
-    **Sample size requirement.**  None.
+    **Sample size requirement.** None.
 
     Parameters
     ----------

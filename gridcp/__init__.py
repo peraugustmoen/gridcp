@@ -1,13 +1,13 @@
-"""gridcp — online grid-based changepoint detection.
+"""gridcp: online grid-based changepoint detection.
 
 Public API
 ----------
 The main classes are imported from the top-level package:
 
-- :class:`GridDetector` — the meta-detector.
-- :class:`DetectorState` — frozen state object returned by the detector.
-- :func:`reset_detector_state` — reset a detector state to time 0.
-- :class:`DetectorOutput` — typed dict returned per update step.
+- :class:`GridDetector`: the meta-detector.
+- :class:`DetectorState`: frozen state object returned by the detector.
+- :func:`reset_detector_state`: reset a detector state to time 0.
+- :class:`DetectorOutput`: typed dict returned per update step.
 
 Score classes (e.g. :class:`~gridcp.scores.CUSUM`,
 :class:`~gridcp.scores.ExponentialFamilyGLR`) are **not** re-exported from

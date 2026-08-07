@@ -21,7 +21,7 @@ class DetectorOutput(TypedDict):
     max_score : np.ndarray
         Maximum penalized score across grid candidates, shape ``(n_scores,)``.
         ``n_scores`` is the number of penalized scores returned by
-        ``compute_penalized_scores``.  Single-score models use ``n_scores=1``.
+        ``compute_penalized_scores``. Single-score models use ``n_scores=1``.
     max_split_point : np.ndarray
         First post-change index (0-based) achieving the max score, computed as
         ``state.grid[argmax]`` for each score, shape ``(n_scores,)``.
@@ -46,15 +46,15 @@ class ScoreModel(Protocol[TScoreState]):
     A compliant class maintains per-candidate sufficient statistics and computes
     scores for all active candidates after each new observation.
 
-    IMPORTANT: state objects returned by ``init_state``/``update`` are treated as
-    immutable snapshots by ``GridDetector``. ``update`` must return a new state
+    State objects returned by ``init_state``/``update`` are treated as
+    immutable snapshots by ``GridDetector``: ``update`` must return a new state
     and must not mutate the input ``state`` in place.
 
-    IMPORTANT: ``GridDetector`` calls ``compute_penalized_scores(state, grid_states)``
-    and score implementations should derive any time-dependent penalty scaling
-    from the provided state.  Accordingly, ``TScoreState`` must carry whatever
-    time information the score needs (typically an ``n_samples`` counter updated
-    by ``update``).
+    ``GridDetector`` calls ``compute_penalized_scores(state, grid_states)``, and
+    score implementations should derive any time-dependent penalty scaling from
+    the provided state. ``TScoreState`` must therefore carry whatever time
+    information the score needs (typically an ``n_samples`` counter updated by
+    ``update``).
     """
 
     @property
@@ -103,11 +103,11 @@ class ScoreModel(Protocol[TScoreState]):
         Parameters
         ----------
         state : TScoreState
-            Global running state after the latest observation.  This is the
+            Global running state after the latest observation. This is the
             authoritative source for any time-dependent penalty scaling; for
-            example, built-in scores read ``state.n_samples`` from here.
-            Custom ``TScoreState`` types must therefore include an ``n_samples``
-            field (or equivalent) if time-dependent penalties are required.
+            example, built-in scores read ``state.n_samples`` from here. Custom
+            ``TScoreState`` types must therefore include an ``n_samples`` field
+            (or equivalent) if time-dependent penalties are required.
         grid_states : list[TScoreState]
             Per-candidate state snapshots, one per active grid point.
 
@@ -116,7 +116,7 @@ class ScoreModel(Protocol[TScoreState]):
         np.ndarray, shape ``(G, n_scores)``
             Penalized score matrix for active candidates, where ``G =
             len(grid_states)`` is the number of active candidates and
-            ``n_scores`` is the number of penalized scores.  Single-score
+            ``n_scores`` is the number of penalized scores. Single-score
             models must return ``(G, 1)``.
 
         """

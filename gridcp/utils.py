@@ -11,7 +11,7 @@ LOG2 = math.log(2.0)
 def numba_log(x):
     """Compute log(x) via a Numba JIT-compiled path.
 
-    This function is not used by the main detection algorithm.  It is
+    This function is not used by the main detection algorithm. It is
     retained for potential use in custom Numba-compiled score functions.
 
     Parameters

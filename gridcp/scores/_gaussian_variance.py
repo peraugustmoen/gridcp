@@ -96,23 +96,23 @@ class GaussianVariance:
     """Variance-change LR score assuming known zero mean.
 
     Under no change, X_1, ..., X_t are i.i.d. N(0, σ²); under a change at τ the
-    variance shifts from σ₁² to σ₂².  If the data has a nonzero mean, subtract
+    variance shifts from σ₁² to σ₂². If the data has a nonzero mean, subtract
     it before feeding observations to this score.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the per-feature twice log-likelihood ratio is
     ``2 * LR = t log σ̂²_tot - n_1 log σ̂²_1 - n_2 log σ̂²_2`` (zero-mean
     variance estimates), asymptotically chi-squared(1) under the null.
 
-    **Aggregation.**  The per-feature statistics are combined according to the
+    **Aggregation.** The per-feature statistics are combined according to the
     ``aggregation`` keyword (``"max"`` by default; see Parameters).
 
-    **Centering and penalty.**  Each output column is centered by subtracting its
-    degrees of freedom ``df`` inside the score.  When ``enable_penalty=True``
+    **Centering and penalty.** Each output column is centered by subtracting its
+    degrees of freedom ``df`` inside the score. When ``enable_penalty=True``
     (default) the centered column is divided by ``chi2_max_bound(M, df, t)``;
     when ``enable_penalty=False`` the divisor is 1.0.
 
-    **Sample size requirement.**  Candidates with n_1 == 0 or n_2 == 0 return
+    **Sample size requirement.** Candidates with n_1 == 0 or n_2 == 0 return
     0.0; features with a non-positive variance estimate are skipped.
 
     Parameters

@@ -42,7 +42,7 @@ def regression_wald_score(
         D̃_g = (β̂₁ - β̂₂)ᵀ (M₁⁻¹ + M₂⁻¹)⁻¹ (β̂₁ - β̂₂) / σ²,
 
     with σ² = 1 (known unit noise variance), ``β̂_k = M_k⁻¹ S_k``,
-    ``M_k = Σ xᵢxᵢᵀ`` and ``S_k = Σ xᵢ yᵢ`` over segment ``k``.  Under the null
+    ``M_k = Σ xᵢxᵢᵀ`` and ``S_k = Σ xᵢ yᵢ`` over segment ``k``. Under the null
     this is exactly chi-squared(q), independent of the true coefficients.
 
     Parameters
@@ -128,32 +128,32 @@ class RegressionWald:
 
     Under no change, (yᵢ, xᵢ) follow the linear model y = βᵀx + ε with
     ε ~ N(0, 1) and regressors x ∈ ℝq; under a change at τ the coefficient
-    vector changes from β₁ to β₂ ≠ β₁.  Each observation is passed as a vector
+    vector changes from β₁ to β₂ ≠ β₁. Each observation is passed as a vector
     of length q + 1 with the response y in position 0 and the regressors x in
     positions 1, ..., q.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the score is the standard two-sample (Chow) Wald
     contrast
 
         D̃_g = (β̂₁ - β̂₂)ᵀ (M₁⁻¹ + M₂⁻¹)⁻¹ (β̂₁ - β̂₂) / σ²,
 
     with σ² = 1 (known unit noise variance), ``β̂_k = M_k⁻¹ S_k``,
-    ``M_k = Σ xᵢxᵢᵀ`` and ``S_k = Σ xᵢ yᵢ``.  Under the null this has an exact
+    ``M_k = Σ xᵢxᵢᵀ`` and ``S_k = Σ xᵢ yᵢ``. Under the null this has an exact
     chi-squared(q) distribution that does not depend on the regression
     coefficients.
 
-    **Aggregation.**  This score is self-aggregating: it pools all q regressors
+    **Aggregation.** This score is self-aggregating: it pools all q regressors
     into one joint Wald statistic (``n_scores = 1``) and does not take an
     ``aggregation`` keyword.
 
-    **Centering and penalty.**  The statistic is centered by subtracting q (the
-    chi-squared(q) mean).  When ``enable_penalty=True`` (default), the centered
+    **Centering and penalty.** The statistic is centered by subtracting q (the
+    chi-squared(q) mean). When ``enable_penalty=True`` (default), the centered
     score is divided by ``chi2_max_bound(1, q, t) = sqrt(q log t) + log t``; when
     ``enable_penalty=False`` the divisor is 1.0.
 
-    **Sample size requirement.**  The uncentered Gram matrix M_k has full rank at
-    ``n_k = q``.  The score returns 0 whenever ``n_1 < q`` or ``n_2 < q``;
+    **Sample size requirement.** The uncentered Gram matrix M_k has full rank at
+    ``n_k = q``. The score returns 0 whenever ``n_1 < q`` or ``n_2 < q``;
     eigenvalues are clipped to ``1e-15`` for numerical safety at the boundary.
 
     Parameters

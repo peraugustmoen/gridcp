@@ -82,7 +82,7 @@ class DetectorState(Generic[TScoreState]):
         For scored candidates (``n_samples >= 2``), entries are first
         post-change indices (0-based) ``n1`` in ``{1, ..., n_samples - 1}``:
         ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
-        post-change segment.  At warmup ``n_samples = 1``, the grid contains
+        post-change segment. At warmup ``n_samples = 1``, the grid contains
         placeholder ``0``.
     """
 
@@ -106,7 +106,7 @@ class GridDetector:
     Threshold semantics
     -------------------
     ``threshold`` is always stored as a 1-D ``float64`` numpy array of shape
-    ``(n_scores,)`` where ``n_scores = score.n_scores``.  At construction time
+    ``(n_scores,)`` where ``n_scores = score.n_scores``. At construction time
     you may pass either:
 
     - a scalar (``float`` or 0-D array): broadcast to
@@ -122,7 +122,7 @@ class GridDetector:
     threshold: float | np.ndarray = 1.0
 
     def __post_init__(self):
-        """Validate inputs and normalise threshold to a 1-D float64 array."""
+        """Validate inputs and normalize threshold to a 1-D float64 array."""
         if not isinstance(self.score, ScoreModel):
             raise TypeError("score must implement the ScoreModel protocol.")
         n_scores = self.score.n_scores
@@ -142,10 +142,10 @@ class GridDetector:
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
 
-        # This is the recommended patter for assigning to a frozen dataclass field in
-        # __post_init__ by the Python documentation:
+        # Recommended pattern for assigning to a frozen dataclass field in
+        # __post_init__, per the Python documentation:
         # https://docs.python.org/3/library/dataclasses.html#frozen-instances
-        # This means that the GridDetector is immutable only after construction.
+        # The GridDetector is therefore immutable only after construction.
         object.__setattr__(self, "threshold", th)
 
     def init_state(self) -> DetectorState:

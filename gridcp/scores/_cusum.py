@@ -43,8 +43,8 @@ def cusum_score(
     -------
     np.ndarray
         Raw (uncentered, unaggregated) per-coordinate squared CUSUM, shape
-        ``(G, n_features)``.  Each entry is
-        ``C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²``.  Candidates with
+        ``(G, n_features)``. Each entry is
+        ``C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²``. Candidates with
         ``n1 == 0`` or ``n2 == 0`` (where the CUSUM is undefined) are filled
         with zeros and flagged invalid by the caller.
     """
@@ -92,27 +92,27 @@ class CUSUM:
     Under no change, X_1, ..., X_t are i.i.d. N(μ, I_p); under a change at τ,
     X_1, ..., X_{τ-1} ~ N(μ₁, I_p) and X_τ, ..., X_t ~ N(μ₂, I_p) with μ₁ ≠ μ₂.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the per-coordinate squared CUSUM statistic is
 
         C_j = (n_1 n_2 / t) (x̄_{1,j} - x̄_{2,j})²,
 
-    the exact ``2 * LR`` under known unit variance.  Under the null, C_j is
+    the exact ``2 * LR`` under known unit variance. Under the null, C_j is
     chi-squared(1) for each coordinate j.
 
-    **Aggregation.**  The p coordinate statistics are combined according to the
-    ``aggregation`` keyword (see Parameters).  ``"max"`` is sensitive to changes
-    concentrated in any single coordinate; ``"sum"`` is the dense
-    ``2 * LR = sum_j C_j``; ``"max-sum"`` returns both as two columns;
+    **Aggregation.** The p coordinate statistics are combined according to the
+    ``aggregation`` keyword (see Parameters). ``"max"`` is sensitive to changes
+    concentrated in any single coordinate. ``"sum"`` is the dense
+    ``2 * LR = sum_j C_j``. ``"max-sum"`` returns both as two columns, and
     ``None`` returns all p per-coordinate statistics.
 
-    **Centering and penalty.**  Each output column is centered by subtracting
-    its degrees of freedom ``df`` (the chi-squared mean) inside the score.  When
+    **Centering and penalty.** Each output column is centered by subtracting
+    its degrees of freedom ``df`` (the chi-squared mean) inside the score. When
     ``enable_penalty=True`` (default), the centered column is divided by
     ``chi2_max_bound(M, df, t)``; when ``enable_penalty=False`` the divisor is
     1.0 and the centered statistic is returned.
 
-    **Sample size requirement.**  Candidates with ``n1 == 0`` or ``n2 == 0``
+    **Sample size requirement.** Candidates with ``n1 == 0`` or ``n2 == 0``
     return 0 (the CUSUM is undefined there).
 
     Parameters
