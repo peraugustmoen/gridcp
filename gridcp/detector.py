@@ -17,24 +17,24 @@ def _update_grid(
     """Update the grid and per-candidate scores for the next time step.
 
     Update the grid from one sample to the next and the corresponding list of
-    per-candidate score state snapshots. The grid holds candidate changepoint
-    positions in the detector's local time scale.
+    per-candidate score state snapshots. The grid holds candidate changepoint /
+    split points, in the detector's local time scale.
 
     When the sample size is at least 2, each grid value is a valid split point
     ``n1`` in ``{1, ..., n_samples - 1}``, which
     is also the first post-change index in 0-based slicing (``x[n1:]``).
-    During warmup (local time ``n_samples = 1``), the grid temporarily contains
+    During warmup (``n_samples = 1``), the grid temporarily contains
     placeholder ``0`` before any valid split exists.
 
     Parameters
     ----------
     grid : list[int]
-        Current local-time grid (candidate changepoint locations).
+        Current grid (candidate split points / changepoint locations).
     previous_score_states : list[TScoreState]
         Per-candidate score state snapshots, parallel to `grid`.
     previous_score_state : TScoreState
         Score state snapshot to append as the new candidate (the pre-update
-        global state, captured before the current observation is processed).
+        global state, from before the current observation is processed).
 
     Returns
     -------
@@ -73,16 +73,16 @@ class DetectorState(Generic[TScoreState]):
     current_score_state : TScoreState
         Current score state.
     n_samples : int, default=0
-        Number of observations processed since initialization or reset.
+        Number of observations processed (since initialization or reset).
     previous_score_states : list[TScoreState]
         Score-state snapshots for the grid of candidate changepoints.
     grid : list[int]
-        Current candidate changepoint locations.
+        Current candidate changepoint locations / split points.
 
-        For scored candidates (``n_samples >= 2``), entries are first
-        post-change indices (0-based) ``n1`` in ``{1, ..., n_samples - 1}``:
+        Entries are the first post-change indices (0-based) ``n1``
+        in ``{1, ..., n_samples - 1}``:
         ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
-        post-change segment. At warmup ``n_samples = 1``, the grid contains
+        post-change segment. At warmup (``n_samples = 1``), the grid contains
         placeholder ``0``.
     """
 
@@ -100,8 +100,7 @@ class GridDetector:
 
     Reset semantics
     ---------------
-    Resetting is handled by the module-level function
-    ``reset_detector_state(detector)``.
+    Calling init_state() will reset the detector by obtaining a fresh detector state.
 
     Threshold semantics
     -------------------
@@ -142,16 +141,13 @@ class GridDetector:
         if np.any(th <= 0):
             raise ValueError("All threshold entries must be positive.")
 
-        # Recommended pattern for assigning to a frozen dataclass field in
-        # __post_init__, per the Python documentation:
-        # https://docs.python.org/3/library/dataclasses.html#frozen-instances
-        # The GridDetector is therefore immutable only after construction.
         object.__setattr__(self, "threshold", th)
 
     def init_state(self) -> DetectorState:
         """Return a fresh initial state with no observations seen.
 
-        The returned state has empty grid history and ``n_samples = 0``.
+        The returned state has empty grid history and ``n_samples = 0``. This
+        works as a reset of the detector.
         """
         return DetectorState(current_score_state=self.score.init_state())
 
@@ -216,7 +212,7 @@ class GridDetector:
                 )
             comparison_threshold = threshold
 
-            # Per-score max over grid candidates.
+            # Per-score max over grid candidates:
             max_score = np.max(penalized_scores, axis=0)
             argmax_per_score = np.argmax(penalized_scores, axis=0)
             grid_arr = np.asarray(new_state.grid, dtype=np.int64)
@@ -235,28 +231,3 @@ class GridDetector:
             "max_split_point": max_split_point,
         }
         return new_state, output
-
-
-def reset_detector_state(
-    detector: GridDetector,
-) -> DetectorState:
-    """Reset detector history to a fresh initial-like state.
-
-    Resetting discards all previously stored sufficient statistics and grid
-    candidates, so the detector behaves as though it has just started on a
-    new segment.
-
-    Parameters
-    ----------
-    detector : GridDetector
-        Detector instance used to initialize a fresh score state.
-
-    Returns
-    -------
-    DetectorState
-        Fresh detector state with cleared grid/candidate history and a new
-        score state from ``detector.score.init_state()``.
-    """
-    return DetectorState(
-        current_score_state=detector.score.init_state(),
-    )

@@ -9,7 +9,7 @@ LOG2 = math.log(2.0)
 
 @nb.njit(fastmath=True, cache=True)
 def numba_log(x):
-    """Compute log(x) via a Numba JIT-compiled path.
+    """Compute log(x) via a Numba JIT-compiled function.
 
     This function is not used by the main detection algorithm. It is
     retained for potential use in custom Numba-compiled score functions.
@@ -29,9 +29,6 @@ def numba_log(x):
 
 def v2(r: int) -> int:
     """Compute the exponent of the largest power of 2 that divides r.
-
-    This Python implementation is used in the new API hot path
-    (``GridDetector.update``) to avoid Python<->Numba call overhead.
 
     Parameters
     ----------
@@ -59,8 +56,6 @@ def get_changeloc_grid(t):
     r"""
     Construct the grid $t - G^{(t)}$ for time step $t$ (non-recursive).
 
-    The grid is ordered from smallest to largest, so the most recent candidate changepoint is at the end of the array.
-
     Parameters
     ----------
     t : int
@@ -87,7 +82,7 @@ def get_changeloc_grid(t):
     ``data[0:n1]`` is the pre-change segment and ``data[n1:]`` is the
     post-change segment.
     For ``t >= 2``, returned values are valid split points in
-    ``{1, ..., t - 1}``. For warmup ``t = 1``, this function returns placeholder ``0``.
+    ``{1, ..., t - 1}``. At warmup (``t = 1``), this function returns placeholder ``0``.
     """
     if t < 1:
         raise ValueError("t must be a positive integer (>= 1)")
@@ -124,7 +119,7 @@ def get_G_grid(t):
     -----
     This function is not used by the main detection algorithm.
     It is provided for testing and debugging purposes, to verify that the grid
-    is being updated correctly by `update_grid_numba`.
+    is being updated correctly by `update_grid_numba`, similar to the Numba-compiled version above.
     """
     if t < 1:
         raise ValueError("t must be a positive integer (>= 1)")

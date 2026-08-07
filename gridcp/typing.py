@@ -13,8 +13,8 @@ class DetectorOutput(TypedDict):
     Attributes
     ----------
     n_samples : int
-        Number of observations seen since the most recent reset.
-        This is the detector's local time and is the value that returns to 0
+        Number of observations seen since the most recent reset or initialization.
+        This is the detector's "local time" and is the value that returns to 0
         after initialization or reset.
     alarm : bool
         Whether any score exceeds the threshold at the current time step.
@@ -23,13 +23,8 @@ class DetectorOutput(TypedDict):
         ``n_scores`` is the number of penalized scores returned by
         ``compute_penalized_scores``. Single-score models use ``n_scores=1``.
     max_split_point : np.ndarray
-        First post-change index (0-based) achieving the max score, computed as
-        ``state.grid[argmax]`` for each score, shape ``(n_scores,)``.
-
-        For a value ``n1``, ``data[0:n1]`` is the pre-change segment and
-        ``data[n1:]`` is the post-change segment.
-
-        For ``n_samples == 1``, no candidate scores are available yet and this
+        Split point (0-based) achieving the max score, computed as
+        ``state.grid[argmax]`` for each score, shape ``(n_scores,)``. For ``n_samples == 1``, no candidate scores are available yet and this
         field is a placeholder zero vector of shape ``(n_scores,)``.
     """
 
@@ -98,18 +93,18 @@ class ScoreModel(Protocol[TScoreState]):
         state: TScoreState,
         grid_states: list[TScoreState],
     ) -> np.ndarray:
-        """Compute a penalized score for every active grid candidate.
+        """Compute a penalized score for every grid candidate / split point.
 
         Parameters
         ----------
         state : TScoreState
             Global running state after the latest observation. This is the
-            authoritative source for any time-dependent penalty scaling; for
+            authoritative source for any time-dependent penalty scaling. For
             example, built-in scores read ``state.n_samples`` from here. Custom
             ``TScoreState`` types must therefore include an ``n_samples`` field
             (or equivalent) if time-dependent penalties are required.
         grid_states : list[TScoreState]
-            Per-candidate state snapshots, one per active grid point.
+            Per-candidate state snapshots, one per grid point.
 
         Returns
         -------
