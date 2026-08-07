@@ -52,7 +52,7 @@ def npfocus_channel_stats(
 
     For each candidate and feature (channel), the Bernoulli 2*LR is formed
     across the value grid and reduced two ways: a sum over the grid and a max
-    over the grid.  No aggregation across channels, no centering, no penalty.
+    over the grid. No aggregation across channels, no centering, no penalty.
 
     Parameters
     ----------
@@ -116,17 +116,17 @@ class NPFOCuS:
     Under no change, X_1, ..., X_t are i.i.d. with unknown distribution F;
     under a change at τ the marginal distribution changes.
 
-    **Score.**  The score discretizes each feature's marginal using the
-    user-supplied ``value_grid``.  For each threshold v_k, the indicator
+    **Score.** The score discretizes each feature's marginal using the
+    user-supplied ``value_grid``. For each threshold v_k, the indicator
     I(x ≤ v_k) is Bernoulli, and the Bernoulli 2*LR statistic is computed for
     each grid point and candidate changepoint.
 
-    **Channel statistics.**  For each feature (channel), the grid 2*LR values are
-    reduced two ways: a **sum over the value grid** and a **max over the value
-    grid**.  These two per-channel statistics are intrinsic to NPFOCuS and are
-    always both produced.
+    **Channel statistics.** For each feature (channel), the grid 2*LR values are
+    reduced two ways: a sum over the value grid and a max over the value grid.
+    These two per-channel statistics are intrinsic to NPFOCuS and are always
+    both produced.
 
-    **Aggregation.**  The ``aggregation`` keyword acts on the **channel axis**,
+    **Aggregation.** The ``aggregation`` keyword acts on the channel axis,
     independently on each of the two statistics:
 
     - ``"max"`` (default): 2 columns (channel-max of the grid-sum and of the
@@ -135,13 +135,13 @@ class NPFOCuS:
     - ``"max-sum"``: 4 columns.
     - ``None``/``"None"``: ``2 * n_features`` columns (per-channel, both stats).
 
-    **Centering and penalty.**  None.  The grid-sum statistic sums strongly
+    **Centering and penalty.** None. The grid-sum statistic sums strongly
     positively correlated indicator terms, so there is no defensible
-    chi-squared degrees of freedom; NPFOCuS therefore applies **no penalty and
-    no centering** and has no ``enable_penalty`` parameter.  Calibrate the
+    chi-squared degrees of freedom; NPFOCuS therefore applies no penalty and
+    no centering and has no ``enable_penalty`` parameter. Calibrate the
     detector threshold empirically.
 
-    **Sample size requirement.**  None (candidates with no pre- or post-change
+    **Sample size requirement.** None (candidates with no pre- or post-change
     observations score 0).
 
     Parameters

@@ -100,20 +100,20 @@ class GaussianMeanOrVariance:
     Under no change, X_1, ..., X_t are i.i.d. N(μ, σ²) with both parameters
     unknown; under a change at τ either or both parameters change.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the per-feature twice log-likelihood ratio is
     ``2 * LR = t log σ̂²_tot - n_1 log σ̂²_1 - n_2 log σ̂²_2``, asymptotically
     chi-squared(2) under the null (mean and variance both free).
 
-    **Aggregation.**  The per-feature statistics are combined according to the
+    **Aggregation.** The per-feature statistics are combined according to the
     ``aggregation`` keyword (``"max"`` by default; see Parameters).
 
-    **Centering and penalty.**  Each output column is centered by subtracting its
-    degrees of freedom ``df`` inside the score.  When ``enable_penalty=True``
+    **Centering and penalty.** Each output column is centered by subtracting its
+    degrees of freedom ``df`` inside the score. When ``enable_penalty=True``
     (default) the centered column is divided by ``chi2_max_bound(M, df, t)``;
     when ``enable_penalty=False`` the divisor is 1.0.
 
-    **Sample size requirement.**  Candidates with n_1 ≤ 2 or n_2 ≤ 2 return 0.0;
+    **Sample size requirement.** Candidates with n_1 ≤ 2 or n_2 ≤ 2 return 0.0;
     features with a non-positive variance estimate are skipped.
 
     Parameters

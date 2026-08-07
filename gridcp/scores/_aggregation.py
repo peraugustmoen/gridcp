@@ -3,15 +3,15 @@
 This module factors out the three pieces of work that every per-feature
 chi-squared score shares:
 
-* :func:`chi2_max_bound` -- the single penalty divisor for all chi-squared
-  scores (the Laurent-Massart 2000 tail bound with the leading constants
+* :func:`chi2_max_bound`: the single penalty divisor for all chi-squared
+  scores (the Laurent-Massart 2000 tail and union bound with the leading constants
   absorbed into the detector threshold).
-* :func:`aggregate_features` -- a numba reduction of a ``(G, p)`` per-feature
-  statistic over the feature axis (max / sum / none).  It performs **no**
-  centering and **no** penalty.
-* :func:`aggregation_dims` -- a tiny pure-Python lookup returning the ordered
-  ``(M, df)`` pairs per output column for a given aggregation.  Each score reads
-  the ``df`` from here to do its **own** centering (subtraction happens inside
+* :func:`aggregate_features`: a numba reduction of a ``(G, p)`` per-feature
+  statistic over the feature axis (max / sum / none). It performs no
+  centering and no penalty.
+* :func:`aggregation_dims`: a small pure-Python lookup returning the ordered
+  ``(M, df)`` pairs per output column for a given aggregation. Each score reads
+  the ``df`` from here to do its own centering (subtraction happens inside
   the score, never here) and the ``(M, df)`` to call :func:`chi2_max_bound`.
 """
 
@@ -40,16 +40,8 @@ def chi2_max_bound(n_terms: int, df: int, n_samples: int) -> float:
     """Return the chi-squared max-penalty divisor ``log(tM) + sqrt(df log(tM))``.
 
     This is the Laurent-Massart (2000) chi-squared tail bound with the leading
-    constants absorbed into the detector threshold.  It is the only penalty
+    constants absorbed into the detector threshold. It is the only penalty
     divisor used by the built-in chi-squared scores.
-
-    Default threshold guidance
-    --------------------------
-    Because the penalty is kept *bare* (constants absorbed into the threshold),
-    a detector threshold of ``c ≈ 2`` corresponds to the Laurent-Massart
-    constant and gives a per-test false-alarm bound of ``1/(t*M)``: ``Pr((X - df) / chi2_max_bound >= 2) <= e^{-log(tM)} = 1/(tM)``.
-    This is a *per-test* bound, not a uniform union bound over the grid/run; a
-    uniform guarantee is obtained by calibrating the threshold.
 
     Parameters
     ----------
@@ -75,10 +67,6 @@ def aggregate_features(
     mode_code: int,
 ) -> np.ndarray:
     """Reduce a ``(G, p)`` per-feature statistic over the feature axis.
-
-    The reduction iterates features in ascending order to stay numerically
-    faithful to the legacy fused kernels.  It performs no centering and no
-    penalty.
 
     Parameters
     ----------
@@ -131,11 +119,7 @@ def aggregate_features(
         return out
 
     # _MODE_NONE: one column per feature, in feature order.
-    out = np.empty((n_candidates, n_features), dtype=np.float64)
-    for i in range(n_candidates):
-        for j in range(n_features):
-            out[i, j] = per_feature_stats[i, j]
-    return out
+    return per_feature_stats
 
 
 def aggregation_mode_code(aggregation: object) -> int:
@@ -144,7 +128,7 @@ def aggregation_mode_code(aggregation: object) -> int:
     Parameters
     ----------
     aggregation : {"max", "sum", "max-sum", None, "None"}
-        The aggregation keyword value.  ``None`` and ``"None"`` are identical.
+        The aggregation keyword value. ``None`` and ``"None"`` are identical.
 
     Returns
     -------
@@ -168,7 +152,8 @@ def aggregation_mode_code(aggregation: object) -> int:
 def aggregation_dims(aggregation: object, p: int, d: int) -> list[tuple[int, int]]:
     """Return the ordered per-column ``(M, df)`` pairs for an aggregation.
 
-    This is a pure-Python lookup.  It returns metadata only: the score reads ``df`` to center (subtracting it inside the score) and ``(M, df)`` to call :func:`chi2_max_bound`.
+    This is a pure-Python lookup returning metadata only, to determine ``(M, df)```
+    to supply to :func:`chi2_max_bound` depending on aggregation strategy.
 
     Parameters
     ----------
@@ -182,7 +167,7 @@ def aggregation_dims(aggregation: object, p: int, d: int) -> list[tuple[int, int
     Returns
     -------
     list[tuple[int, int]]
-        ``[(M, df), ...]`` -- one entry per output column.
+        ``[(M, df), ...]``: one entry per output column.
     """
     code = aggregation_mode_code(aggregation)
     if code == _MODE_MAX:

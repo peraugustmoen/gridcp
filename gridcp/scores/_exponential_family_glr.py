@@ -14,7 +14,7 @@ Pipeline
 3. ``compute_penalized_scores``: Passes the sufficient statistics of all
    O(log t) grid candidates to the pre-built GLR score function, which computes the GLR
    score for each candidate by fitting three MLEs (pre, post, null) via
-   Newton's method.  Raw scores are divided by the penalty before returning.
+   Newton's method. Raw scores are divided by the penalty before returning.
 """
 
 import math
@@ -75,9 +75,9 @@ def make_newton_solver(
     """Build a scalar Newton MLE solver for a 1D exponential family.
 
     Solves the MLE equation A'(θ) = S / n by Newton iterations with
-    backtracking line search.  Each candidate step is rejected if it leaves
+    backtracking line search. Each candidate step is rejected if it leaves
     the natural parameter domain ``(theta_min, theta_max)`` or if it does not
-    reduce the residual ``|A'(θ) − S/n|``.  The step is halved up to 20
+    reduce the residual ``|A'(θ) − S/n|``. The step is halved up to 20
     times; if no acceptable step is found the current iterate is returned.
 
     Parameters
@@ -570,91 +570,91 @@ class ExponentialFamilyGLR:
     have parameter θ₁ and X_τ, ..., X_t have parameter θ₂ ≠ θ₁.
 
     The user supplies the sufficient statistic ``h``, log-partition ``A``, and
-    first and second derivatives of A.  Built-in families are available via
+    first and second derivatives of A. Built-in families are available via
     :meth:`from_family`.
 
-    **Score.**  For a candidate with n_1 pre-change and n_2 = t - n_1
+    **Score.** For a candidate with n_1 pre-change and n_2 = t - n_1
     post-change observations, the generalized log-likelihood ratio is
 
         GLR(n_1, t) = ℓ(θ̂₁; x_{1:n_1}) + ℓ(θ̂₂; x_{n_1+1:t}) − ℓ(θ̂_null; x_{1:t}),
 
     where ℓ(θ; x_{a:b}) = θᵀ Σh(xᵢ) - n A(θ) is the log-likelihood and θ̂
-    are the MLEs obtained by Newton's method.  The final score is
+    are the MLEs obtained by Newton's method. The final score is
 
         score(n_1, t) = (2 GLR(n_1, t) - v) / pen(t).
 
-    **Aggregation.**  The score produces a single test statistic per candidate
-    (``n_scores = 1``).  No per-feature aggregation is performed; the GLR
+    **Aggregation.** The score produces a single test statistic per candidate
+    (``n_scores = 1``). No per-feature aggregation is performed; the GLR
     operates on the full sufficient-statistic vector.
 
-    **Centering and penalty.**  The centered statistic is ``2 * GLR - v``
+    **Centering and penalty.** The centered statistic is ``2 * GLR - v``
     (centering by v, the chi-squared df under Wilks' theorem for a
-    v-dimensional exponential family parameter).  When ``enable_penalty=True``
+    v-dimensional exponential family parameter). When ``enable_penalty=True``
     (default), the centered statistic is divided by
     ``pen(t) = sqrt(v log t) + log t``; this is an asymptotic Wilks-style
-    approximation.  When ``enable_penalty=False``, the divisor is 1.0 and the
+    approximation. When ``enable_penalty=False``, the divisor is 1.0 and the
     raw centered statistic is returned.
 
-    **Sample size requirement.**  Candidates with fewer than ``min_seg``
+    **Sample size requirement.** Candidates with fewer than ``min_seg``
     observations on either side (default: v + 1) return 0.
 
-    **Implementation.**  MLEs are computed by Newton's method with backtracking
-    line search, warm-started one step from ``theta_init``.  If all supplied
+    **Implementation.** MLEs are computed by Newton's method with backtracking
+    line search, warm-started one step from ``theta_init``. If all supplied
     callables are Numba-compiled, the solvers and kernels are JIT-compiled for
     maximum performance; otherwise they fall back to plain NumPy.
 
     .. note::
-        Unlike the other built-in score classes, ``ExponentialFamilyGLR`` is **not**
-        a frozen dataclass.  This is intentional: the Numba JIT-compiled solver and
+        Unlike the other built-in score classes, ``ExponentialFamilyGLR`` is not
+        a frozen dataclass. This is intentional: the Numba JIT-compiled solver and
         score function are built in ``__init__`` and assigned as instance attributes,
-        which is incompatible with frozen dataclass semantics.  Do not mutate
+        which is incompatible with frozen dataclass semantics. Do not mutate
         instances after construction.
 
     Parameters
     ----------
     v : int
-        Dimension of the sufficient statistic h(x).  Use ``v=1`` for
+        Dimension of the sufficient statistic h(x). Use ``v=1`` for
         one-parameter families (Gaussian mean, Poisson, Bernoulli, Exponential)
         and ``v>1`` for multi-parameter families (e.g. Gaussian mean+variance).
     h : callable
-        Sufficient-statistic function.  Accepts a 1D ``float64`` array of
+        Sufficient-statistic function. Accepts a 1D ``float64`` array of
         length ``n_features`` and returns a ``float`` when ``v=1``, or a 1D
-        array of length ``v`` when ``v>1``.  May be a Numba-compiled or plain
+        array of length ``v`` when ``v>1``. May be a Numba-compiled or plain
         NumPy callable.
     A : callable
-        Log-partition function.  ``float -> float`` for ``v=1``;
+        Log-partition function. ``float -> float`` for ``v=1``;
         ``1D array of length v -> float`` for ``v>1``.
     n_features : int
         Dimension of each observation vector.
     A_prime : callable, optional
-        First derivative A'(θ).  Required when ``v=1``; ignored otherwise.
+        First derivative A'(θ). Required when ``v=1``; ignored otherwise.
     A_dprime : callable, optional
-        Second derivative A''(θ).  Required when ``v=1``; ignored otherwise.
+        Second derivative A''(θ). Required when ``v=1``; ignored otherwise.
     A_grad : callable, optional
-        Gradient ∇A(θ), shape ``(v,) -> (v,)``.  Required when ``v>1``;
+        Gradient ∇A(θ), shape ``(v,) -> (v,)``. Required when ``v>1``;
         ignored otherwise.
     A_hess : callable, optional
-        Hessian ∇²A(θ), shape ``(v,) -> (v, v)``.  Required when ``v>1``;
+        Hessian ∇²A(θ), shape ``(v,) -> (v, v)``. Required when ``v>1``;
         ignored otherwise.
     theta_init : float or np.ndarray, optional
-        Starting point for the Newton MLE solver.  Defaults to ``0.0``
+        Starting point for the Newton MLE solver. Defaults to ``0.0``
         (scalar) or ``np.zeros(v)`` (vector).
     theta_min : float, optional
-        Exclusive lower bound of the natural parameter domain.  The Newton
-        solver will never propose a candidate ≤ ``theta_min``.  Defaults to
-        ``-inf`` (unbounded).  Only used when ``v=1``.
+        Exclusive lower bound of the natural parameter domain. The Newton
+        solver will never propose a candidate ≤ ``theta_min``. Defaults to
+        ``-inf`` (unbounded). Only used when ``v=1``.
     theta_max : float, optional
-        Exclusive upper bound of the natural parameter domain.  The Newton
-        solver will never propose a candidate ≥ ``theta_max``.  Defaults to
-        ``+inf`` (unbounded).  Only used when ``v=1``.
+        Exclusive upper bound of the natural parameter domain. The Newton
+        solver will never propose a candidate ≥ ``theta_max``. Defaults to
+        ``+inf`` (unbounded). Only used when ``v=1``.
     min_seg : int or None, optional
         Minimum number of observations required on each side of a candidate
-        changepoint.  Candidates with fewer observations are assigned a score
-        of 0.  Defaults to ``v + 1``, which is the minimum needed to identify
-        ``v`` parameters.  Must be at least 1.
+        changepoint. Candidates with fewer observations are assigned a score
+        of 0. Defaults to ``v + 1``, which is the minimum needed to identify
+        ``v`` parameters. Must be at least 1.
     enable_penalty : bool, default=True
         If ``True`` (default), use ``sqrt(v log t) + log t`` as divisor after
-        centering the ``2*GLR`` statistic by ``v``.  If ``False``, the divisor
+        centering the ``2*GLR`` statistic by ``v``. If ``False``, the divisor
         is 1.0.
 
     Examples
@@ -752,41 +752,41 @@ class ExponentialFamilyGLR:
         Parameters
         ----------
         family : str
-            Name of the exponential family.  Valid choices are:
+            Name of the exponential family. Valid choices are:
 
-            - ``'gaussian_mean'`` — Gaussian mean (known variance = 1);
+            - ``'gaussian_mean'``: Gaussian mean (known variance = 1);
               scalar (v=1) when ``n_features=1``, multivariate (v=p) when
-              ``n_features>1``.  For large p, prefer ``CUSUM`` (optionally with
+              ``n_features>1``. For large p, prefer ``CUSUM`` (optionally with
               ``aggregation="max-sum"``), which uses closed-form O(p) scores for
               the same model.
-            - ``'gaussian_variance'`` — Gaussian variance (known mean = 0);
+            - ``'gaussian_variance'``: Gaussian variance (known mean = 0);
               scalar (v=1).
-            - ``'gaussian_mean_variance'`` — joint Gaussian mean and
+            - ``'gaussian_mean_variance'``: joint Gaussian mean and
               variance; v=2, ``n_features=1``.
-            - ``'gaussian_covariance'`` — multivariate Gaussian covariance
+            - ``'gaussian_covariance'``: multivariate Gaussian covariance
               (known mean = 0); v=p(p+1)/2, requires ``n_features>1``.
               The natural parameter space requires the parameter matrix to be
               negative definite; the Newton solver returns the current iterate
               without further progress if the gradient becomes undefined (i.e.
               near a singular parameter), so the score for such candidates
               will be zero.
-            - ``'poisson'`` — Poisson rate; scalar (v=1).
-            - ``'exponential'`` — Exponential rate; scalar (v=1).
-            - ``'bernoulli'`` — Bernoulli probability; scalar (v=1).
-            - ``'gamma_rate'`` — Gamma rate (known shape k); scalar (v=1).
+            - ``'poisson'``: Poisson rate; scalar (v=1).
+            - ``'exponential'``: Exponential rate; scalar (v=1).
+            - ``'bernoulli'``: Bernoulli probability; scalar (v=1).
+            - ``'gamma_rate'``: Gamma rate (known shape k); scalar (v=1).
               Pass ``shape=k`` via ``**family_kwargs``, e.g.
               ``from_family("gamma_rate", shape=2.0)``.
               Defaults to ``shape=1.0`` (equivalent to Exponential).
         n_features : int, optional
-            Dimension of each observation vector.  For ``'gaussian_mean'``
+            Dimension of each observation vector. For ``'gaussian_mean'``
             and ``'gaussian_covariance'`` this controls the vector
-            dimension.  All other families are scalar and require
+            dimension. All other families are scalar and require
             ``n_features=1``.
         theta_init : float or np.ndarray, optional
-            Override the family's default Newton starting point.  If
+            Override the family's default Newton starting point. If
             ``None`` (default), the canonical starting point is used.
         min_seg : int or None, optional
-            Passed through to ``__init__``.  Defaults to ``v + 1``.
+            Passed through to ``__init__``. Defaults to ``v + 1``.
         enable_penalty : bool, optional
             Passed through to ``__init__``.
 

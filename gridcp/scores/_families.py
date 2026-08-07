@@ -19,27 +19,27 @@ Scalar families (v=1, n_features=1)
 ``gaussian_variance``
     Univariate Gaussian, change in variance (known mean = 0).
     h(x) = x²,  A(θ) = −½ log(−2θ),  θ < 0.
-    Canonical parametrisation: θ = −1/(2σ²).
+    Canonical parametrization: θ = −1/(2σ²).
 
 ``poisson``
     Poisson, change in rate.
     h(x) = x,  A(θ) = exp(θ),  θ ∈ ℝ.
-    Canonical parametrisation: θ = log(λ).
+    Canonical parametrization: θ = log(λ).
 
 ``exponential``
     Exponential, change in rate.
     h(x) = x,  A(θ) = −log(−θ),  θ < 0.
-    Canonical parametrisation: θ = −λ (so mean = −1/θ).
+    Canonical parametrization: θ = −λ (so mean = −1/θ).
 
 ``bernoulli``
     Bernoulli, change in success probability.
     h(x) = x,  A(θ) = log(1 + exp(θ)),  θ ∈ ℝ.
-    Canonical parametrisation: θ = log(p/(1−p)) (log-odds).
+    Canonical parametrization: θ = log(p/(1−p)) (log-odds).
 
 ``gamma_rate``
     Gamma, change in rate (known shape k).
     h(x) = x,  A(θ) = -k * log(-θ),  θ < 0.
-    Canonical parametrisation: θ = −rate (so mean = −k/θ).
+    Canonical parametrization: θ = −rate (so mean = −k/θ).
 
 Vector families (v > 1)
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -54,14 +54,14 @@ Vector families (v > 1)
     Univariate Gaussian, joint change in mean and variance.
     h(x) = (x, x²),  A(θ) = −θ₀²/(4θ₁) − ½ log(−2θ₁),
     v = 2,  n_features = 1,  θ₁ < 0.
-    Canonical parametrisation: θ₀ = μ/σ², θ₁ = −1/(2σ²).
+    Canonical parametrization: θ₀ = μ/σ², θ₁ = −1/(2σ²).
     Default theta_init = (0, −0.5), corresponding to N(0, 1).
 
 ``gaussian_covariance``  (requires n_features > 1)
     Multivariate Gaussian, change in covariance matrix (known mean = 0).
     h(x) = vech(xxᵀ) with off-diagonal entries doubled,
     A(θ) = −½ log det(−2Θ),  v = p(p+1)/2,  Θ negative definite.
-    Canonical parametrisation: Θ = −½ Σ⁻¹.
+    Canonical parametrization: Θ = −½ Σ⁻¹.
     Default theta_init = vech(−½ I_p), corresponding to N(0, I_p).
 
 Internal details
@@ -69,7 +69,7 @@ Internal details
 
 Each entry in :data:`FAMILIES` is either a plain spec dict (for families whose
 structure does not depend on the observation dimension) or a factory callable
-(for ``gaussian_mean`` and ``gaussian_covariance``).  Factory callables take
+(for ``gaussian_mean`` and ``gaussian_covariance``). Factory callables take
 ``n_features`` and return a spec dict.
 
 A spec dict has the following keys:
@@ -112,7 +112,7 @@ def _fill_sym(theta_vec, p):
 
 
 # ---------------------------------------------------------------------------
-# Gaussian mean — scalar (v=1)
+# Gaussian mean: scalar (v=1)
 # ---------------------------------------------------------------------------
 
 
@@ -137,7 +137,7 @@ def _App_gaussian_mean(theta):
 
 
 # ---------------------------------------------------------------------------
-# Gaussian mean — vector (v=p)
+# Gaussian mean: vector (v=p)
 # ---------------------------------------------------------------------------
 
 
@@ -383,8 +383,8 @@ def _gamma_rate_spec_cached(shape: float) -> dict:
     """Build and cache a Gamma-rate spec for the given shape parameter.
 
     Numba does not support ``cache=True`` for closures (functions defined inside
-    another function), so the inner JIT functions cannot be written to disk.  This
-    wrapper caches the returned spec dict — including the compiled callables — in
+    another function), so the inner JIT functions cannot be written to disk. This
+    wrapper caches the returned spec dict (including the compiled callables) in
     Python memory so that each unique ``shape`` value triggers JIT compilation at
     most once per interpreter session.
 
@@ -435,10 +435,10 @@ def _gamma_rate_spec(n_features: int, *, shape: float = 1.0) -> dict:
     Parameters
     ----------
     n_features : int
-        Observation dimension.  Included for a uniform factory signature across
+        Observation dimension. Included for a uniform factory signature across
         family factories; this scalar family ignores the value.
     shape : float
-        Known shape parameter k > 0.  Defaults to 1.0 (Exponential).
+        Known shape parameter k > 0. Defaults to 1.0 (Exponential).
 
     Returns
     -------
@@ -521,7 +521,7 @@ def _gaussian_covariance_spec(n_features: int) -> dict:
     Parameters
     ----------
     n_features : int
-        Observation dimension p.  The sufficient-statistic dimension is
+        Observation dimension p. The sufficient-statistic dimension is
         v = p*(p+1)//2.
 
     Notes
