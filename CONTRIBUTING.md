@@ -1,97 +1,73 @@
 # Contributing to gridcp
 
-Thanks for your interest in improving `gridcp`. This guide covers the development
-setup, the conventions the codebase follows, and the contract for adding a new
-detector (score).
+Thanks for your interest in improving `gridcp`. This guide covers the development setup,
+the conventions the codebase follows, and the contract for adding a new score model.
 
 ## Development setup
 
 From the repository root:
 
 ```bash
-pip install -e .[dev]
+pip install -e .[dev]        # or: uv pip install -e .[dev]
 ```
 
-Or, using `uv`:
-
-```bash
-uv pip install -e .[dev]
-```
-
-### Linting, formatting, and tests
-
-Run formatting and linting before each commit by installing the pre-commit hooks once:
+Install the pre-commit hooks so formatting and linting run on every commit:
 
 ```bash
 pre-commit install
+pre-commit install --hook-type pre-push   # also run the tests before each push
 ```
 
-To also run the test suite before each push:
+Common commands:
 
 ```bash
-pre-commit install --hook-type pre-push
+pytest tests/                                    # run the tests
+pytest --cov=gridcp --cov-report=term-missing    # with coverage
+ruff check gridcp tests                          # lint
+ruff format gridcp tests                         # format
+pre-commit run --all-files                       # run every hook at once
 ```
 
-Useful commands:
-
-```bash
-# Run all tests
-pytest tests/
-
-# Run with coverage
-pytest --cov=gridcp --cov-report=term-missing
-
-# Lint and check formatting
-ruff check gridcp tests
-ruff format --check gridcp tests
-
-# Run all hooks manually
-pre-commit run --all-files
-```
-
-Docstrings follow the NumPy convention; the line length is 88. American English
-spelling is used throughout.
+Docstrings use the NumPy convention, the line length is 88, and spelling is American
+English throughout.
 
 ## Coding conventions
 
-- **Intervals** are always left-closed, right-open: `[a, b)`. This matches Python's
-  slicing and indexing conventions and avoids a whole class of off-by-one bugs.
-- **Indices** are 0-indexed by default unless explicitly stated otherwise.
-- A **changepoint** is the *first post-change index (0-based)* — the first index of the
-  new distribution's segment, not the last pre-change index used in some literature.
-  For a changepoint `cp`:
-  - `data[0:cp]` is the pre-change segment; `data[cp:]` is the post-change segment.
-  - `data[cp[i]:cp[i+1]]` is the i-th segment under standard slicing.
-  - Detection delay = `alarm_time - cp` (delay 0 means the alarm fires exactly at the
-    first post-change observation).
-- A **leading underscore** (`_`) in a file, class, or function name marks a *private*
-  implementation detail. It is not part of the public API and may change without
-  warning; it should not be relied upon by users of the package.
+- **Intervals** are left-closed, right-open, `[a, b)`. This matches Python slicing and
+  avoids a class of off-by-one bugs.
+- **Indices** are 0-based unless stated otherwise.
+- A **changepoint** is the first index of the post-change segment (0-based) — not the
+  last pre-change index used by some authors. So for a changepoint `cp`, `data[0:cp]` is
+  pre-change and `data[cp:]` is post-change, and the detection delay is `alarm_time - cp`
+  (delay 0 means the alarm fires on the first post-change observation).
+- A **leading underscore** marks a private name. It may change without notice, so don't
+  rely on it.
 
 ## Architecture
 
-The package has two APIs: the **new API** (active) and `gridcp/old_api/` (preserved,
-not maintained, excluded from linting).
+- **`gridcp/detector.py`** — `GridDetector` plus its `DetectorState`. The detector holds
+  the logarithmic-grid logic (O(log n) candidate changepoints) and works with any score.
+- **`gridcp/typing.py`** — the `ScoreModel` protocol that every score implements, and the
+  `DetectorOutput` TypedDict.
+- **`gridcp/scores/`** — the built-in scores (`CUSUM`, `GaussianMean`, and so on).
+- **`gridcp/calibration.py`** — Monte Carlo threshold calibration, with optional parallel
+  execution via `n_jobs`.
+- **`gridcp/utils.py`** — internal helpers.
 
-- **`gridcp/typing.py`** — the `ScoreModel` protocol that all test statistics
-  implement, and the `DetectorOutput` TypedDict.
-- **`gridcp/detector.py`** — `GridDetector`, the meta-detector that works with any
-  `ScoreModel`. It maintains a logarithmic grid of O(log n) candidate changepoint
-  positions.
-- **`gridcp/scores/`** — concrete score implementations (`CUSUM`, `GaussianMean`,
-  `GaussianVariance`, and so on). Built-in exponential families are accessible via
-  `ExponentialFamilyGLR.from_family(name)`.
-- **`gridcp/calibration.py`** — Monte Carlo helpers for threshold calibration, with
-  parallel execution via `n_jobs`.
-- **`gridcp/utils.py`** — internal utilities.
+In the code, a *score* is a test statistic. There is no base class to subclass: any object
+that structurally satisfies the `ScoreModel` protocol works.
 
-Terminology: in the code, a *score* is a test statistic. `GridDetector` owns a score and
-an alarm threshold; you do not need to subclass anything — any object that structurally
-satisfies the `ScoreModel` protocol works (duck typing).
+The `GridDetector` is immutable (a frozen dataclass) and stores only configuration — the
+score and the threshold. All evolving per-stream state — the running score state, the grid
+of candidate split points, the per-candidate snapshots, and the local `n_samples` — lives
+in a separate `DetectorState` that you thread through the detector: `init_state()` returns
+a fresh one, and `update(state, x)` returns a new `(state, output)` pair without mutating
+the detector or the state you passed in. Because the detector holds no state, one detector
+can run many independent streams, and a `DetectorState` can be copied or pickled.
 
 ## The `ScoreModel` contract
 
-A compliant score implements three methods:
+A score implements three methods:
 
 ```python
 def init_state(self) -> TScoreState: ...
@@ -101,99 +77,67 @@ def compute_penalized_scores(
 ) -> np.ndarray: ...
 ```
 
-and exposes two properties: `n_features` (observation dimension) and `n_scores` (the
-number of penalized scores returned per candidate).
+and two properties: `n_features` (observation dimension) and `n_scores` (the number of
+penalized scores returned per candidate).
 
-Key rules:
+The rules:
 
-- **State is an immutable snapshot.** `update(...)` must return a *new* state and must
-  not mutate the input in place — `GridDetector` stores historical state snapshots for
-  active candidates. See `CUSUM`/`CUSUMState` in
-  [`gridcp/scores/_cusum.py`](gridcp/scores/_cusum.py) for a reference implementation.
-- **Time-dependent penalties read from the state.** `GridDetector` calls
-  `compute_penalized_scores(state, grid_states)`; any time-dependent penalty scaling
-  (for example, `log(t)`) must be derived from `state`, which therefore needs to carry
-  the relevant time information (typically an `n_samples` counter updated in `update`).
+- **State is an immutable snapshot.** `update` returns a *new* state and must not mutate
+  its input. The `DetectorState` holds a past score-state snapshot for every active grid
+  candidate (`previous_score_states`), so mutating one in place would corrupt the grid.
+  See `CUSUM`/`CUSUMState` in [`gridcp/scores/_cusum.py`](gridcp/scores/_cusum.py) for a
+  worked example.
+- **Time-dependent penalties come from the state.** `GridDetector` calls
+  `compute_penalized_scores(state, grid_states)`, so any penalty scaling (for example
+  `log(t)`) has to be derived from `state`. The state therefore needs to carry the time,
+  typically an `n_samples` counter bumped in `update`.
 - **Return shape is `(G, n_scores)`.** `G = len(grid_states)` is the number of active
-  candidates. Single-score models must return `(G, 1)`. If the returned width does not
-  match `n_scores`, the detector raises `ValueError` immediately.
+  candidates, and a single-score model returns `(G, 1)`. A width that disagrees with
+  `n_scores` raises `ValueError`.
 
-The intended pattern inside `compute_penalized_scores`:
-
-- compute centered or raw statistics from `state` and `grid_states`;
-- use `state.n_samples` for any time-dependent penalty divisor.
-
-## Threshold semantics in `GridDetector`
+## Thresholds
 
 - Threshold values must be strictly positive.
-- `ScoreModel.n_scores` is the authoritative value for the score output dimension.
-- A vector threshold must have length `n_scores`. A mismatch is caught at
-  **construction time**, not deferred to the first `update()` call.
-- `GridDetector.threshold` is always stored as a 1-D `float64` array of shape
-  `(n_scores,)`. Scalar inputs are broadcast once at construction time.
-- When penalized scores are available, `DetectorOutput.max_score` and
-  `max_split_point` are vectors of shape `(n_scores,)` (including `(1,)` for
-  single-score models).
-- Each `max_split_point` entry is the first post-change index (0-based)
-  `n1 = state.grid[argmax]`. For valid scored candidates (`n_samples >= 2`), `n1` is in
-  `{1, ..., n_samples - 1}`: `data[0:n1]` is pre-change and `data[n1:]` is post-change.
-- For `n_samples < 2`, no candidate score exists yet, so `max_score` and
-  `max_split_point` are zero vectors of shape `(n_scores,)`.
+- A scalar threshold is broadcast to all scores; a vector threshold must have length
+  `n_scores`. The check happens at construction, not on the first `update`. Internally
+  the threshold is stored as a `float64` array of shape `(n_scores,)`.
+- In each update's output, `max_score` and `max_split_point` are vectors of shape
+  `(n_scores,)`. Each `max_split_point` is the winning split `n1 = state.grid[argmax]`, a
+  0-based index with `data[0:n1]` pre-change and `data[n1:]` post-change. Before two
+  observations have been seen there is no candidate yet, so both are zero vectors.
 
-## Reset semantics
+## Resetting
 
-`GridDetector` uses a single time scale, `n_samples`: local time since the most recent
-reset, returned in every `update(...)` output. Resetting is external to the detector:
+Resetting is external to the detector: get a fresh state from `init_state`.
 
 ```python
-from gridcp import reset_detector_state
-
-state = reset_detector_state(detector)
+state = detector.init_state()
 ```
 
-This clears the running score state, the grid and all candidate snapshots, and sets
-local `n_samples` back to 0.
+The fresh state starts with an empty score state, an empty grid, no candidate snapshots,
+and local `n_samples` at 0. A time-dependent penalty based on `n_samples` (for example
+`log(t)`) therefore restarts from 0, so long-run false alarm guarantees that assume a
+globally increasing clock do not automatically carry across resets.
 
-**Note:** any time-dependent penalty that uses `state.n_samples` (for example, `log(t)`)
-also restarts from this post-reset local time. This differs from a "continuous penalty
-time" interpretation where the penalty clock keeps increasing across resets. Long-run
-false-alarm guarantees that assume a globally increasing time index do not automatically
-carry over across multiple resets.
+## Calibration
 
-## Calibration conventions
-
-- `calibrate_threshold_*` functions take a *score* as their first argument;
-  `calibrate_detector_threshold_*` functions take an already-constructed `GridDetector`.
-  Both sets are equivalent — use whichever matches the objects you already have.
-- Calibration threshold APIs return 1-D NumPy arrays of shape `(n_scores,)`. For
-  single-score models this is shape `(1,)`.
+- `calibrate_threshold_*` takes a *score*; `calibrate_detector_threshold_*` takes an
+  already-built `GridDetector`. The two are equivalent — use whichever matches the objects
+  you already have. Both return a threshold as a 1-D array of shape `(n_scores,)`.
 - `mc_alarm_times(detector, ...)` returns the first alarm time per path.
-- Indexing: the internal loop variable `t` is the current sample size (1-indexed,
-  `t = 1, ..., stream_len`); returned alarm times are 0-indexed array indices.
-- `rng` accepts a `numpy.random.Generator`, an integer seed, or `None`:
-  - `Generator`: in parallel runs, workers are seeded from the generator's original
-    `SeedSequence`;
-  - `int`: deterministic run from that seed;
-  - `None`: deterministic run from a fixed internal default seed.
-- Sampler signatures: either `sampler(rng, /, *args, **kwargs)` (positional-only `rng`)
-  or `sampler(*args, rng, **kwargs)` (keyword-capable `rng`).
-- Sampler outputs are vector-oriented with per-step shape `(n_features,)`. Scalars are
-  broadcast to length `n_features`; non-scalar outputs are flattened to 1-D and must
-  have size `n_features`.
-- `n_features` is inferred from `score.n_features` when present; pass it explicitly for
-  custom scores that do not define it.
-- If `changepoint` is provided, `post_sampler` must also be provided.
+- A sampler must accept `rng` (positionally or by keyword) and return one step of shape
+  `(n_features,)`; a scalar is broadcast, and `n_features` is taken from `score.n_features`
+  when available. If you pass a `changepoint`, you must also pass a `post_sampler`.
+- `rng` accepts a `numpy.random.Generator`, an integer seed, or `None` (a fixed default
+  seed). In parallel runs, a passed `Generator` seeds the workers from its original
+  `SeedSequence`.
 
 ## Adding a new score
 
-1. Add a file in `gridcp/scores/`, for example `_my_score.py`, containing two classes:
-   - `MyScore` — the score implementation, satisfying the `ScoreModel` protocol.
-   - `MyScoreState` — the running statistics used to compute penalized scores. Treat it
-     as an immutable snapshot (see the contract above). `CUSUM`/`CUSUMState` are a good
-     template.
-2. Export both from `gridcp/scores/__init__.py` so the score can be imported from
-   `gridcp.scores` and used with `GridDetector`.
-3. Add or adjust tests in `tests/` *before* writing the functionality — tests should
-   reflect the desired behavior, not be retrofitted to the implementation.
-4. Run `ruff` and `pytest` (or `pre-commit run --all-files`) before opening a pull
-   request.
+1. Add `gridcp/scores/_my_score.py` with two classes: `MyScore` (implements `ScoreModel`)
+   and `MyScoreState` (its running statistics, treated as an immutable snapshot).
+   `CUSUM`/`CUSUMState` are a good template.
+2. Export both from `gridcp/scores/__init__.py`.
+3. Write tests in `tests/` first, describing the behavior you want rather than
+   retrofitting them to the implementation.
+4. Run `pre-commit run --all-files` before opening a pull request.
