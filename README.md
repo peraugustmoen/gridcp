@@ -11,9 +11,9 @@
 ## Overview
 
 Online changepoint detection is the problem of detecting a distributional change in a
-data stream in real-time. Plenty of *offline* tests exist for detecting a change in a
-fixed sample, but rerunning them as new data arrive gets expensive — the cost of each
-re-test typically grows with the length of the stream.
+data stream in real time. Plenty of *offline* tests exist for a fixed sample, but
+rerunning them as new data arrive gets expensive — the cost of each re-test typically
+grows with the length of the stream.
 
 `gridcp` lets you run an offline test online without that blow-up. After each new
 observation it evaluates your chosen test statistic over a sparse grid of candidate
@@ -28,9 +28,9 @@ changepoint is ever far from a candidate.
    sparse in the distant past        dense near the present
 ```
 
-The detector comes with a library of built-in, Numba-accelerated test statistics (scores) and
-with Monte Carlo tools for calibrating the alarm threshold to a target false alarm
-probability or average run length (ARL).
+The detector comes with a library of built-in, Numba-accelerated test statistics
+(scores) and Monte Carlo tools for calibrating the alarm threshold to a target
+false alarm probability or average run length (ARL).
 
 ## Installation
 
@@ -60,7 +60,7 @@ for t in range(200):
         break
 ```
 
-The threshold above is just for illustration. To control the false-alarm rate, calibrate
+The threshold above is just for illustration. To control the false alarm rate, calibrate
 it first — see [Calibrating thresholds](#calibrating-thresholds).
 
 ## Key features
@@ -74,7 +74,7 @@ it first — see [Calibrating thresholds](#calibrating-thresholds).
 - **Built-in detectors** — changes in mean, variance, covariance, regression
   coefficients, and exponential-family parameters, plus a non-parametric detector.
 - **Numba-accelerated** — the hot paths in the built-in scores are JIT-compiled.
-- **Calibrated thresholds** — Monte Carlo calibration to a target false-alarm
+- **Calibrated thresholds** — Monte Carlo calibration to a target false alarm
   probability or average run length, optionally in parallel.
 
 ## Built-in detectors
@@ -99,7 +99,7 @@ Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetec
 
 ## Calibrating thresholds
 
-Calibrate a threshold to a target false-alarm probability under a null model you specify,
+Calibrate a threshold to a target false alarm probability under a null model you specify,
 then build the detector with it:
 
 ```python
@@ -126,16 +126,13 @@ detector = GridDetector(score=score, threshold=threshold)
 ```
 
 For an average run length instead, use `calibrate_threshold_arl`. Both can run in
-parallel and can calibrate directly from data. 
+parallel and calibrate directly from data.
 
 ## Custom detectors
 
 Any object that implements the `ScoreModel` protocol — the methods `init_state`,
 `update`, and `compute_penalized_scores`, plus the `n_features` and `n_scores`
-properties — works with `GridDetector`. There is no base class to inherit from. This is
-how you bring your own offline test statistic online. 
-
-
+properties — works with `GridDetector`. There is no base class to inherit from.
 
 ## Citation
 
@@ -156,7 +153,7 @@ If you use `gridcp` in your research, please cite:
 Contributions are welcome. See
 [CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
 for the development setup, coding conventions, and the contract for adding a new
-detector.
+score.
 
 ## License
 

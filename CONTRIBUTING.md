@@ -91,8 +91,8 @@ The rules:
   `compute_penalized_scores(state, grid_states)`, so any penalty scaling (for example
   `log(t)`) has to be derived from `state`. The state therefore needs to carry the time,
   typically an `n_samples` counter bumped in `update`.
-- **Return shape is `(G, n_scores)`,** where `G = len(grid_states)` is the number of
-  active candidates. A single-score model returns `(G, 1)`. A width that disagrees with
+- **Return shape is `(G, n_scores)`.** `G = len(grid_states)` is the number of active
+  candidates, and a single-score model returns `(G, 1)`. A width that disagrees with
   `n_scores` raises `ValueError`.
 
 ## Thresholds
@@ -116,7 +116,7 @@ state = detector.init_state()
 
 The fresh state starts with an empty score state, an empty grid, no candidate snapshots,
 and local `n_samples` at 0. A time-dependent penalty based on `n_samples` (for example
-`log(t)`) therefore restarts from 0, so long-run false-alarm guarantees that assume a
+`log(t)`) therefore restarts from 0, so long-run false alarm guarantees that assume a
 globally increasing clock do not automatically carry across resets.
 
 ## Calibration
