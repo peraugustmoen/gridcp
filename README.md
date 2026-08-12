@@ -10,16 +10,16 @@
 
 ## Overview
 
-**Online changepoint detection** is the problem of detecting distributional changes
-in a data stream in real time. A rich toolbox of *offline* (fixed-sample) tests
-already exists, but rerunning them as data accumulate becomes infeasible: cost grows
-with the length of the stream.
+Online changepoint detection is the problem of detecting a distributional change in a
+data stream in real-time. Plenty of *offline* tests exist for detecting a change in a
+fixed sample, but rerunning them as new data arrive gets expensive — the cost of each
+re-test typically grows with the length of the stream.
 
-`gridcp` makes offline tests usable online. It evaluates a chosen test statistic over a
-**sparse, geometric grid of candidate split points** — dense near the present and
-increasingly spread out into the past — so that update time and memory stay **O(log n)**
-in the length of the stream, while guaranteeing that no true changepoint is ever far from
-a grid point.
+`gridcp` lets you run an offline test online without that blow-up. After each new
+observation it evaluates your chosen test statistic over a sparse grid of candidate
+split points — dense near the present, spreading out into the past — so update time and
+memory stay O(log n) in the stream length. The grid is designed so that no true
+changepoint is ever far from a candidate.
 
 ```
    time ──────────────────────────────────────────────▶  now
@@ -28,9 +28,9 @@ a grid point.
    sparse in the distant past        dense near the present
 ```
 
-The package pairs this grid detector with a library of ready-to-use, Numba-accelerated
-detectors and with Monte Carlo tools for calibrating alarm thresholds to a target
-false-alarm probability or average run length (ARL).
+The detector comes with a library of built-in, Numba-accelerated test statistics (scores) and
+with Monte Carlo tools for calibrating the alarm threshold to a target false alarm
+probability or average run length (ARL).
 
 ## Installation
 
@@ -46,6 +46,7 @@ from gridcp import GridDetector
 from gridcp.scores import CUSUM
 
 # A detector for a change in mean, using the CUSUM statistic.
+# The detector is stateless — the evolving state is a separate object.
 detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
 state = detector.init_state()
 
@@ -59,24 +60,26 @@ for t in range(200):
         break
 ```
 
-The `threshold` above is illustrative. To control the false-alarm rate, calibrate it
-first — see [Calibrating thresholds](#calibrating-thresholds).
+The threshold above is just for illustration. To control the false-alarm rate, calibrate
+it first — see [Calibrating thresholds](#calibrating-thresholds).
 
 ## Key features
 
-- **Bring your own statistic.** Any offline test that implements the lightweight
-  `ScoreModel` protocol works with the detector — no detector internals required.
-- **Logarithmic cost.** Update time and memory scale as O(log n) in the stream length.
-- **Built-in tests included.** A library of built-in detectors for changes in mean,
-  variance, covariance, regression coefficients, and exponential-family parameters,
-  plus a non-parametric detector.
-- **Numba-accelerated.** Hot paths in the built-in scores are JIT-compiled.
-- **Principled thresholds.** Monte Carlo calibration targets a false-alarm probability
-  or an average run length, with optional parallel execution.
+- **Bring your own statistic** — any offline test implementing the `ScoreModel` protocol
+  works with the detector. You never need to touch detector internals.
+- **Logarithmic cost** — update time and memory scale as O(log n) in the stream length.
+- **Explicit, immutable state** — the detector is stateless. Each stream's state is a
+  separate object you thread through `update`, so one detector can drive many streams and
+  a state can be copied or pickled.
+- **Built-in detectors** — changes in mean, variance, covariance, regression
+  coefficients, and exponential-family parameters, plus a non-parametric detector.
+- **Numba-accelerated** — the hot paths in the built-in scores are JIT-compiled.
+- **Calibrated thresholds** — Monte Carlo calibration to a target false-alarm
+  probability or average run length, optionally in parallel.
 
 ## Built-in detectors
 
-Each implemented test is a *score* imported from `gridcp.scores` and plugged into `GridDetector`.
+Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetector`.
 
 | Score | Detects a change in |
 | --- | --- |
@@ -90,14 +93,14 @@ Each implemented test is a *score* imported from `gridcp.scores` and plugged int
 | `ExponentialFamilyGLR` | exponential-family parameters (GLR test) |
 | `NPFOCuS` | distribution (non-parametric) |
 
-`ExponentialFamilyGLR.from_family(name)` provides ready-made GLR detectors for the
+`ExponentialFamilyGLR.from_family(name)` gives ready-made GLR detectors for the
 `bernoulli`, `poisson`, `exponential`, `gamma_rate`, `gaussian_mean`,
 `gaussian_variance`, `gaussian_mean_variance`, and `gaussian_covariance` families.
 
 ## Calibrating thresholds
 
-Pick a threshold that achieves a target false-alarm probability under a null model you
-specify, then build the detector with it:
+Calibrate a threshold to a target false-alarm probability under a null model you specify,
+then build the detector with it:
 
 ```python
 import numpy as np
@@ -122,27 +125,17 @@ threshold = calibrate_threshold_false_alarm(
 detector = GridDetector(score=score, threshold=threshold)
 ```
 
-To target an average run length instead, use `calibrate_threshold_arl`. Both helpers
-support parallel execution and can calibrate directly from data. See the
-[demo notebook](https://github.com/peraugustmoen/G-CHAD/blob/main/notebooks/new_api_demo.ipynb)
-for an end-to-end calibration and benchmarking workflow.
+For an average run length instead, use `calibrate_threshold_arl`. Both can run in
+parallel and can calibrate directly from data. 
 
 ## Custom detectors
 
-Any object implementing the `ScoreModel` protocol — `init_state`, `update`, and
-`compute_penalized_scores` — can be used with `GridDetector`; there is no base class to
-inherit from. This is how you bring your own offline test statistic online. The
-[demo notebook](https://github.com/peraugustmoen/G-CHAD/blob/main/notebooks/new_api_demo.ipynb)
-walks through a complete custom score, and
-[CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
-documents the full contract.
+Any object that implements the `ScoreModel` protocol — the methods `init_state`,
+`update`, and `compute_penalized_scores`, plus the `n_features` and `n_scores`
+properties — works with `GridDetector`. There is no base class to inherit from. This is
+how you bring your own offline test statistic online. 
 
-## Documentation and examples
 
-- **Worked examples:** the [`notebooks/`](https://github.com/peraugustmoen/G-CHAD/tree/main/notebooks)
-  directory contains runnable tours of detection, calibration, and benchmarking.
-- **API reference:** every public class and function carries a NumPy-style docstring;
-  use `help(...)` or your editor's tooltips.
 
 ## Citation
 
