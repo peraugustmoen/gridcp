@@ -1,4 +1,4 @@
-name: Testing mi dude!
+name: Tests
 
 on:
   push:
@@ -26,9 +26,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install pytest pytest-cov ruff
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        python -m pip install -e .
+        python -m pip install -e .[dev]
 
     - name: Lint with ruff
       run: |

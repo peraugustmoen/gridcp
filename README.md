@@ -2,9 +2,9 @@
 
 **Online grid-based changepoint detection in Python — with logarithmic time and memory.**
 
-[![CI](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml)
+[![CI](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE)
 
 <!-- On release, add PyPI version and DOI badges here. -->
 
@@ -146,16 +146,22 @@ If you use `gridcp` in your research, please cite:
   note   = {Working paper}
 }
 ```
-<!-- Complete the author list and publication details before release. -->
+<!-- Add publication details once the paper is published. -->
+
+## Reproducing the paper
+
+The notebooks and data reproducing every figure, table, and timing result in the
+paper live in a separate repository:
+[gridcp-paper](https://github.com/espenurheim/gridcp-paper).
 
 ## Contributing
 
 Contributions are welcome. See
-[CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
+[CONTRIBUTING.md](https://github.com/peraugustmoen/gridcp/blob/main/CONTRIBUTING.md)
 for the development setup, coding conventions, and the contract for adding a new
 score.
 
 ## License
 
 `gridcp` is released under the MIT License. See
-[LICENSE](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE).
+[LICENSE](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE).

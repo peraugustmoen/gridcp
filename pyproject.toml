@@ -7,12 +7,35 @@ name = "gridcp"
 version = "0.1.0"
 description = "Grid-based online changepoint detection in Python"
 authors = [
-  { name = "Your Name", email = "you@example.com" }
+  { name = "Per August J. Moen", email = "peraugust.pa@gmail.com" },
+  { name = "Sebastian G. Nielsen", email = "sebasgni@math.uio.no" },
+  { name = "Espen B. Urheim", email = "espenbur@uio.no" },
+  { name = "Martin Tveten", email = "tveten@nr.no" },
+  { name = "Ingrid K. Glad" },
 ]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
+keywords = [
+  "changepoint",
+  "change detection",
+  "online",
+  "streaming",
+  "sequential",
+  "time series",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Mathematics",
+]
 dependencies = [
   "numpy>=1.23",
   "numba>=0.57",
@@ -23,16 +46,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-cov",
+  "pytest",
+  "pytest-cov",
   "ruff",
   "pre-commit",
-    "ipykernel",
-    "nbformat>=4.2.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/gridcp"
+Homepage = "https://github.com/peraugustmoen/gridcp"
+Repository = "https://github.com/peraugustmoen/gridcp"
+Issues = "https://github.com/peraugustmoen/gridcp/issues"
 
 [tool.setuptools.packages.find]
 include = ["gridcp*"]
@@ -44,7 +67,6 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 88
-extend-exclude = ["gridcp/old_api"]
 
 [tool.ruff.lint]
 select = ["E", "F", "D"]  # errors, flakes, docstring rules
@@ -52,17 +74,9 @@ ignore = ["E501"]       # long lines are handled pragmatically by formatter
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D"]
-"gridcp/old_api/**/*.py" = ["D"]
-"notebooks/*.ipynb" = ["D", "F401", "F811"]
-"old_notebooks/*.ipynb" = ["D", "E", "F"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"  # or "pep257", "google", etc.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = [
-  "gridcp/old_api_tests",
-
-]
-
