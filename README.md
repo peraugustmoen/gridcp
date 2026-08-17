@@ -29,7 +29,7 @@ changepoint is never far from a candidate, hence the statistic maintains power t
 
 The package comes with a library of built-in test statistics
 (called scores) and Monte Carlo tools for calibrating the alarm threshold to a target
-false alarm probability or average run length (ARL).
+false alarm probability or average run length (ARL). For a full explanation of available utilities, see the companion paper (source comes here when it is uploaded to arXiv).
 
 ## Installation
 
@@ -45,11 +45,11 @@ from gridcp import GridDetector
 from gridcp.scores import CUSUM
 
 # A detector for a change in mean, using the CUSUM statistic.
-# The detector is stateless — the evolving state is a separate object.
+# The detector is stateless, and the evolving state is a separate object.
 detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
 state = detector.init_state()
 
-# Feed observations one at a time; a change is injected at t = 100.
+# Iterate over observations one at a time. At t=100, a change in mean occurs.
 rng = np.random.default_rng(0)
 for t in range(200):
     x = rng.normal(0.0, 1.0) if t < 100 else rng.normal(3.0, 1.0)
@@ -61,23 +61,9 @@ for t in range(200):
 
 The threshold above is set manually just for illustration. In practice, it should be set to control the false alarm rate, explained here: [Calibrating thresholds](#calibrating-thresholds).
 
-## Key features
-
-- **Bring your own statistic** — any offline test implementing the `ScoreModel` protocol
-  works with the detector. You never need to touch detector internals.
-- **Logarithmic cost** — update time and memory scale as O(log n) in the stream length.
-- **Explicit, immutable state** — the detector is stateless. Each stream's state is a
-  separate object you thread through `update`, so one detector can drive many streams and
-  a state can be copied or pickled.
-- **Built-in detectors** — changes in mean, variance, covariance, regression
-  coefficients, and exponential-family parameters, plus a non-parametric detector.
-- **Numba-accelerated** — the hot paths in the built-in scores are JIT-compiled.
-- **Calibrated thresholds** — Monte Carlo calibration to a target false alarm
-  probability or average run length, optionally in parallel.
-
 ## Built-in detectors
 
-Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetector`.
+Each test is a *score* imported from `gridcp.scores`, which is plugged into a `GridDetector`-object before it is run sequentially on data.
 
 | Score | Detects a change in |
 | --- | --- |
@@ -97,8 +83,7 @@ Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetec
 
 ## Calibrating thresholds
 
-Calibrate a threshold to a target false alarm probability under a null model you specify,
-then build the detector with it:
+`gridcp` provides functions for calibrating the detector threshold to a target false alarm probability at a given stream length or to a target average run length by the use of Monte Carlo simulations. The example below illustrates how to calibrate to a target false alarm probability of 5% when the null distribution is standard Gaussian.
 
 ```python
 import numpy as np
@@ -123,14 +108,11 @@ threshold = calibrate_threshold_false_alarm(
 detector = GridDetector(score=score, threshold=threshold)
 ```
 
-For an average run length instead, use `calibrate_threshold_arl`. Both can run in
-parallel and calibrate directly from data.
+To target an average run length, use instead `calibrate_threshold_arl`. If the null distribution is not known but a data set with no change is available, `calibrate_threshold_false_alarm_from_data` and `calibrate_threshold_arl_from_data` can be used. For more information, read Section 5 of the companion paper (reference).
 
 ## Custom detectors
 
-Any object that implements the `ScoreModel` protocol — the methods `init_state`,
-`update`, and `compute_penalized_scores`, plus the `n_features` and `n_scores`
-properties — works with `GridDetector`. There is no base class to inherit from.
+Any object that implements the `ScoreModel` protocol works with `GridDetector`. More information is provided in the Appendix of the companion paper.
 
 ## Citation
 
@@ -138,10 +120,10 @@ If you use `gridcp` in your research, please cite:
 
 ```bibtex
 @misc{gridcp,
-  title  = {{gridcp}: Grid-based online changepoint detection in {Python}},
+  title  = {{gridcp}: Fast Online Changepoint Detection in {Python}},
   author = {Moen, Per August J., Nielsen, Sebastian G., Urheim, Espen B., Tveten, Martin, Glad, Ingrid K.},
   year   = {2026},
-  note   = {Working paper}
+  note   = {arXiv preprint}
 }
 ```
 <!-- Add publication details once the paper is published. -->
