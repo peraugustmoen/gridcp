@@ -1,6 +1,6 @@
 # gridcp
 
-**Online grid-based changepoint detection in Python — with logarithmic time and memory.**
+**Online changepoint detection in Python with logarithmic update and storage costs.**
 
 [![CI](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -11,25 +11,24 @@
 ## Overview
 
 Online changepoint detection is the problem of detecting a distributional change in a
-data stream in real time. Plenty of *offline* tests exist for a fixed sample, but
-rerunning them as new data arrive gets expensive — the cost of each re-test typically
-grows with the length of the stream.
+data stream in real time. Plenty of *offline* tests exist for a fixed sample, such as the CUSUM and other likelihood-ratio tests, but
+rerunning them on all candidate split points as new data arrive is computationally expensive, with update and storage costs typically
+growing at least linearly with the length of the stream.
 
-`gridcp` lets you run an offline test online without that blow-up. After each new
-observation it evaluates your chosen test statistic over a sparse grid of candidate
-split points — dense near the present, spreading out into the past — so update time and
-memory stay O(log n) in the stream length. The grid is designed so that no true
-changepoint is ever far from a candidate.
+`gridcp` lets you run an offline test online with logarithmic update and storage costs. After each new
+observation arrives, it evaluates your chosen test statistic over a sparse grid of candidate
+split points, so update time and memory stay O(log n) in the stream length. The grid is designed so that no true
+changepoint is never far from a candidate, hence the statistic maintains power to detect any change despite being evaluated on fewer candidates. Visually, it looks something like this:
 
 ```
-   time ──────────────────────────────────────────────▶  now
+   time ────────────────────────────────────▶  now
    │        │     │     │   │  │  │ │ │ ││││
-   ●········●·····●·····●···●··●··●·●·●·●●●●●          candidate split points
+   ●········●·····●·····●···●··●··●·●·●·●●●●   candidate split points
    sparse in the distant past        dense near the present
 ```
 
-The detector comes with a library of built-in, Numba-accelerated test statistics
-(scores) and Monte Carlo tools for calibrating the alarm threshold to a target
+The package comes with a library of built-in test statistics
+(called scores) and Monte Carlo tools for calibrating the alarm threshold to a target
 false alarm probability or average run length (ARL).
 
 ## Installation
@@ -38,8 +37,8 @@ false alarm probability or average run length (ARL).
 pip install gridcp
 ```
 
-## Quick start
-
+## Example of use
+Below is a simple code example showing how to define a score and a corresponding detector in gridcp, and run it sequentially on a data stream with a change at $\tau=100$.
 ```python
 import numpy as np
 from gridcp import GridDetector
@@ -60,8 +59,7 @@ for t in range(200):
         break
 ```
 
-The threshold above is just for illustration. To control the false alarm rate, calibrate
-it first — see [Calibrating thresholds](#calibrating-thresholds).
+The threshold above is set manually just for illustration. In practice, it should be set to control the false alarm rate, explained here: [Calibrating thresholds](#calibrating-thresholds).
 
 ## Key features
 
