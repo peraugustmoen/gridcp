@@ -1,36 +1,35 @@
 # gridcp
 
-**Online grid-based changepoint detection in Python — with logarithmic time and memory.**
+**Online changepoint detection in Python with logarithmic update and storage costs.**
 
-[![CI](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/G-CHAD/actions/workflows/python-package.yml)
+[![CI](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE)
 
 <!-- On release, add PyPI version and DOI badges here. -->
 
 ## Overview
 
 Online changepoint detection is the problem of detecting a distributional change in a
-data stream in real time. Plenty of *offline* tests exist for a fixed sample, but
-rerunning them as new data arrive gets expensive — the cost of each re-test typically
-grows with the length of the stream.
+data stream in real time. Plenty of *offline* tests exist for a fixed sample, such as the CUSUM and other likelihood-ratio tests, but
+rerunning them on all candidate split points as new data arrive is computationally expensive, with update and storage costs typically
+growing at least linearly with the length of the stream.
 
-`gridcp` lets you run an offline test online without that blow-up. After each new
-observation it evaluates your chosen test statistic over a sparse grid of candidate
-split points — dense near the present, spreading out into the past — so update time and
-memory stay O(log n) in the stream length. The grid is designed so that no true
-changepoint is ever far from a candidate.
+`gridcp` lets you run an offline test online with logarithmic update and storage costs. After each new
+observation arrives, it evaluates your chosen test statistic over a sparse grid of candidate
+split points, so update time and memory stay O(log n) in the stream length. The grid is designed so that no true
+changepoint is never far from a candidate, hence the statistic maintains power to detect any change despite being evaluated on fewer candidates. Visually, it looks something like this:
 
 ```
-   time ──────────────────────────────────────────────▶  now
+   time ────────────────────────────────────▶  now
    │        │     │     │   │  │  │ │ │ ││││
-   ●········●·····●·····●···●··●··●·●·●·●●●●●          candidate split points
+   ●········●·····●·····●···●··●··●·●·●·●●●●   candidate split points
    sparse in the distant past        dense near the present
 ```
 
-The detector comes with a library of built-in, Numba-accelerated test statistics
-(scores) and Monte Carlo tools for calibrating the alarm threshold to a target
-false alarm probability or average run length (ARL).
+The package comes with a library of built-in test statistics
+(called scores) and Monte Carlo tools for calibrating the alarm threshold to a target
+false alarm probability or average run length (ARL). For a full explanation of available utilities, see the companion paper (source comes here when it is uploaded to arXiv).
 
 ## Installation
 
@@ -38,19 +37,19 @@ false alarm probability or average run length (ARL).
 pip install gridcp
 ```
 
-## Quick start
-
+## Example of use
+Below is a simple code example showing how to define a score and a corresponding detector in gridcp, and run it sequentially on a data stream with a change at $\tau=100$.
 ```python
 import numpy as np
 from gridcp import GridDetector
 from gridcp.scores import CUSUM
 
 # A detector for a change in mean, using the CUSUM statistic.
-# The detector is stateless — the evolving state is a separate object.
+# The detector is stateless, and the evolving state is a separate object.
 detector = GridDetector(score=CUSUM(n_features=1), threshold=5.0)
 state = detector.init_state()
 
-# Feed observations one at a time; a change is injected at t = 100.
+# Iterate over observations one at a time. At t=100, a change in mean occurs.
 rng = np.random.default_rng(0)
 for t in range(200):
     x = rng.normal(0.0, 1.0) if t < 100 else rng.normal(3.0, 1.0)
@@ -60,26 +59,11 @@ for t in range(200):
         break
 ```
 
-The threshold above is just for illustration. To control the false alarm rate, calibrate
-it first — see [Calibrating thresholds](#calibrating-thresholds).
-
-## Key features
-
-- **Bring your own statistic** — any offline test implementing the `ScoreModel` protocol
-  works with the detector. You never need to touch detector internals.
-- **Logarithmic cost** — update time and memory scale as O(log n) in the stream length.
-- **Explicit, immutable state** — the detector is stateless. Each stream's state is a
-  separate object you thread through `update`, so one detector can drive many streams and
-  a state can be copied or pickled.
-- **Built-in detectors** — changes in mean, variance, covariance, regression
-  coefficients, and exponential-family parameters, plus a non-parametric detector.
-- **Numba-accelerated** — the hot paths in the built-in scores are JIT-compiled.
-- **Calibrated thresholds** — Monte Carlo calibration to a target false alarm
-  probability or average run length, optionally in parallel.
+The threshold above is set manually just for illustration. In practice, it should be set to control the false alarm rate, explained here: [Calibrating thresholds](#calibrating-thresholds).
 
 ## Built-in detectors
 
-Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetector`.
+Each test is a *score* imported from `gridcp.scores`, which is plugged into a `GridDetector`-object before it is run sequentially on data.
 
 | Score | Detects a change in |
 | --- | --- |
@@ -99,8 +83,7 @@ Each test is a *score* imported from `gridcp.scores` and plugged into `GridDetec
 
 ## Calibrating thresholds
 
-Calibrate a threshold to a target false alarm probability under a null model you specify,
-then build the detector with it:
+`gridcp` provides functions for calibrating the detector threshold to a target false alarm probability at a given stream length or to a target average run length by the use of Monte Carlo simulations. The example below illustrates how to calibrate to a target false alarm probability of 5% when the null distribution is standard Gaussian.
 
 ```python
 import numpy as np
@@ -125,14 +108,11 @@ threshold = calibrate_threshold_false_alarm(
 detector = GridDetector(score=score, threshold=threshold)
 ```
 
-For an average run length instead, use `calibrate_threshold_arl`. Both can run in
-parallel and calibrate directly from data.
+To target an average run length, use instead `calibrate_threshold_arl`. If the null distribution is not known but a data set with no change is available, `calibrate_threshold_false_alarm_from_data` and `calibrate_threshold_arl_from_data` can be used. For more information, read Section 5 of the companion paper (reference).
 
 ## Custom detectors
 
-Any object that implements the `ScoreModel` protocol — the methods `init_state`,
-`update`, and `compute_penalized_scores`, plus the `n_features` and `n_scores`
-properties — works with `GridDetector`. There is no base class to inherit from.
+Any object that implements the `ScoreModel` protocol works with `GridDetector`. More information is provided in the Appendix of the companion paper.
 
 ## Citation
 
@@ -140,22 +120,28 @@ If you use `gridcp` in your research, please cite:
 
 ```bibtex
 @misc{gridcp,
-  title  = {{gridcp}: Grid-based online changepoint detection in {Python}},
+  title  = {{gridcp}: Fast Online Changepoint Detection in {Python}},
   author = {Moen, Per August J., Nielsen, Sebastian G., Urheim, Espen B., Tveten, Martin, Glad, Ingrid K.},
   year   = {2026},
-  note   = {Working paper}
+  note   = {arXiv preprint}
 }
 ```
-<!-- Complete the author list and publication details before release. -->
+<!-- Add publication details once the paper is published. -->
+
+## Reproducing the paper
+
+The notebooks and data reproducing every figure, table, and timing result in the
+paper live in a separate repository:
+[gridcp-paper](https://github.com/espenurheim/gridcp-paper).
 
 ## Contributing
 
 Contributions are welcome. See
-[CONTRIBUTING.md](https://github.com/peraugustmoen/G-CHAD/blob/main/CONTRIBUTING.md)
+[CONTRIBUTING.md](https://github.com/peraugustmoen/gridcp/blob/main/CONTRIBUTING.md)
 for the development setup, coding conventions, and the contract for adding a new
 score.
 
 ## License
 
 `gridcp` is released under the MIT License. See
-[LICENSE](https://github.com/peraugustmoen/G-CHAD/blob/main/LICENSE).
+[LICENSE](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE).
