@@ -2,11 +2,12 @@
 
 **Online changepoint detection in Python with logarithmic update and storage costs.**
 
+[![PyPI](https://img.shields.io/pypi/v/gridcp.svg)](https://pypi.org/project/gridcp/)
 [![CI](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE)
 
-<!-- On release, add PyPI version and DOI badges here. -->
+<!-- On release of the paper, add a DOI badge here. -->
 
 ## Overview
 
