@@ -6,7 +6,6 @@
 [![CI](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml/badge.svg)](https://github.com/peraugustmoen/gridcp/actions/workflows/python-package.yml)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE)
-
 [![DOI](https://img.shields.io/badge/DOI-10.48550%2FarXiv.2608.18695-blue.svg)](https://doi.org/10.48550/arXiv.2608.18695)
 
 ## Overview
