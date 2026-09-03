@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/peraugustmoen/gridcp/blob/main/LICENSE)
 
-<!-- On release of the paper, add a DOI badge here. -->
+[![DOI](https://img.shields.io/badge/DOI-10.48550%2FarXiv.2608.18695-blue.svg)](https://doi.org/10.48550/arXiv.2608.18695)
 
 ## Overview
 
@@ -30,7 +30,7 @@ changepoint is never far from a candidate, hence the statistic maintains power t
 
 The package comes with a library of built-in test statistics
 (called scores) and Monte Carlo tools for calibrating the alarm threshold to a target
-false alarm probability or average run length (ARL). For a full explanation of available utilities, see the companion paper (source comes here when it is uploaded to arXiv).
+false alarm probability or average run length (ARL). For a full explanation of available utilities, see the companion paper ([arXiv:2608.18695](https://arxiv.org/abs/2608.18695)).
 
 ## Installation
 
@@ -109,7 +109,7 @@ threshold = calibrate_threshold_false_alarm(
 detector = GridDetector(score=score, threshold=threshold)
 ```
 
-To target an average run length, use instead `calibrate_threshold_arl`. If the null distribution is not known but a data set with no change is available, `calibrate_threshold_false_alarm_from_data` and `calibrate_threshold_arl_from_data` can be used. For more information, read Section 5 of the companion paper (reference).
+To target an average run length, use instead `calibrate_threshold_arl`. If the null distribution is not known but a data set with no change is available, `calibrate_threshold_false_alarm_from_data` and `calibrate_threshold_arl_from_data` can be used. For more information, read Section 5 of the companion paper ([arXiv:2608.18695](https://arxiv.org/abs/2608.18695)).
 
 ## Custom detectors
 
@@ -121,13 +121,15 @@ If you use `gridcp` in your research, please cite:
 
 ```bibtex
 @misc{gridcp,
-  title  = {{gridcp}: Fast Online Changepoint Detection in {Python}},
-  author = {Moen, Per August J., Nielsen, Sebastian G., Urheim, Espen B., Tveten, Martin, Glad, Ingrid K.},
-  year   = {2026},
-  note   = {arXiv preprint}
+  title         = {{gridcp}: Fast Online Changepoint Detection in {Python}},
+  author        = {Moen, Per August Jarval and Nielsen, Sebastian Grau and Urheim, Espen Bj{\o}rge and Tveten, Martin and Glad, Ingrid Kristine},
+  year          = {2026},
+  eprint        = {2608.18695},
+  archivePrefix = {arXiv},
+  primaryClass  = {stat.ME},
+  url           = {https://arxiv.org/abs/2608.18695}
 }
 ```
-<!-- Add publication details once the paper is published. -->
 
 ## Reproducing the paper
 

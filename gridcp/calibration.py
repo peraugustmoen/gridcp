@@ -135,6 +135,32 @@ _WORKER_PRE_CALL: Callable[[np.random.Generator], Any] | None = None
 _WORKER_POST_CALL: Callable[[np.random.Generator], Any] | None = None
 
 
+_MAIN_GUARD_HINT = (
+    "the calling script may need to guard its entry point with "
+    '`if __name__ == "__main__":`, which is required on Python 3.14+, Windows '
+    "and macOS"
+)
+
+
+def _check_main_guard_error(exc: BaseException) -> None:
+    """Turn a missing ``__main__`` guard into an actionable error.
+
+    ``RuntimeError`` is broad, so only multiprocessing's bootstrapping error is
+    translated here. Anything else is re-raised unchanged, so genuine errors
+    raised by user samplers are not mistaken for a pool failure and silently
+    retried in serial.
+    """
+    if isinstance(exc, (BrokenProcessPool, OSError, pickle.PicklingError)):
+        return  # pre-existing cases: fall back to serial as before
+    if not isinstance(exc, RuntimeError):
+        return
+    if "bootstrapping phase" not in str(exc):
+        raise exc
+    raise RuntimeError(
+        f"gridcp could not start worker processes: {_MAIN_GUARD_HINT}."
+    ) from exc
+
+
 ########## Main functions for calibrating to false alarm probability ###########
 def calibrate_threshold_false_alarm(
     score: ScoreModel,
@@ -347,9 +373,11 @@ def calibrate_threshold_false_alarm_from_samples(
                 ]
                 results = [fut.result() for fut in futures]
             max_scores = np.concatenate(results, axis=0)
-        except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+        except (BrokenProcessPool, OSError, pickle.PicklingError, RuntimeError) as exc:
+            _check_main_guard_error(exc)
             warnings.warn(
                 "Parallel evaluation failed; falling back to serial execution. "
+                f"If the workers could not start, {_MAIN_GUARD_HINT}. "
                 f"Original error: {exc}",
                 RuntimeWarning,
                 stacklevel=2,
@@ -509,9 +537,11 @@ def calibrate_threshold_false_alarm_from_data(
                 ]
                 results = [fut.result() for fut in futures]
             max_scores = np.concatenate(results, axis=0)
-        except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+        except (BrokenProcessPool, OSError, pickle.PicklingError, RuntimeError) as exc:
+            _check_main_guard_error(exc)
             warnings.warn(
                 "Parallel evaluation failed; falling back to serial execution. "
+                f"If the workers could not start, {_MAIN_GUARD_HINT}. "
                 f"Original error: {exc}",
                 RuntimeWarning,
                 stacklevel=2,
@@ -1164,9 +1194,14 @@ def mc_alarm_times(
             for fut in as_completed(futures):
                 start, values = fut.result()
                 alarm_times[start : start + values.size] = values
-    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+    except (BrokenProcessPool, OSError, pickle.PicklingError, RuntimeError) as exc:
+        _check_main_guard_error(exc)
         warnings.warn(
             "Parallel Monte Carlo failed; falling back to serial execution. "
+            "Results will differ from a successful parallel run: RNG "
+            "streams depend on the worker count unless "
+            "strict_equivalence=True. "
+            f"If the workers could not start, {_MAIN_GUARD_HINT}. "
             f"Original error: {exc}",
             RuntimeWarning,
             stacklevel=2,
@@ -1547,9 +1582,14 @@ def mc_max_scores(
                 start, values = fut.result()
                 n_vals = values.shape[0]
                 max_scores[start : start + n_vals] = values
-    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+    except (BrokenProcessPool, OSError, pickle.PicklingError, RuntimeError) as exc:
+        _check_main_guard_error(exc)
         warnings.warn(
             "Parallel Monte Carlo failed. Falling back to serial execution. "
+            "Results will differ from a successful parallel run: RNG "
+            "streams depend on the worker count unless "
+            "strict_equivalence=True. "
+            f"If the workers could not start, {_MAIN_GUARD_HINT}. "
             f"Original error: {exc}",
             RuntimeWarning,
             stacklevel=2,
@@ -2356,9 +2396,11 @@ def _eval_max_scores(
             ]
             results = [fut.result() for fut in futures]
         return np.concatenate(results, axis=0)
-    except (BrokenProcessPool, OSError, pickle.PicklingError) as exc:
+    except (BrokenProcessPool, OSError, pickle.PicklingError, RuntimeError) as exc:
+        _check_main_guard_error(exc)
         warnings.warn(
             "Parallel evaluation failed; falling back to serial execution. "
+            f"If the workers could not start, {_MAIN_GUARD_HINT}. "
             f"Original error: {exc}",
             RuntimeWarning,
             stacklevel=2,

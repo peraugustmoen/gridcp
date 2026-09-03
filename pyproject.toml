@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gridcp"
-version = "0.1.0"
+version = "0.1.1"
 description = "Grid-based online changepoint detection in Python"
 authors = [
-  { name = "Per August J. Moen", email = "peraugust.pa@gmail.com" },
+  { name = "Per August J. Moen", email = "pamoen@math.uio.no" },
   { name = "Sebastian G. Nielsen", email = "sebasgni@math.uio.no" },
-  { name = "Espen B. Urheim", email = "espenbur@uio.no" },
+  { name = "Espen B. Urheim", email = "espenbur@math.uio.no" },
   { name = "Martin Tveten", email = "tveten@nr.no" },
-  { name = "Ingrid K. Glad" },
+  { name = "Ingrid K. Glad", email = "glad@math.uio.no" },
 ]
 readme = "README.md"
 license = "MIT"
@@ -34,6 +34,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Mathematics",
 ]
 dependencies = [
